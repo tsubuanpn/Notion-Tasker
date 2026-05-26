@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Use standard android:Theme.Material.Light.NoActionBar as the parent theme -->
+    <style name="Theme.NotionTasker" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
