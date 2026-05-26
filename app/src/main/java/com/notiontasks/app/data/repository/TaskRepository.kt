@@ -57,6 +57,24 @@ fun Map<String, JsonElement>.getDateValue(propertyName: String): String? {
     }
 }
 
+fun Map<String, JsonElement>.getStatusColor(propertyName: String): String? {
+    val element = this[propertyName] ?: return null
+    return try {
+        element.jsonObject["status"]?.jsonObject?.get("color")?.jsonPrimitive?.content
+    } catch (e: Exception) {
+        null
+    }
+}
+
+fun Map<String, JsonElement>.getSelectColor(propertyName: String): String? {
+    val element = this[propertyName] ?: return null
+    return try {
+        element.jsonObject["select"]?.jsonObject?.get("color")?.jsonPrimitive?.content
+    } catch (e: Exception) {
+        null
+    }
+}
+
 class TaskRepository(
     private val notionApi: NotionApi,
     private val taskDao: TaskDao
@@ -95,7 +113,9 @@ class TaskRepository(
                 status = entity.status,
                 category = entity.category,
                 dueDate = entity.dueDate,
-                scheduledDate = entity.scheduledDate
+                scheduledDate = entity.scheduledDate,
+                statusColor = entity.statusColor,
+                categoryColor = entity.categoryColor
             )
         }
     }
@@ -122,13 +142,19 @@ class TaskRepository(
                     
                 val categoryValue = (page.properties.getSelectText(propCategoryName) ?: "他").trim()
                 
+                val statusColorVal = page.properties.getStatusColor(propStatusName)
+                    ?: page.properties.getSelectColor(propStatusName)
+                val categoryColorVal = page.properties.getSelectColor(propCategoryName)
+
                 TaskEntity(
                     id = page.id,
                     title = title,
                     status = statusValue,
                     category = categoryValue,
                     dueDate = page.properties.getDateValue(propDueDateName),
-                    scheduledDate = page.properties.getDateValue(propScheduledDateName)
+                    scheduledDate = page.properties.getDateValue(propScheduledDateName),
+                    statusColor = statusColorVal,
+                    categoryColor = categoryColorVal
                 )
             }
 
@@ -151,7 +177,9 @@ class TaskRepository(
                     status = entity.status,
                     category = entity.category,
                     dueDate = entity.dueDate,
-                    scheduledDate = entity.scheduledDate
+                    scheduledDate = entity.scheduledDate,
+                    statusColor = entity.statusColor,
+                    categoryColor = entity.categoryColor
                 )
             }
         }
