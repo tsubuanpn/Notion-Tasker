@@ -37,5 +37,7 @@ data class TaskModel(
     val status: String, // Dynamic string representing task status
     val category: String, // Dynamic string representing task category
     val dueDate: String?, // Format: YYYY-MM-DD
-    val scheduledDate: String? // Format: YYYY-MM-DD
+    val scheduledDate: String?, // Format: YYYY-MM-DD
+    val statusColor: String? = null,
+    val categoryColor: String? = null
 )

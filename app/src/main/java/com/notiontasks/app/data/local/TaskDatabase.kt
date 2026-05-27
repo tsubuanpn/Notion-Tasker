@@ -14,7 +14,9 @@ data class TaskEntity(
     val status: String,      // Raw enum string or value
     val category: String,    // Raw Select option label
     val dueDate: String?,
-    val scheduledDate: String?
+    val scheduledDate: String?,
+    val statusColor: String? = null,
+    val categoryColor: String? = null
 )
 
 // TaskDao handles compile-time SQL verification and queries
@@ -40,7 +42,7 @@ interface TaskDao {
 }
 
 // Room Database representing the SQL data source
-@Database(entities = [TaskEntity::class], version = 1, exportSchema = false)
+@Database(entities = [TaskEntity::class], version = 2, exportSchema = false)
 abstract class TaskDatabase : RoomDatabase() {
     abstract val taskDao: TaskDao
 
@@ -54,7 +56,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     context.applicationContext,
                     TaskDatabase::class.java,
                     "notion_tasks_cache.db"
-                ).build()
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }
