@@ -22,7 +22,7 @@
 
 ## 📖 プロジェクトの概要
 
-**Notion-Tasker** は、Notionのデータベース内のタスクテーブルをAndroidデバイスからシームレスに操作・更新できるネイティブタスク管理アプリケーションです。
+**Notion Tasker** は、Notionのデータベース内のタスクテーブルをAndroidデバイスからシームレスに操作・更新できるネイティブタスク管理アプリケーションです。
 
 Jetpack Compose + MVVMによる現代的なAndroid設計パターンに加え、高速で堅牢なRoomによるローカルデータベースキャッシュを駆使することで、**オフライン状態でもタスクの閲覧や編集**が可能です。オンラインに復帰した際には、変更内容が自動調整されNotion APIとスムーズに双方向同期します。
 
@@ -65,7 +65,7 @@ Jetpack Compose + MVVMによる現代的なAndroid設計パターンに加え、
 プロジェクトは純粋なAndroid Kotlinアプリプロジェクトとして洗練されています。
 
 ```text
-Notion-Tasker/                   # Android ネイティブアプリ本体
+Notion-Tasker/
 ├── app/
 │   ├── src/
 │   │   ├── main/
@@ -152,12 +152,6 @@ Notion-Tasker/                   # Android ネイティブアプリ本体
 ## 🤖 Google AI Studioの活用について
 
 本プロジェクトの開発において、実装構成の相談、コーディング補助やUIの微調整、エラー等が発生した際のトラブルシューティングなど、主に**コーディング補助や実装のアイデア出し**のために **Google AI Studio (Gemini 3.5)** を一部利用しています。
-
-### 📌 具体的な活用例:
-- **UI・カラー調整に関するアイデア出し**:
-  - Android 12+ の動的彩色カラー（Material Theme DynamicColor）が有効な場合に、スマートフォンの壁紙設定によっては未着手タスク等のカード背景が黄色や水色っぽく濁って表示される問題について、解決のアイデア出し（Theme.kt の `dynamicColor = false` 設計）およびカラー表現のチューニング補助。
-- **Android Gradle構成のトラブルシューティング**:
-  - ビルドプロセスで発生したGradleタスク `:app:androidTestClasses` および `unitTestClasses` の不足に起因するエラーに対して、原因特定や動的なGradleタスクの registering 設計などのアドバイスとしての活用。
 
 ---
 
