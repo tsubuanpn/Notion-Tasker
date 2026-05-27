@@ -13,8 +13,8 @@ android {
         applicationId = "com.notiontasks.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 6
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -91,9 +91,15 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-// Ensure the unitTestClasses task exists, which is required by some CI/build execution frameworks for Android projects.
+// Ensure the unitTestClasses and androidTestClasses tasks exist, which is required by some CI/build execution frameworks for Android projects.
 tasks.register("unitTestClasses") {
     description = "Assembles compilation outputs for unit tests across all variants"
     group = "verification"
     dependsOn(tasks.matching { it.name.endsWith("UnitTestSources") || it.name.contains("UnitTestKotlin") })
+}
+
+tasks.register("androidTestClasses") {
+    description = "Assembles compilation outputs for android tests across all variants"
+    group = "verification"
+    dependsOn(tasks.matching { it.name.contains("AndroidTest") || it.name.contains("AndroidTestKotlin") })
 }

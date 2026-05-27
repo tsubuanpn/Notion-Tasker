@@ -8,6 +8,7 @@ import java.util.Calendar
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.onFocusChanged
@@ -356,6 +358,7 @@ fun MainAppScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskModel?>(null) }
+    val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -366,7 +369,7 @@ fun MainAppScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 actions = {
-                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Completed.route || currentRoute == Screen.Achievements.route) {
+                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Completed.route || currentRoute == Screen.Achievements.route) {
                         IconButton(onClick = { viewModel.syncWithNotion() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "同期")
                         }
@@ -378,11 +381,19 @@ fun MainAppScreen(
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface
             ) {
-                val screens = listOf(Screen.Home, Screen.Category, Screen.Completed, Screen.Achievements, Screen.Settings)
+                val screens = listOf(Screen.Home, Screen.Category, Screen.Calendar, Screen.Completed, Screen.Achievements, Screen.Settings)
                 screens.forEach { screen ->
                     NavigationBarItem(
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
+                        label = {
+                            Text(
+                                text = screen.title,
+                                fontSize = 9.5.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = currentRoute == screen.route,
                         onClick = {
                             if (currentRoute != screen.route) {
@@ -437,6 +448,14 @@ fun MainAppScreen(
             composable(Screen.Achievements.route) {
                 AchievementsScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
             }
+            composable(Screen.Calendar.route) {
+                CalendarScreen(
+                    viewModel = viewModel,
+                    statusOptions = statusOptionsState.value,
+                    selectedCalendarDate = selectedCalendarDate,
+                    onEditTask = { editingTask = it }
+                )
+            }
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     viewModel = viewModel,
@@ -462,9 +481,11 @@ fun MainAppScreen(
     if (showAddDialog) {
         val context = LocalContext.current
         val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptionsState.value.firstOrNull() ?: "課題")
+        val initialScheduled = if (currentRoute == Screen.Calendar.route) (selectedCalendarDate.value ?: "") else ""
         AddTaskDialog(
             initialCategory = defaultCategory,
             categoryOptions = categoryOptionsState.value,
+            initialScheduledDate = initialScheduled,
             onDismiss = { showAddDialog = false },
             onConfirm = { title, cat, due, sched ->
                 viewModel.addTask(
@@ -1695,6 +1716,25 @@ fun SettingsScreen(
     }
 }
 
+fun getNotionCategoryColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
+    return when (colorName) {
+        "gray" -> if (isDark) Pair(Color(0x339E9E9E), Color(0xFFE0E0E0)) else Pair(Color(0xFFF5F5F5), Color(0xFF616161))
+        "brown" -> if (isDark) Pair(Color(0x268D6E63), Color(0xFFD7CCC8)) else Pair(Color(0xFFEFEBE9), Color(0xFF4E342E))
+        "orange" -> if (isDark) Pair(Color(0x26FF9800), Color(0xFFFFCC80)) else Pair(Color(0xFFFFF3E0), Color(0xFFE65100))
+        "yellow" -> if (isDark) Pair(Color(0x26FFEB3B), Color(0xFFFFF59D)) else Pair(Color(0xFFFFFDE7), Color(0xFFF57F17))
+        "green" -> if (isDark) Pair(Color(0x264CAF50), Color(0xFFA5D6A7)) else Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
+        "blue" -> if (isDark) Pair(Color(0x262196F3), Color(0xFF90CAF9)) else Pair(Color(0xFFE3F2FD), Color(0xFF0D47A1))
+        "purple" -> if (isDark) Pair(Color(0x269C27B0), Color(0xFFE1BEE7)) else Pair(Color(0xFFF3E5F5), Color(0xFF4A148C))
+        "pink" -> if (isDark) Pair(Color(0x26E91E63), Color(0xFFF8BBD0)) else Pair(Color(0xFFFCE4EC), Color(0xFF880E4F))
+        "red" -> if (isDark) Pair(Color(0x26F44336), Color(0xFFEF9A9A)) else Pair(Color(0xFFFFEBEE), Color(0xFFB71C1C))
+        else -> if (isDark) Pair(Color(0x2678909C), Color(0xFFECEFF1)) else Pair(Color(0xFFECEFF1), Color(0xFF37474F))
+    }
+}
+
+fun getNotionStatusColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
+    return getNotionCategoryColors(colorName, isDark)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskItemCard(
@@ -1711,21 +1751,56 @@ fun TaskItemCard(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
     }
 
-    val isOverdueDue = task.status != completedStatus && task.dueDate != null && task.dueDate < todayStr
-    val isOverdueScheduled = task.status != completedStatus && task.scheduledDate != null && task.scheduledDate < todayStr
+    val isCompleted = task.status == completedStatus || task.status == "完了"
+    val isInProgress = task.status == inProgressStatus || task.status == "進行中"
+    val isUnstarted = !isCompleted && !isInProgress
 
-    val statusBgColor = when (task.status) {
-        unstartedStatus -> Color(0xFFE0E0E0)
-        inProgressStatus -> Color(0xFFE3F2FD)
-        completedStatus -> Color(0xFFE8F5E9)
-        else -> Color(0xFFECEFF1)
+    val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
+    val isOverdueScheduled = !isCompleted && task.scheduledDate != null && task.scheduledDate < todayStr
+
+    val isSystemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    val cardBorder = if (isCompleted) {
+        val color = if (isSystemDark) Color(0xFF0D3D2A) else Color(0xFFBBF7D0)
+        androidx.compose.foundation.BorderStroke(1.dp, color)
+    } else if (isInProgress) {
+        val color = if (isSystemDark) Color(0xFF0D4D7A) else Color(0xFFBAE6FD)
+        androidx.compose.foundation.BorderStroke(1.dp, color)
+    } else {
+        val color = if (isSystemDark) Color(0xFF3F3F46) else Color(0xFFCCCCCC)
+        androidx.compose.foundation.BorderStroke(1.dp, color)
     }
 
-    val statusTextColor = when (task.status) {
-        unstartedStatus -> Color(0xFF424242)
-        inProgressStatus -> Color(0xFF1565C0)
-        completedStatus -> Color(0xFF2E7D32)
-        else -> Color(0xFF37474F)
+    val cardBgColor = if (isCompleted) {
+        if (isSystemDark) Color(0xFF0F261D) else Color(0xFFF0FDF4)
+    } else if (isInProgress) {
+        if (isSystemDark) Color(0xFF0D2533) else Color(0xFFF0F9FF)
+    } else {
+        if (isSystemDark) Color(0xFF18181B) else Color.White
+    }
+
+    val categoryColors = if (task.categoryColor != null) {
+        getNotionCategoryColors(task.categoryColor, isSystemDark)
+    } else {
+        when (task.category) {
+            "課題" -> getNotionCategoryColors("blue", isSystemDark)
+            "学習" -> getNotionCategoryColors("purple", isSystemDark)
+            "作業" -> getNotionCategoryColors("yellow", isSystemDark)
+            "趣味" -> getNotionCategoryColors("green", isSystemDark)
+            else -> getNotionCategoryColors("default", isSystemDark)
+        }
+    }
+
+    val statusColors = if (isUnstarted) {
+        if (isSystemDark) Pair(Color(0xFF27272A), Color(0xFFD4D4D8)) else Pair(Color(0xFFF4F4F5), Color(0xFF3F3F46))
+    } else if (task.statusColor != null) {
+        getNotionStatusColors(task.statusColor, isSystemDark)
+    } else {
+        when (task.status) {
+            inProgressStatus -> Pair(Color(0xFFE3F2FD), Color(0xFF1565C0))
+            completedStatus -> Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
+            else -> Pair(Color(0xFFECEFF1), Color(0xFF37474F))
+        }
     }
 
     Card(
@@ -1734,9 +1809,10 @@ fun TaskItemCard(
             .clickable { onEditClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = cardBgColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        border = cardBorder,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -1756,7 +1832,7 @@ fun TaskItemCard(
                     Box(
                         modifier = Modifier
                             .background(
-                                color = MaterialTheme.colorScheme.primaryContainer,
+                                color = categoryColors.first,
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1764,7 +1840,7 @@ fun TaskItemCard(
                         Text(
                             text = task.category,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            color = categoryColors.second,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -1808,14 +1884,14 @@ fun TaskItemCard(
                 // Dynamic Actionable status button
                 Box(
                     modifier = Modifier
-                        .background(color = statusBgColor, shape = RoundedCornerShape(8.dp))
+                        .background(color = statusColors.first, shape = RoundedCornerShape(8.dp))
                         .clickable { onStatusClick() }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = task.status,
                         style = MaterialTheme.typography.labelSmall,
-                        color = statusTextColor,
+                        color = statusColors.second,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1900,13 +1976,14 @@ fun EmptyStateView(
 fun AddTaskDialog(
     initialCategory: String,
     categoryOptions: List<String>,
+    initialScheduledDate: String = "",
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(initialCategory) }
     var dueDate by remember { mutableStateOf("") }
-    var scheduledDate by remember { mutableStateOf("") }
+    var scheduledDate by remember { mutableStateOf(initialScheduledDate) }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -2678,5 +2755,296 @@ fun AchievementsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CalendarScreen(
+    viewModel: TaskViewModel,
+    statusOptions: List<String>,
+    selectedCalendarDate: MutableState<String?>,
+    onEditTask: (TaskModel) -> Unit
+) {
+    val uiState by viewModel.tasksState.collectAsState()
+
+    var focusYear by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)) }
+    var focusMonth by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)) } // 0-indexed
+
+    val todayStr = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+    }
+
+    // Initialize selected date to today if it's currently null
+    LaunchedEffect(Unit) {
+        if (selectedCalendarDate.value == null) {
+            selectedCalendarDate.value = todayStr
+        }
+    }
+
+    val selectedDate = selectedCalendarDate.value ?: todayStr
+    val isSystemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        when (val state = uiState) {
+            is TasksUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            is TasksUiState.Error -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(text = "エラーが発生しました: ${state.message}", color = MaterialTheme.colorScheme.error)
+                }
+            }
+            is TasksUiState.Idle, is TasksUiState.Success -> {
+                val tasks = when (state) {
+                    is TasksUiState.Success -> state.tasks
+                    else -> emptyList()
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Month Navigation Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            if (focusMonth == 0) {
+                                focusMonth = 11
+                                focusYear -= 1
+                            } else {
+                                focusMonth -= 1
+                            }
+                        }) {
+                            Text("<", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        Text(
+                            text = "${focusYear}年 ${focusMonth + 1}月",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+
+                        IconButton(onClick = {
+                            if (focusMonth == 11) {
+                                focusMonth = 0
+                                focusYear += 1
+                            } else {
+                                focusMonth += 1
+                            }
+                        }) {
+                            Text(">", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    // Days of week row
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        val daysOfWeek = listOf("日", "月", "火", "水", "木", "金", "土")
+                        daysOfWeek.forEach { day ->
+                            Text(
+                                text = day,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (day == "日") Color.Red else (if (day == "土") Color.Blue else MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                        }
+                    }
+
+                    // Calendar Grid Layout
+                    val calendarHelper = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.YEAR, focusYear)
+                        set(java.util.Calendar.MONTH, focusMonth)
+                        set(java.util.Calendar.DAY_OF_MONTH, 1)
+                    }
+                    val firstDayDayOfWeek = calendarHelper.get(java.util.Calendar.DAY_OF_WEEK) // 1 = Sunday, 2 = Monday, ...
+                    val totalDaysInMonth = calendarHelper.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                    val startOffset = firstDayDayOfWeek - 1 // Sunday starts, so offset is simple
+
+                    val totalDaysToDisplay = startOffset + totalDaysInMonth
+                    val rowsCount = (totalDaysToDisplay + 6) / 7
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (row in 0 until rowsCount) {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                for (col in 0 until 7) {
+                                    val cellIndex = row * 7 + col
+                                    val dayNumber = cellIndex - startOffset + 1
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(1f)
+                                            .padding(2.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (dayNumber in 1..totalDaysInMonth) {
+                                            val dateStr = String.format("%04d-%02d-%02d", focusYear, focusMonth + 1, dayNumber)
+                                            val isSelected = dateStr == selectedDate
+                                            val isToday = dateStr == todayStr
+
+                                            // Get tasks for this date
+                                            val cellTasks = tasks.filter {
+                                                it.dueDate == dateStr || it.scheduledDate == dateStr
+                                            }
+
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .then(
+                                                        if (isSelected) {
+                                                            Modifier.background(MaterialTheme.colorScheme.primary)
+                                                        } else if (isToday) {
+                                                            Modifier
+                                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                                                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
+                                                    .clickable {
+                                                        selectedCalendarDate.value = dateStr
+                                                    }
+                                                    .padding(2.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = dayNumber.toString(),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                                    else if (isToday) MaterialTheme.colorScheme.primary
+                                                    else if (col == 0) Color.Red
+                                                    else if (col == 6) Color.Blue
+                                                    else MaterialTheme.colorScheme.onSurface
+                                                )
+
+                                                // Draw dots below date number
+                                                Row(
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    cellTasks.take(3).forEach { task ->
+                                                        // Determine dot color
+                                                        val dotColor = if (task.status == "完了") {
+                                                            // Completed is gray-ish
+                                                            if (isSystemDark) Color(0xFF616161) else Color(0xFFD6D6D6)
+                                                        } else if (task.categoryColor != null) {
+                                                            // Use category color
+                                                            getNotionCategoryColorRaw(task.categoryColor, isSystemDark)
+                                                        } else if (task.status == "進行中") {
+                                                            Color(0xFF29B6F6)
+                                                        } else {
+                                                            when (task.category) {
+                                                                "課題" -> Color(0xFF42A5F5)
+                                                                "学習" -> Color(0xFFAB47BC)
+                                                                "作業" -> Color(0xFFFFCA28)
+                                                                "趣味" -> Color(0xFF66BB6A)
+                                                                else -> Color(0xFF78909C)
+                                                            }
+                                                        }
+
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(5.dp)
+                                                                .padding(horizontal = 0.5.dp)
+                                                                .clip(RoundedCornerShape(50))
+                                                                .background(dotColor)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Selected Tasks List Header
+                    val splitSelectedDate = selectedDate.split("-")
+                    val displaySelectedDate = if (splitSelectedDate.size == 3) {
+                        "${splitSelectedDate[1]}月${splitSelectedDate[2]}日"
+                    } else {
+                        selectedDate
+                    }
+
+                    Text(
+                        text = "$displaySelectedDate のタスク",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+
+                    val selectedTasks = tasks.filter {
+                        it.dueDate == selectedDate || it.scheduledDate == selectedDate
+                    }
+
+                    if (selectedTasks.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "予定はありません",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            selectedTasks.forEach { task ->
+                                TaskItemCard(
+                                    task = task,
+                                    statusOptions = statusOptions,
+                                    onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
+                                    onEditClick = { onEditTask(task) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Simple color helper for getting base colors of dots
+fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
+    return when (colorName) {
+        "gray" -> Color(0xFF9E9E9E)
+        "brown" -> Color(0xFF8D6E63)
+        "orange" -> Color(0xFFFF9800)
+        "yellow" -> Color(0xFFFFCA28)
+        "green" -> Color(0xFF66BB6A)
+        "blue" -> Color(0xFF42A5F5)
+        "purple" -> Color(0xFFAB47BC)
+        "pink" -> Color(0xFFEC407A)
+        "red" -> Color(0xFFEF5350)
+        else -> Color(0xFF78909C)
     }
 }
