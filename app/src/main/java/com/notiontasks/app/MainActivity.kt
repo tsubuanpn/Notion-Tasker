@@ -22,6 +22,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Check
+import kotlinx.coroutines.delay
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -86,6 +91,11 @@ import kotlin.comparisons.nullsLast
 import kotlin.comparisons.naturalOrder
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.ComponentName
+import android.os.IBinder
+import android.os.Build
 
 class MainActivity : ComponentActivity() {
 
@@ -404,7 +414,7 @@ fun MainAppScreen(
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface
             ) {
-                val screens = listOf(Screen.Home, Screen.Category, Screen.Calendar, Screen.Completed, Screen.Achievements, Screen.Settings)
+                val screens = listOf(Screen.Home, Screen.Category, Screen.Calendar, Screen.Pomodoro, Screen.Achievements, Screen.Settings)
                 screens.forEach { screen ->
                     NavigationBarItem(
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -467,6 +477,9 @@ fun MainAppScreen(
             }
             composable(Screen.Completed.route) {
                 CompletedScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
+            }
+            composable(Screen.Pomodoro.route) {
+                PomodoroScreen(viewModel = viewModel, statusOptions = statusOptionsState.value)
             }
             composable(Screen.Achievements.route) {
                 AchievementsScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
@@ -855,8 +868,8 @@ fun CategoryScreen(
     }
 
     // Sync selectedCategory from pagerState (e.g. when user swipe pages)
-    LaunchedEffect(pagerState.currentPage) {
-        val targetCategory = categories.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
+    LaunchedEffect(pagerState.settledPage) {
+        val targetCategory = categories.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
         if (selectedCategory != targetCategory) {
             viewModel.selectCategory(targetCategory)
         }
@@ -2814,6 +2827,7 @@ fun AchievementsScreen(
     onEditTask: (TaskModel) -> Unit
 ) {
     val uiState by viewModel.tasksState.collectAsState()
+    var subPage by remember { mutableStateOf("main") }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -2920,14 +2934,18 @@ fun AchievementsScreen(
                     )
                 }
 
-                // Layout
-                LazyColumn(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    item {
+                    // Header title
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2944,300 +2962,426 @@ fun AchievementsScreen(
                                 color = MaterialTheme.colorScheme.onBackground
                             )
                         }
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF1F1F1),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "サブページ対応",
+                                color = if (isSystemInDarkTheme()) Color.White else Color.Gray,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
-                    // 1. Counters Row (Overdue & Carrying over)
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // Overdue Card
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                                ),
-                                shape = RoundedCornerShape(12.dp)
+                    // Tab Selector
+                    val completedTasksCount = state.tasks.count { it.status == "完了" }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF1F1F1),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFE0E0E0),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        listOf(
+                            "main" to "🏆 パフォーマンス実績",
+                            "completed" to "✅ 完了済み (${completedTasksCount}件)"
+                        ).forEach { (page, label) ->
+                            val isSelected = subPage == page
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(
+                                        color = if (isSelected) {
+                                            if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { subPage = page }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = "⚠️ 期限切れタスク",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "$overdueCount 件",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "締め切り超過",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-
-                            // Carried Over Card
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFFFFF8E1).copy(alpha = 0.4f)
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = "⏳ 持ち越しタスク",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFD84315)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "$carriedOverCount 件",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color(0xFFD84315)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "予定日超過",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        fontSize = 10.sp
-                                    )
-                                }
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                                    color = if (isSelected) {
+                                        if (page == "main") MaterialTheme.colorScheme.primary else Color(0xFF2E7D32)
+                                    } else {
+                                        if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color(0xFF616161)
+                                    }
+                                )
                             }
                         }
                     }
 
-                    // 2. Week Achievement rate
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            ),
-                            shape = RoundedCornerShape(12.dp)
+                    if (subPage == "main") {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            // 1. Counters Row (Overdue & Carrying over)
+                            item {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Text(
-                                        text = "📅 今週のタスク達成率",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "$weekRate%",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                                    // Overdue Card
+                                    Card(
+                                        modifier = Modifier.weight(1f),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "⚠️ 期限切れタスク",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "$overdueCount 件",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "締め切り超過",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
 
-                                LinearProgressIndicator(
-                                    progress = { weekRate / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp)),
+                                    // Carried Over Card
+                                    Card(
+                                        modifier = Modifier.weight(1f),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = Color(0xFFFFF8E1).copy(alpha = 0.4f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "⏳ 持ち越しタスク",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFD84315)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "$carriedOverCount 件",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFFD84315)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "予定日超過",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Week Achievement rate
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "📅 今週のタスク達成率",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "$weekRate%",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Black,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        LinearProgressIndicator(
+                                            progress = { weekRate / 100f },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(8.dp)
+                                                .clip(RoundedCornerShape(4.dp)),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+
+                                        Text(
+                                            text = "進捗: $completedWeekCount / ${weekTasks.size} 件完了",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+
+                                        val motivationWeek = when {
+                                            weekRate == 100 && weekTasks.isNotEmpty() -> "素晴らしい！今週のタスク完全クリアです！ 🎉"
+                                            weekRate >= 75 -> "目標達成まであと一息！素晴らしいペースです🔥"
+                                            weekRate >= 50 -> "半分達成！この調子で後半も進めましょう🚀"
+                                            weekRate > 0 -> "一歩ずつ確実に進んでいます。頑張りましょう💪"
+                                            else -> "タスクを設定して開始しましょう！ 📅"
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "💬 $motivationWeek",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Month Achievement rate
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "✨ 今月のタスク達成率",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "$monthRate%",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Black,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+
+                                        LinearProgressIndicator(
+                                            progress = { monthRate / 100f },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(8.dp)
+                                                .clip(RoundedCornerShape(4.dp)),
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+
+                                        Text(
+                                            text = "進捗: $completedMonthCount / ${monthTasks.size} 件完了",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+
+                                        val motivationMonth = when {
+                                            monthRate == 100 && monthTasks.isNotEmpty() -> "信じられない快挙！今月パーフェクト達成！ 🏆"
+                                            monthRate >= 75 -> "極めて順調です。圧倒的な推進力です！ ✨"
+                                            monthRate >= 50 -> "目標の半分を消化。素晴らしい自己管理能力です！ 🌟"
+                                            monthRate > 0 -> "良いスタートです。着実な一歩を重ねています。 🍀"
+                                            else -> "今月はこれから！コツコツ積み上げましょう📈"
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "💬 $motivationMonth",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 4. Attention tasks
+                            item {
+                                Text(
+                                    text = "対応推奨タスク (${warningTasks.size}件)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    modifier = Modifier.padding(top = 8.dp)
                                 )
-
-                                Text(
-                                    text = "進捗: $completedWeekCount / ${weekTasks.size} 件完了",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp
-                                )
-
-                                val motivationWeek = when {
-                                    weekRate == 100 && weekTasks.isNotEmpty() -> "素晴らしい！今週のタスク完全クリアです！ 🎉"
-                                    weekRate >= 75 -> "目標達成まであと一息！素晴らしいペースです🔥"
-                                    weekRate >= 50 -> "半分達成！この調子で後半も進めましょう🚀"
-                                    weekRate > 0 -> "一歩ずつ確実に進んでいます。頑張りましょう💪"
-                                    else -> "タスクを設定して開始しましょう！ 📅"
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(8.dp)
-                                ) {
-                                    Text(
-                                        text = "💬 $motivationWeek",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontSize = 11.sp
-                                    )
-                                }
                             }
-                        }
-                    }
 
-                    // 3. Month Achievement rate
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "✨ 今月のタスク達成率",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "$monthRate%",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.secondary
-                                    )
+                            if (warningTasks.isEmpty()) {
+                                item {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "なし",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "期限遅れのタスクはありません！",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "素晴らしい自己管理計画です。この調子を維持しましょう。✨",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
                                 }
-
-                                LinearProgressIndicator(
-                                    progress = { monthRate / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp)),
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-
-                                Text(
-                                    text = "進捗: $completedMonthCount / ${monthTasks.size} 件完了",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp
-                                )
-
-                                val motivationMonth = when {
-                                    monthRate == 100 && monthTasks.isNotEmpty() -> "信じられない快挙！今月パーフェクト達成！ 🏆"
-                                    monthRate >= 75 -> "極めて順調です。圧倒的な推進力です！ ✨"
-                                    monthRate >= 50 -> "目標の半分を消化。素晴らしい自己管理能力です！ 🌟"
-                                    monthRate > 0 -> "良いスタートです。着実な一歩を重ねています。 🍀"
-                                    else -> "今月はこれから！コツコツ積み上げましょう📈"
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(
-                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(8.dp)
-                                ) {
-                                    Text(
-                                        text = "💬 $motivationMonth",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 4. Attention tasks
-                    item {
-                        Text(
-                            text = "対応推奨タスク (${warningTasks.size}件)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
-
-                    if (warningTasks.isEmpty()) {
-                        item {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "なし",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "期限遅れのタスクはありません！",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "素晴らしい自己管理計画です。この調子を維持しましょう。✨",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        fontSize = 10.sp
+                            } else {
+                                items(warningTasks) { task ->
+                                    TaskItemCard(
+                                        task = task,
+                                        statusOptions = statusOptions,
+                                        onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
+                                        onEditClick = { onEditTask(task) }
                                     )
                                 }
                             }
                         }
                     } else {
-                        items(warningTasks) { task ->
-                            TaskItemCard(
-                                task = task,
-                                statusOptions = statusOptions,
-                                onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
-                                onEditClick = { onEditTask(task) }
-                            )
+                        // Completed tasks list view sub-page
+                        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+                        val completedTasks = state.tasks.filter { it.status == completedStatus }
+
+                        if (completedTasks.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "なし",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Text(
+                                        text = "完了済みのタスクはありません",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                item {
+                                    Text(
+                                        text = "完了済み (${completedTasks.size}件)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32),
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                }
+                                items(completedTasks) { task ->
+                                    TaskItemCard(
+                                        task = task,
+                                        statusOptions = statusOptions,
+                                        onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
+                                        onEditClick = { onEditTask(task) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -3462,77 +3606,598 @@ fun CalendarScreen(
                                         }
                                     }
                                 }
+                             }
+                         }
+
+                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                         // Selected Tasks List Header
+                         val splitSelectedDate = selectedDate.split("-")
+                         val displaySelectedDate = if (splitSelectedDate.size == 3) {
+                             "${splitSelectedDate[1]}月${splitSelectedDate[2]}日"
+                         } else {
+                             selectedDate
+                         }
+
+                         Text(
+                             text = "$displaySelectedDate のタスク",
+                             style = MaterialTheme.typography.titleMedium,
+                             fontWeight = FontWeight.Bold,
+                             color = MaterialTheme.colorScheme.onBackground
+                         )
+
+                         val selectedTasks = tasks.filter {
+                             it.dueDate == selectedDate || it.scheduledDate == selectedDate
+                         }
+
+                         if (selectedTasks.isEmpty()) {
+                             Box(
+                                 modifier = Modifier
+                                     .fillMaxWidth()
+                                     .padding(vertical = 32.dp),
+                                 contentAlignment = Alignment.Center
+                             ) {
+                                 Text(
+                                     text = "予定はありません",
+                                     style = MaterialTheme.typography.bodyMedium,
+                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                 )
+                             }
+                         } else {
+                             Column(
+                                 verticalArrangement = Arrangement.spacedBy(16.dp),
+                                 modifier = Modifier.fillMaxWidth()
+                             ) {
+                                 selectedTasks.forEach { task ->
+                                     TaskItemCard(
+                                         task = task,
+                                         statusOptions = statusOptions,
+                                         onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
+                                         onEditClick = { onEditTask(task) }
+                                     )
+                                 }
+                             }
+                         }
+                     }
+                 }
+             }
+         }
+     }
+ }
+
+ // Simple color helper for getting base colors of dots
+ fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
+     return when (colorName) {
+         "gray" -> Color(0xFF9E9E9E)
+         "brown" -> Color(0xFF8D6E63)
+         "orange" -> Color(0xFFFF9800)
+         "yellow" -> Color(0xFFFFCA28)
+         "green" -> Color(0xFF66BB6A)
+         "blue" -> Color(0xFF42A5F5)
+         "purple" -> Color(0xFFAB47BC)
+         "pink" -> Color(0xFFEC407A)
+         "red" -> Color(0xFFEF5350)
+         else -> Color(0xFF78909C)
+     }
+ }
+
+ @OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ fun PomodoroScreen(
+    viewModel: TaskViewModel,
+    statusOptions: List<String>
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
+    
+    var timeLeft by remember { mutableStateOf(25 * 60) }
+    var isRunning by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
+    var pomodoroCompletedCount by remember { mutableStateOf(prefs.getInt("completed_count", 0)) }
+    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    
+    val tasksState by viewModel.tasksState.collectAsState()
+    val uncompletedTasks = remember(tasksState) {
+        when (val state = tasksState) {
+            is TasksUiState.Success -> state.tasks.filter { it.status != "完了" }
+            else -> emptyList()
+        }
+    }
+    
+    val activeFocusTask = remember(selectedTaskId, tasksState) {
+        when (val state = tasksState) {
+            is TasksUiState.Success -> state.tasks.find { it.id == selectedTaskId }
+            else -> null
+        }
+    }
+
+    // Service binding setup
+    var boundService by remember { mutableStateOf<PomodoroService?>(null) }
+    val serviceConnection = remember {
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                val pomodoroBinder = binder as? PomodoroService.PomodoroBinder
+                boundService = pomodoroBinder?.getService()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                boundService = null
+            }
+        }
+    }
+
+    DisposableEffect(context) {
+        val intent = Intent(context, PomodoroService::class.java)
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        onDispose {
+            context.unbindService(serviceConnection)
+        }
+    }
+
+    fun triggerServiceAction(action: String, durationMinutes: Int = -1) {
+        val intent = Intent(context, PomodoroService::class.java).apply {
+            this.action = action
+            putExtra(PomodoroService.EXTRA_TASK_ID, selectedTaskId)
+            putExtra(PomodoroService.EXTRA_TASK_TITLE, activeFocusTask?.title)
+            putExtra(PomodoroService.EXTRA_MODE, mode)
+            if (durationMinutes > 0) {
+                putExtra(PomodoroService.EXTRA_DURATION_MINUTES, durationMinutes)
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+    }
+
+    // Update state based on service
+    LaunchedEffect(boundService) {
+        boundService?.let { service ->
+            timeLeft = (service.timeLeftMs / 1000).toInt()
+            isRunning = service.isRunning
+            mode = service.currentMode
+            selectedTaskId = service.associatedTaskId
+
+            service.onTickListener = { ms, _ ->
+                timeLeft = (ms / 1000).toInt()
+            }
+            service.onFinishedListener = {
+                timeLeft = 0
+                isRunning = false
+                if (mode == "work") {
+                    pomodoroCompletedCount++
+                    prefs.edit().putInt("completed_count", pomodoroCompletedCount).apply()
+                    Toast.makeText(context, "集中セッション完了！素晴らしいです！5分の休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                    mode = "shortBreak"
+                    timeLeft = 5 * 60
+                } else {
+                    Toast.makeText(context, "休憩終了！次の集中セッションを始めましょう。", Toast.LENGTH_LONG).show()
+                    mode = "work"
+                    timeLeft = 25 * 60
+                }
+            }
+            service.onStateChangedListener = { running ->
+                isRunning = running
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 2. Mode Selector Segmented Controls
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF1F1F1),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFE0E0E0),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            listOf(
+                Triple("work", "集中 (25分)", Color(0xFFEF5350)),
+                Triple("shortBreak", "休憩 (5分)", Color(0xFF2E7D32)),
+                Triple("longBreak", "長い休憩", Color(0xFF1976D2))
+            ).forEach { (m, label, activeColor) ->
+                val isSelected = mode == m
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            color = if (isSelected) {
+                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable {
+                            mode = m
+                            timeLeft = when (m) {
+                                "work" -> 25 * 60
+                                "shortBreak" -> 5 * 60
+                                else -> 15 * 60
                             }
+                            triggerServiceAction(PomodoroService.ACTION_STOP)
                         }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    // Selected Tasks List Header
-                    val splitSelectedDate = selectedDate.split("-")
-                    val displaySelectedDate = if (splitSelectedDate.size == 3) {
-                        "${splitSelectedDate[1]}月${splitSelectedDate[2]}日"
-                    } else {
-                        selectedDate
-                    }
-
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "$displaySelectedDate のタスク",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        text = label,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = if (isSelected) {
+                            activeColor
+                        } else {
+                            if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color(0xFF616161)
+                        }
+                    )
+                }
+            }
+        }
+
+        // 3. Timer Display Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSystemInDarkTheme()) Color(0xFF141414) else Color.White
+            ),
+            border = BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp, horizontal = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // Faint large timer icon in background
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = null,
+                    tint = (when (mode) {
+                        "work" -> Color(0xFFEF5350)
+                        "shortBreak" -> Color(0xFF2E7D32)
+                        else -> Color(0xFF1976D2)
+                    }).copy(alpha = 0.03f),
+                    modifier = Modifier.size(160.dp)
+                )
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Timer digits text
+                    val minutes = timeLeft / 60
+                    val seconds = timeLeft % 60
+                    val timeStr = String.format("%02d:%02d", minutes, seconds)
+                    
+                    Text(
+                        text = timeStr,
+                        fontSize = 54.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121),
+                        letterSpacing = (-1).sp
                     )
 
-                    val selectedTasks = tasks.filter {
-                        it.dueDate == selectedDate || it.scheduledDate == selectedDate
-                    }
-
-                    if (selectedTasks.isEmpty()) {
-                        Box(
+                    // Play / Pause / Reset Buttons
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Reset Button
+                        IconButton(
+                            onClick = {
+                                triggerServiceAction(PomodoroService.ACTION_STOP)
+                                isRunning = false
+                                timeLeft = when (mode) {
+                                    "work" -> 25 * 60
+                                    "shortBreak" -> 5 * 60
+                                    else -> 15 * 60
+                                }
+                            },
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            contentAlignment = Alignment.Center
+                                .size(44.dp)
+                                .background(
+                                    color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White,
+                                    shape = RoundedCornerShape(50)
+                                )
+                                .border(
+                                    BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF424242) else Color(0xFFE0E0E0)),
+                                    shape = RoundedCornerShape(50)
+                                )
                         ) {
-                            Text(
-                                text = "予定はありません",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "リセット",
+                                tint = if (isSystemInDarkTheme()) Color.White else Color.Gray,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    } else {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            selectedTasks.forEach { task ->
-                                TaskItemCard(
-                                    task = task,
-                                    statusOptions = statusOptions,
-                                    onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
-                                    onEditClick = { onEditTask(task) }
+
+                        // Start/Pause Button
+                        val modeColor = when (mode) {
+                            "work" -> Color(0xFFEF5350)
+                            "shortBreak" -> Color(0xFF2E7D32)
+                            else -> Color(0xFF1976D2)
+                        }
+                        
+                        IconButton(
+                            onClick = {
+                                if (isRunning) {
+                                    triggerServiceAction(PomodoroService.ACTION_PAUSE)
+                                } else {
+                                    val durationMinutes = when (mode) {
+                                        "work" -> 25
+                                        "shortBreak" -> 5
+                                        else -> 15
+                                    }
+                                    triggerServiceAction(PomodoroService.ACTION_START_OR_RESUME, durationMinutes)
+                                    if (mode == "work" && activeFocusTask != null) {
+                                        if (activeFocusTask.status != "進行中" && activeFocusTask.status != "完了") {
+                                            viewModel.updateTask(
+                                                id = activeFocusTask.id,
+                                                title = activeFocusTask.title,
+                                                status = "進行中",
+                                                category = activeFocusTask.category,
+                                                dueDate = activeFocusTask.dueDate,
+                                                scheduledDate = activeFocusTask.scheduledDate
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    color = modeColor,
+                                    shape = RoundedCornerShape(50)
                                 )
+                        ) {
+                            Icon(
+                                imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isRunning) "一時停止" else "開始",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    // Stats Indicator
+                    HorizontalDivider(color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFEEEEEE), thickness = 1.dp, modifier = Modifier.padding(top = 4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "今日の完了数:",
+                            fontSize = 10.sp,
+                            color = if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${pomodoroCompletedCount}回",
+                            fontSize = 12.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Color(0xFFEF5350),
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        if (pomodoroCompletedCount > 0) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 4.dp)
+                            ) {
+                                repeat(minOf(pomodoroCompletedCount, 8)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(Color(0xFFEF5350), shape = RoundedCornerShape(50))
+                                    )
+                                }
+                                if (pomodoroCompletedCount > 8) {
+                                    Text(
+                                        text = "+",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSystemInDarkTheme()) Color.White else Color.Gray
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
 
-// Simple color helper for getting base colors of dots
-fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
-    return when (colorName) {
-        "gray" -> Color(0xFF9E9E9E)
-        "brown" -> Color(0xFF8D6E63)
-        "orange" -> Color(0xFFFF9800)
-        "yellow" -> Color(0xFFFFCA28)
-        "green" -> Color(0xFF66BB6A)
-        "blue" -> Color(0xFF42A5F5)
-        "purple" -> Color(0xFFAB47BC)
-        "pink" -> Color(0xFFEC407A)
-        "red" -> Color(0xFFEF5350)
-        else -> Color(0xFF78909C)
+        // 4. Task Association Section
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = Color(0xFFEF5350),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "集中するタスクを紐付ける",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isSystemInDarkTheme()) Color.White else Color(0xFF424242)
+                )
+            }
+
+            // Custom Simple Dropdown
+            var dropdownExpanded by remember { mutableStateOf(false) }
+            val selectedTaskTitle = activeFocusTask?.let { "[${it.category}] ${it.title}" } ?: "-- タスクを選択しない (一般作業) --"
+
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { dropdownExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = selectedTaskTitle,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                    modifier = Modifier.fillMaxWidth(0.9f)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("-- タスクを選択しない (一般作業) --", fontWeight = FontWeight.Medium, fontSize = 12.sp) },
+                        onClick = {
+                            selectedTaskId = null
+                            dropdownExpanded = false
+                        }
+                    )
+                    uncompletedTasks.forEach { task ->
+                        DropdownMenuItem(
+                            text = { Text("[${task.category}] ${task.title}", fontWeight = FontWeight.Medium, fontSize = 12.sp) },
+                            onClick = {
+                                selectedTaskId = task.id
+                                dropdownExpanded = false
+                                if (isRunning && mode == "work") {
+                                    if (task.status != "進行中" && task.status != "完了") {
+                                        viewModel.updateTask(
+                                             id = task.id,
+                                             title = task.title,
+                                             status = "進行中",
+                                             category = task.category,
+                                             dueDate = task.dueDate,
+                                             scheduledDate = task.scheduledDate
+                                         )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 5. Focusing Task Panel Card
+            activeFocusTask?.let { task ->
+                val badgeBgColor = if (isSystemInDarkTheme()) Color(0xFF3E1F21) else Color(0xFFFFEBEE)
+                val badgeTextColor = if (isSystemInDarkTheme()) Color(0xFFFF8A80) else Color(0xFFC62828)
+                val panelBgColor = Color(0xFFEF5350).copy(alpha = 0.05f)
+                val panelBorderColor = Color(0xFFEF5350).copy(alpha = 0.15f)
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = panelBgColor
+                    ),
+                    border = BorderStroke(1.dp, panelBorderColor)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(badgeBgColor, shape = RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "現在フォーカス中",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = badgeTextColor
+                                )
+                            }
+                            Text(
+                                text = task.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121)
+                            )
+                            Text(
+                                text = "分類: ${task.category}  •  状態: ${task.status}",
+                                fontSize = 9.sp,
+                                color = if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color.Gray
+                            )
+                        }
+
+                        val buttonBgColor = if (isSystemInDarkTheme()) Color(0xFF1B5E20) else Color(0xFFE8F5E9)
+                        val buttonIconTint = if (isSystemInDarkTheme()) Color(0xFFA5D6A7) else Color(0xFF2E7D32)
+
+                        IconButton(
+                            onClick = {
+                                viewModel.updateTask(
+                                    id = task.id,
+                                    title = task.title,
+                                    status = "完了",
+                                    category = task.category,
+                                    dueDate = task.dueDate,
+                                    scheduledDate = task.scheduledDate
+                                )
+                                selectedTaskId = null
+                                Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .background(buttonBgColor, shape = RoundedCornerShape(50))
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = "完了", tint = buttonIconTint)
+                        }
+                    }
+                }
+            }
+
+
+        }
     }
 }
