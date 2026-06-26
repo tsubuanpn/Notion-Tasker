@@ -151,19 +151,53 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
         fun rescheduleAlarms(context: Context) {
             val prefs = getSecurePreferences(context)
+            val morningEnabled = prefs.getBoolean("morning_notif_enabled", true)
+            val eveningEnabled = prefs.getBoolean("evening_notif_enabled", true)
+            
             val morningTime = prefs.getString("morning_notif_time", "08:00") ?: "08:00"
             val eveningTime = prefs.getString("evening_notif_time", "20:00") ?: "20:00"
 
-            scheduleNotification(context, "MORNING", morningTime)
-            scheduleNotification(context, "EVENING", eveningTime)
+            if (morningEnabled) {
+                scheduleNotification(context, "MORNING", morningTime)
+            } else {
+                cancelNotification(context, "MORNING")
+            }
+
+            if (eveningEnabled) {
+                scheduleNotification(context, "EVENING", eveningTime)
+            } else {
+                cancelNotification(context, "EVENING")
+            }
         }
 
         fun rescheduleAlarmForType(context: Context, type: String) {
             val prefs = getSecurePreferences(context)
+            val enabledKey = if (type == "MORNING") "morning_notif_enabled" else "evening_notif_enabled"
+            val enabled = prefs.getBoolean(enabledKey, true)
+            if (!enabled) {
+                cancelNotification(context, type)
+                return
+            }
+
             val key = if (type == "MORNING") "morning_notif_time" else "evening_notif_time"
             val defaultVal = if (type == "MORNING") "08:00" else "20:00"
             val time = prefs.getString(key, defaultVal) ?: defaultVal
             scheduleNotification(context, type, time)
+        }
+
+        fun cancelNotification(context: Context, type: String) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, TaskNotificationReceiver::class.java).apply {
+                putExtra("NOTIF_TYPE", type)
+            }
+            val requestCode = if (type == "MORNING") 1001 else 1002
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.cancel(pendingIntent)
         }
 
         fun scheduleNotification(context: Context, type: String, timeStr: String) {

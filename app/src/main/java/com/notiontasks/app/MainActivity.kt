@@ -64,6 +64,15 @@ import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import okhttp3.MediaType.Companion.toMediaType
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -177,6 +186,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val morningTime = remember { mutableStateOf(sharedPreferences.getString("morning_notif_time", "08:00") ?: "08:00") }
             val eveningTime = remember { mutableStateOf(sharedPreferences.getString("evening_notif_time", "20:00") ?: "20:00") }
+            val morningEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("morning_notif_enabled", true)) }
+            val eveningEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("evening_notif_enabled", true)) }
             val themeMode = remember { mutableStateOf(sharedPreferences.getString("theme_mode", "system") ?: "system") }
 
             val propTitle = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_title", "") ?: "") }
@@ -235,6 +246,8 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     initialMorningTime = morningTime.value,
                     initialEveningTime = eveningTime.value,
+                    initialMorningEnabled = morningEnabled.value,
+                    initialEveningEnabled = eveningEnabled.value,
                     initialThemeMode = themeMode.value,
                     initialPropTitle = propTitle.value,
                     initialPropStatus = propStatus.value,
@@ -250,7 +263,7 @@ class MainActivity : ComponentActivity() {
                             sharedPreferences.edit().putString("category_options", catJson).apply()
                         }
                     },
-                    onSaveCredentials = { token, dbId, morning, evening, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
+                    onSaveCredentials = { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
                         // Automatically stringify Options to SharedPrefs
                         val catJson = try { Json.encodeToString<List<String>>(mCatOptions) } catch(e: Exception) { "" }
                         val statJson = try { Json.encodeToString<List<String>>(mStatOptions) } catch(e: Exception) { "" }
@@ -260,6 +273,8 @@ class MainActivity : ComponentActivity() {
                             .putString("database_id", dbId)
                             .putString("morning_notif_time", morning)
                             .putString("evening_notif_time", evening)
+                            .putBoolean("morning_notif_enabled", mEnabled)
+                            .putBoolean("evening_notif_enabled", eEnabled)
                             .putString("theme_mode", theme)
                             .putString("mapping_prop_title", mTitle)
                             .putString("mapping_prop_status", mStatus)
@@ -295,6 +310,8 @@ class MainActivity : ComponentActivity() {
 
                         morningTime.value = morning
                         eveningTime.value = evening
+                        morningEnabled.value = mEnabled
+                        eveningEnabled.value = eEnabled
                         themeMode.value = theme
 
                         // Reschedule alarms at new times
@@ -317,6 +334,8 @@ fun MainAppScreen(
     viewModel: TaskViewModel,
     initialMorningTime: String,
     initialEveningTime: String,
+    initialMorningEnabled: Boolean,
+    initialEveningEnabled: Boolean,
     initialThemeMode: String,
     initialPropTitle: String,
     initialPropStatus: String,
@@ -332,6 +351,8 @@ fun MainAppScreen(
         dbId: String,
         morning: String,
         evening: String,
+        mEnabled: Boolean,
+        eEnabled: Boolean,
         theme: String,
         mTitle: String,
         mStatus: String,
@@ -465,6 +486,8 @@ fun MainAppScreen(
                     initialDbId = databaseId,
                     initialMorningTime = initialMorningTime,
                     initialEveningTime = initialEveningTime,
+                    initialMorningEnabled = initialMorningEnabled,
+                    initialEveningEnabled = initialEveningEnabled,
                     initialThemeMode = initialThemeMode,
                     initialPropTitle = initialPropTitle,
                     initialPropStatus = initialPropStatus,
@@ -1128,6 +1151,8 @@ fun SettingsScreen(
     initialDbId: String,
     initialMorningTime: String,
     initialEveningTime: String,
+    initialMorningEnabled: Boolean,
+    initialEveningEnabled: Boolean,
     initialThemeMode: String,
     initialPropTitle: String,
     initialPropStatus: String,
@@ -1142,6 +1167,8 @@ fun SettingsScreen(
         dbId: String,
         morning: String,
         evening: String,
+        mEnabled: Boolean,
+        eEnabled: Boolean,
         theme: String,
         mTitle: String,
         mStatus: String,
@@ -1157,6 +1184,8 @@ fun SettingsScreen(
     var dbId by remember { mutableStateOf(initialDbId) }
     var morningTime by remember { mutableStateOf(initialMorningTime) }
     var eveningTime by remember { mutableStateOf(initialEveningTime) }
+    var morningEnabled by remember { mutableStateOf(initialMorningEnabled) }
+    var eveningEnabled by remember { mutableStateOf(initialEveningEnabled) }
     var themeMode by remember { mutableStateOf(initialThemeMode) }
 
     var propTitle by remember { mutableStateOf(initialPropTitle) }
@@ -1213,6 +1242,7 @@ fun SettingsScreen(
     var showCategoryDropdown by remember { mutableStateOf(false) }
     var showScheduledDropdown by remember { mutableStateOf(false) }
     var showDueDropdown by remember { mutableStateOf(false) }
+    var currentSubPage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -1222,430 +1252,100 @@ fun SettingsScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        Text(
-            text = "Notion 連携設定",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
+        if (currentSubPage == null) {
+            // Main Settings Top Menu
+            Text(
+                text = "設定",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
 
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("Notion Integration Token") },
-            placeholder = { Text("secret_...") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
+            // Group: アカウント・連携
+            Text(
+                text = "アカウント・連携",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
 
-        OutlinedTextField(
-            value = dbId,
-            onValueChange = { dbId = it },
-            label = { Text("Database ID") },
-            placeholder = { Text("f87...") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        Button(
-            onClick = {
-                isLoadingSchema = true
-                viewModel.fetchDatabaseProperties(
-                    token = token,
-                    dbId = dbId,
-                    onSuccess = { meta ->
-                        loadedMetadata = meta
-                        isLoadingSchema = false
-                        Toast.makeText(context, "DB構造のロードに成功しました！", Toast.LENGTH_SHORT).show()
-
-                        // Intelligently auto-detect property matches
-                        meta.properties.forEach { (pName, pVal) ->
-                            when {
-                                pVal.title != null -> propTitle = pName
-                                pVal.status != null -> {
-                                    propStatus = pName
-                                    propStatusType = "status"
-                                }
-                                pVal.select != null && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
-                                    propStatus = pName
-                                    propStatusType = "select"
-                                }
-                                pVal.select != null && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category") || pName.lowercase().contains("type")) -> {
-                                    propCategory = pName
-                                }
-                                pVal.date != null && (pName.contains("予定") || pName.lowercase().contains("scheduled") || pName.lowercase().contains("plan")) -> {
-                                    propScheduled = pName
-                                }
-                                pVal.date != null && (pName.contains("締切") || pName.contains("締め切り") || pName.lowercase().contains("due") || pName.lowercase().contains("deadline")) -> {
-                                    propDue = pName
-                                }
-                            }
-                        }
-                    },
-                    onFailure = { err ->
-                        isLoadingSchema = false
-                        Toast.makeText(context, "取得エラー: $err", Toast.LENGTH_LONG).show()
-                    }
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = token.isNotBlank() && dbId.isNotBlank() && !isLoadingSchema,
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            if (isLoadingSchema) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
-            } else {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("データベース構造を自動取得")
-            }
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-
-        Text(
-            text = "データベースプロパティ マッピング",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-
-        // Title property field
-        Box(modifier = Modifier.fillMaxWidth()) {
-            val titleProps = (loadedMetadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList())
-                .ifEmpty { if (propTitle.isNotBlank()) listOf(propTitle) else emptyList() }
-            OutlinedTextField(
-                value = if (propTitle.isBlank()) "未選択" else propTitle,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("名前 (タスクタイトル) プロパティ") },
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { showTitleDropdown = true }
-            )
-            DropdownMenu(
-                expanded = showTitleDropdown,
-                onDismissRequest = { showTitleDropdown = false }
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
             ) {
-                DropdownMenuItem(
-                    text = { Text("未選択") },
-                    onClick = {
-                        propTitle = ""
-                        showTitleDropdown = false
-                    }
-                )
-                titleProps.forEach { name ->
-                    if (name.isNotBlank()) {
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                propTitle = name
-                                showTitleDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Status property field
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                val statusProps = (loadedMetadata?.properties?.filter { it.value.status != null || it.value.select != null }?.keys?.toList() ?: emptyList())
-                    .ifEmpty { if (propStatus.isNotBlank()) listOf(propStatus) else emptyList() }
-                OutlinedTextField(
-                    value = if (propStatus.isBlank()) "未選択" else propStatus,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("状態 (ステータス) プロパティ") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    trailingIcon = {
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                    }
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable { showStatusDropdown = true }
-                )
-                DropdownMenu(
-                    expanded = showStatusDropdown,
-                    onDismissRequest = { showStatusDropdown = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("未選択") },
-                        onClick = {
-                            propStatus = ""
-                            showStatusDropdown = false
-                        }
+                Column {
+                    SettingsMenuItem(
+                        title = "Notion 接続設定",
+                        subtitle = "APIトークンとデータベースIDを連携します",
+                        icon = Icons.Default.Cloud,
+                        onClick = { currentSubPage = "notion" }
                     )
-                    statusProps.forEach { name ->
-                        if (name.isNotBlank()) {
-                            DropdownMenuItem(
-                                text = { Text(name) },
-                                onClick = {
-                                    propStatus = name
-                                    val propVal = loadedMetadata?.properties?.get(name)
-                                    if (propVal?.status != null) {
-                                        propStatusType = "status"
-                                    } else if (propVal?.select != null) {
-                                        propStatusType = "select"
-                                    }
-                                    showStatusDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Category property field
-        Box(modifier = Modifier.fillMaxWidth()) {
-            val selectProps = (loadedMetadata?.properties?.filter { it.value.select != null }?.keys?.toList() ?: emptyList())
-                .ifEmpty { if (propCategory.isNotBlank()) listOf(propCategory) else emptyList() }
-            OutlinedTextField(
-                value = if (propCategory.isBlank()) "未選択" else propCategory,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("種類 (カテゴリ) プロパティ") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { showCategoryDropdown = true }
-            )
-            DropdownMenu(
-                expanded = showCategoryDropdown,
-                onDismissRequest = { showCategoryDropdown = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("未選択") },
-                    onClick = {
-                        propCategory = ""
-                        showCategoryDropdown = false
-                    }
-                )
-                selectProps.forEach { name ->
-                    if (name.isNotBlank()) {
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                propCategory = name
-                                showCategoryDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Scheduled Date property field
-        Box(modifier = Modifier.fillMaxWidth()) {
-            val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
-                .ifEmpty { if (propScheduled.isNotBlank()) listOf(propScheduled) else emptyList() }
-            OutlinedTextField(
-                value = if (propScheduled.isBlank()) "未選択" else propScheduled,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("予定日 プロパティ") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { showScheduledDropdown = true }
-            )
-            DropdownMenu(
-                expanded = showScheduledDropdown,
-                onDismissRequest = { showScheduledDropdown = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("未選択") },
-                    onClick = {
-                        propScheduled = ""
-                        showScheduledDropdown = false
-                    }
-                )
-                dateProps.forEach { name ->
-                    if (name.isNotBlank()) {
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                propScheduled = name
-                                showScheduledDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Due Date property field
-        Box(modifier = Modifier.fillMaxWidth()) {
-            val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
-                .ifEmpty { if (propDue.isNotBlank()) listOf(propDue) else emptyList() }
-            OutlinedTextField(
-                value = if (propDue.isBlank()) "未選択" else propDue,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("締め切り プロパティ") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { showDueDropdown = true }
-            )
-            DropdownMenu(
-                expanded = showDueDropdown,
-                onDismissRequest = { showDueDropdown = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("未選択") },
-                    onClick = {
-                        propDue = ""
-                        showDueDropdown = false
-                    }
-                )
-                dateProps.forEach { name ->
-                    if (name.isNotBlank()) {
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                propDue = name
-                                showDueDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-
-        Text(
-            text = "アプリのテーマ設定",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            val themes = listOf("system" to "端末に合わせる", "light" to "常にライト", "dark" to "常にダーク")
-            themes.forEach { (key, label) ->
-                val isSelected = themeMode == key
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-                        )
-                        .clickable { themeMode = key }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1,
-                        fontSize = 11.sp
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    SettingsMenuItem(
+                        title = "プロパティマッピング",
+                        subtitle = "Notion側のカラム名と同期属性を定義します",
+                        icon = Icons.Default.Layers,
+                        onClick = { currentSubPage = "mapping" }
                     )
                 }
             }
-        }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+            // Group: アプリ設定
+            Text(
+                text = "アプリ設定",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
 
-        Text(
-            text = "通知時間設定",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { showMorningTimePicker() }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
             ) {
-                OutlinedTextField(
-                    value = morningTime,
-                    onValueChange = { },
-                    label = { Text("朝の通知時間") },
-                    modifier = Modifier.fillMaxWidth(),
-                    readOnly = true,
-                    enabled = false,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                        disabledBorderColor = MaterialTheme.colorScheme.outline,
-                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                Column {
+                    SettingsMenuItem(
+                        title = "通知スケジュール設定",
+                        subtitle = "今日期限タスクを知らせる朝・夕の通知タイマー",
+                        icon = Icons.Default.Notifications,
+                        onClick = { currentSubPage = "notifications" }
                     )
-                )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    SettingsMenuItem(
+                        title = "外観テーマ設定",
+                        subtitle = "ダークモードやライトモードの切り替え設定",
+                        icon = Icons.Default.WbSunny,
+                        onClick = { currentSubPage = "theme" }
+                    )
+                }
             }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { showEveningTimePicker() }
+            // Group: ヘルプ・情報
+            Text(
+                text = "その他",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
             ) {
-                OutlinedTextField(
-                    value = eveningTime,
-                    onValueChange = { },
-                    label = { Text("夜の通知時間") },
-                    modifier = Modifier.fillMaxWidth(),
-                    readOnly = true,
-                    enabled = false,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                        disabledBorderColor = MaterialTheme.colorScheme.outline,
-                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                SettingsMenuItem(
+                    title = "通知 / プロパティ等について",
+                    subtitle = "通知の仕組みやプロパティの自動マッピング機能の説明",
+                    icon = Icons.Default.Info,
+                    onClick = { currentSubPage = "info" }
                 )
             }
-        }
-
-        Button(
-            onClick = {
+        } else {
+            val handleSave: () -> Unit = {
                 if (propTitle.isBlank() || propTitle == "未選択" ||
                     propStatus.isBlank() || propStatus == "未選択" ||
                     propCategory.isBlank() || propCategory == "未選択" ||
@@ -1653,68 +1353,854 @@ fun SettingsScreen(
                     propDue.isBlank() || propDue == "未選択"
                 ) {
                     Toast.makeText(context, "未選択のマッピング項目があります。すべてのプロパティを選択してください。", Toast.LENGTH_LONG).show()
-                    return@Button
-                }
-
-                // Dynamically sync Options onSave
-                val chosenCatProp = loadedMetadata?.properties?.get(propCategory)
-                val catOptions = chosenCatProp?.select?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
-                    ?.ifEmpty { initialCategoryOptions.map { it.trim() }.distinct() }
-                    ?: initialCategoryOptions.map { it.trim() }.distinct()
-
-                val chosenStatProp = loadedMetadata?.properties?.get(propStatus)
-                val statOptions = if (propStatusType == "status") {
-                    chosenStatProp?.status?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
-                        ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
-                        ?: initialStatusOptions.map { it.trim() }.distinct()
                 } else {
-                    chosenStatProp?.select?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
-                        ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
-                        ?: initialStatusOptions.map { it.trim() }.distinct()
+                    // Dynamically sync Options onSave
+                    val chosenCatProp = loadedMetadata?.properties?.get(propCategory)
+                    val catOptions = chosenCatProp?.select?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
+                        ?.ifEmpty { initialCategoryOptions.map { it.trim() }.distinct() }
+                        ?: initialCategoryOptions.map { it.trim() }.distinct()
+
+                    val chosenStatProp = loadedMetadata?.properties?.get(propStatus)
+                    val statOptions = if (propStatusType == "status") {
+                        chosenStatProp?.status?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
+                            ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
+                            ?: initialStatusOptions.map { it.trim() }.distinct()
+                    } else {
+                        chosenStatProp?.select?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
+                            ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
+                            ?: initialStatusOptions.map { it.trim() }.distinct()
+                    }
+
+                    onSave(
+                        token,
+                        dbId,
+                        morningTime,
+                        eveningTime,
+                        morningEnabled,
+                        eveningEnabled,
+                        themeMode,
+                        propTitle,
+                        propStatus,
+                        propStatusType,
+                        propCategory,
+                        propScheduled,
+                        propDue,
+                        catOptions,
+                        statOptions
+                    )
+                    Toast.makeText(context, "設定を保存しました", Toast.LENGTH_SHORT).show()
+                    currentSubPage = null
                 }
+            }
 
-                onSave(
-                    token,
-                    dbId,
-                    morningTime,
-                    eveningTime,
-                    themeMode,
-                    propTitle,
-                    propStatus,
-                    propStatusType,
-                    propCategory,
-                    propScheduled,
-                    propDue,
-                    catOptions,
-                    statOptions
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text("設定を保存", fontWeight = FontWeight.SemiBold)
+            // Drilldown header with back button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                IconButton(
+                    onClick = { currentSubPage = null },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronLeft,
+                        contentDescription = "戻る",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Column {
+                    val title = when (currentSubPage) {
+                        "notion" -> "Notion 接続設定"
+                        "mapping" -> "プロパティマッピング"
+                        "notifications" -> "通知スケジュール設定"
+                        "theme" -> "外観テーマ設定"
+                        "info" -> "通知 / プロパティについて"
+                        else -> ""
+                    }
+                    val subtitle = when (currentSubPage) {
+                        "notion" -> "アカウントのシークレットトークンとデータベース連携"
+                        "mapping" -> "Notionデータベース側のカラム名の紐付け設定"
+                        "notifications" -> "Android端末でのバックグラウンドタスク動作"
+                        "theme" -> "アプリを美しく表示する外観モードの変更"
+                        "info" -> "アプリ仕様と通知機能に関する補足説明"
+                        else -> ""
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+
+            // Subpage body contents
+            when (currentSubPage) {
+                "notion" -> {
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = { token = it },
+                        label = { Text("Notion Integration Token") },
+                        placeholder = { Text("secret_...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = dbId,
+                        onValueChange = { dbId = it },
+                        label = { Text("Database ID") },
+                        placeholder = { Text("f87...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = {
+                            isLoadingSchema = true
+                            viewModel.fetchDatabaseProperties(
+                                token = token,
+                                dbId = dbId,
+                                onSuccess = { meta ->
+                                    loadedMetadata = meta
+                                    isLoadingSchema = false
+                                    Toast.makeText(context, "DB構造のロードに成功しました！", Toast.LENGTH_SHORT).show()
+
+                                    // Intelligently auto-detect property matches
+                                    meta.properties.forEach { (pName, pVal) ->
+                                        when {
+                                            pVal.title != null -> propTitle = pName
+                                            pVal.status != null -> {
+                                                propStatus = pName
+                                                propStatusType = "status"
+                                            }
+                                            pVal.select != null && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
+                                                propStatus = pName
+                                                propStatusType = "select"
+                                            }
+                                            pVal.select != null && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category") || pName.lowercase().contains("type")) -> {
+                                                propCategory = pName
+                                            }
+                                            pVal.date != null && (pName.contains("予定") || pName.lowercase().contains("scheduled") || pName.lowercase().contains("plan")) -> {
+                                                propScheduled = pName
+                                            }
+                                            pVal.date != null && (pName.contains("締切") || pName.contains("締め切り") || pName.lowercase().contains("due") || pName.lowercase().contains("deadline")) -> {
+                                                propDue = pName
+                                            }
+                                        }
+                                    }
+                                },
+                                onFailure = { err ->
+                                    isLoadingSchema = false
+                                    Toast.makeText(context, "取得エラー: $err", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = token.isNotBlank() && dbId.isNotBlank() && !isLoadingSchema,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isLoadingSchema) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("構造を取得中...")
+                        } else {
+                            Text("データベース構造を自動取得", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = handleSave,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("設定を保存して戻る", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "mapping" -> {
+                    // Title property field
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val titleProps = (loadedMetadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList())
+                            .ifEmpty { if (propTitle.isNotBlank()) listOf(propTitle) else emptyList() }
+                        OutlinedTextField(
+                            value = if (propTitle.isBlank()) "未選択" else propTitle,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("名前 (タスクタイトル) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { showTitleDropdown = true }
+                        )
+                        DropdownMenu(
+                            expanded = showTitleDropdown,
+                            onDismissRequest = { showTitleDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("未選択") },
+                                onClick = {
+                                    propTitle = ""
+                                    showTitleDropdown = false
+                                }
+                            )
+                            titleProps.forEach { name ->
+                                if (name.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            propTitle = name
+                                            showTitleDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Status property & Type field
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Status property selector
+                        Box(modifier = Modifier.weight(1.8f)) {
+                            val statusProps = (loadedMetadata?.properties?.filter { it.value.status != null || it.value.select != null }?.keys?.toList() ?: emptyList())
+                                .ifEmpty { if (propStatus.isNotBlank()) listOf(propStatus) else emptyList() }
+                            OutlinedTextField(
+                                value = if (propStatus.isBlank()) "未選択" else propStatus,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("状態 (ステータス) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                trailingIcon = {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { showStatusDropdown = true }
+                            )
+                            DropdownMenu(
+                                expanded = showStatusDropdown,
+                                onDismissRequest = { showStatusDropdown = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("未選択") },
+                                    onClick = {
+                                        propStatus = ""
+                                        showStatusDropdown = false
+                                    }
+                                )
+                                statusProps.forEach { name ->
+                                    if (name.isNotBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text(name) },
+                                            onClick = {
+                                                propStatus = name
+                                                val propVal = loadedMetadata?.properties?.get(name)
+                                                if (propVal?.status != null) {
+                                                    propStatusType = "status"
+                                                } else if (propVal?.select != null) {
+                                                    propStatusType = "select"
+                                                }
+                                                showStatusDropdown = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Status Type selector (status or select)
+                        Box(modifier = Modifier.weight(1.2f)) {
+                            var showTypeDropdown by remember { mutableStateOf(false) }
+                            OutlinedTextField(
+                                value = if (propStatusType == "status") "Status型" else "Select型",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("タイプ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                trailingIcon = {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable { showTypeDropdown = true }
+                            )
+                            DropdownMenu(
+                                expanded = showTypeDropdown,
+                                onDismissRequest = { showTypeDropdown = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Status型") },
+                                    onClick = {
+                                        propStatusType = "status"
+                                        showTypeDropdown = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Select型") },
+                                    onClick = {
+                                        propStatusType = "select"
+                                        showTypeDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Category property field
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val selectProps = (loadedMetadata?.properties?.filter { it.value.select != null }?.keys?.toList() ?: emptyList())
+                            .ifEmpty { if (propCategory.isNotBlank()) listOf(propCategory) else emptyList() }
+                        OutlinedTextField(
+                            value = if (propCategory.isBlank()) "未選択" else propCategory,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("種類 (カテゴリ) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { showCategoryDropdown = true }
+                        )
+                        DropdownMenu(
+                            expanded = showCategoryDropdown,
+                            onDismissRequest = { showCategoryDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("未選択") },
+                                onClick = {
+                                    propCategory = ""
+                                    showCategoryDropdown = false
+                                }
+                            )
+                            selectProps.forEach { name ->
+                                if (name.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            propCategory = name
+                                            showCategoryDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Scheduled Date property field
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
+                            .ifEmpty { if (propScheduled.isNotBlank()) listOf(propScheduled) else emptyList() }
+                        OutlinedTextField(
+                            value = if (propScheduled.isBlank()) "未選択" else propScheduled,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("予定日 プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { showScheduledDropdown = true }
+                        )
+                        DropdownMenu(
+                            expanded = showScheduledDropdown,
+                            onDismissRequest = { showScheduledDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("未選択") },
+                                onClick = {
+                                    propScheduled = ""
+                                    showScheduledDropdown = false
+                                }
+                            )
+                            dateProps.forEach { name ->
+                                if (name.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            propScheduled = name
+                                            showScheduledDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Due Date property field
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
+                            .ifEmpty { if (propDue.isNotBlank()) listOf(propDue) else emptyList() }
+                        OutlinedTextField(
+                            value = if (propDue.isBlank()) "未選択" else propDue,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("締め切り プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { showDueDropdown = true }
+                        )
+                        DropdownMenu(
+                            expanded = showDueDropdown,
+                            onDismissRequest = { showDueDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("未選択") },
+                                onClick = {
+                                    propDue = ""
+                                    showDueDropdown = false
+                                }
+                            )
+                            dateProps.forEach { name ->
+                                if (name.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            propDue = name
+                                            showDueDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = handleSave,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("マッピング設定を保存", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "notifications" -> {
+                    // Morning Notification Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp)
+                            ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WbSunny,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "朝の通知 (予定タスク)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "当日の予定タスクを朝確認します",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = morningEnabled,
+                                    onCheckedChange = { morningEnabled = it }
+                                )
+                            }
+
+                            if (morningEnabled) {
+                                Button(
+                                    onClick = { showMorningTimePicker() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                        contentColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("通知時間: $morningTime", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Evening Notification Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp)
+                            ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(
+                                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.NightsStay,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "夜の通知 (未完了タスク)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "当日のやり残したタスクを夜に確認します",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = eveningEnabled,
+                                    onCheckedChange = { eveningEnabled = it }
+                                )
+                            }
+
+                            if (eveningEnabled) {
+                                Button(
+                                    onClick = { showEveningTimePicker() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                        contentColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("通知時間: $eveningTime", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = handleSave,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("通知設定を保存", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "theme" -> {
+                    // Theme modes
+                    val modes = listOf(
+                        Triple("system", "システム設定", Icons.Default.Layers),
+                        Triple("light", "ライトモード", Icons.Default.WbSunny),
+                        Triple("dark", "ダークモード", Icons.Default.NightsStay)
+                    )
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        modes.forEach { (modeKey, label, icon) ->
+                            val isSelected = themeMode == modeKey
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else Color.Transparent,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { themeMode = modeKey }
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { themeMode = modeKey }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = handleSave,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("テーマ設定を保存", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "info" -> {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "通知 / プロパティ等について",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "・設定した朝と夜の時間になると、その日が「予定日」となっているタスクの情報がプッシュ通知されます。\n\n・「データベース構造を自動取得」ボタンを押すと、Notion内の定義に合わせて、アプリのプロパティ項目や、カテゴリ選択欄・選択肢、進行状態などを完全に最適化して自動バインドします。",
+                                style = MaterialTheme.typography.bodySmall,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = { currentSubPage = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("戻る", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(16.dp))
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+@Composable
+fun SettingsMenuItem(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "通知 / プロパティ等について",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Column {
                 Text(
-                    text = "・設定した朝と夜の時間になると、その日が「予定日」となっているタスクの情報がプッシュ通知されます。\n\n・「データベース構造を自動取得」ボタンを押すと、Notion内の定義に合わせて、アプリのプロパティ項目や、カテゴリ選択欄・選択肢、進行状態などを完全に最適化して自動バインドします。",
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    lineHeight = 18.sp
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 14.sp
                 )
             }
         }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = "詳細",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
     }
 }
 
