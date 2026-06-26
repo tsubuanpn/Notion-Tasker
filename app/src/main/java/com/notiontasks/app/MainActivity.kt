@@ -209,10 +209,12 @@ class MainActivity : ComponentActivity() {
             }
 
             // Sync property mappings on initialization or when updated
-            LaunchedEffect(savedToken, savedDbId, propTitle.value, propStatus.value, propStatusType.value, propCategory.value, propScheduled.value, propDue.value) {
+            LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propCategory.value, propScheduled.value, propDue.value) {
+                val currentToken = sharedPreferences.getString("notion_token", "") ?: ""
+                val currentDbId = sharedPreferences.getString("database_id", "") ?: ""
                 viewModel.updateCredentials(
-                    token = savedToken,
-                    dbId = savedDbId,
+                    token = currentToken,
+                    dbId = currentDbId,
                     title = propTitle.value,
                     status = propStatus.value,
                     statusType = propStatusType.value,
