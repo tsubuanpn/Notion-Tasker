@@ -2932,7 +2932,11 @@ fun AchievementsScreen(
                         (it.dueDate != null && it.dueDate < todayStr) ||
                         (it.scheduledDate != null && it.scheduledDate < todayStr)
                     )
-                }
+                }.sortedWith(
+                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                        .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                        .thenBy { it.id }
+                )
 
                 Column(
                     modifier = Modifier
@@ -3699,7 +3703,13 @@ fun CalendarScreen(
     val tasksState by viewModel.tasksState.collectAsState()
     val uncompletedTasks = remember(tasksState) {
         when (val state = tasksState) {
-            is TasksUiState.Success -> state.tasks.filter { it.status != "完了" }
+            is TasksUiState.Success -> {
+                state.tasks.filter { it.status != "完了" }.sortedWith(
+                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                        .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                        .thenBy { it.id }
+                )
+            }
             else -> emptyList()
         }
     }
@@ -3808,8 +3818,8 @@ fun CalendarScreen(
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             listOf(
-                Triple("work", "集中 (25分)", Color(0xFFEF5350)),
-                Triple("shortBreak", "休憩 (5分)", Color(0xFF2E7D32)),
+                Triple("work", "集中", Color(0xFFEF5350)),
+                Triple("shortBreak", "休憩", Color(0xFF2E7D32)),
                 Triple("longBreak", "長い休憩", Color(0xFF1976D2))
             ).forEach { (m, label, activeColor) ->
                 val isSelected = mode == m
