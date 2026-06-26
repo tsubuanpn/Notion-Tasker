@@ -34,7 +34,7 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    @Query("UPDATE tasks SET status = :status WHERE id = :id")
+    @Query("UPDATE tasks SET status = :status, statusColor = NULL WHERE id = :id")
     suspend fun updateTaskStatusLocal(id: String, status: String)
 
     @Delete
