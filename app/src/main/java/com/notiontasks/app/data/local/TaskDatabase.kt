@@ -19,6 +19,18 @@ data class TaskEntity(
     val categoryColor: String? = null
 )
 
+@Entity(tableName = "pomodoro_logs")
+data class PomodoroLogEntity(
+    @PrimaryKey val id: String,
+    val taskId: String?,
+    val taskTitle: String?,
+    val category: String,
+    val categoryColor: String?,
+    val date: String,
+    val minutes: Int,
+    val timestamp: Long
+)
+
 // TaskDao handles compile-time SQL verification and queries
 @Dao
 interface TaskDao {
@@ -27,15 +39,6 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE status = :status")
     fun getTasksByStatus(status: String): Flow<List<TaskEntity>>
-
-    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
-    suspend fun getTaskById(id: String): TaskEntity?
-
-    @Query("SELECT statusColor FROM tasks WHERE status = :status AND statusColor IS NOT NULL LIMIT 1")
-    suspend fun getStatusColorForStatus(status: String): String?
-
-    @Query("SELECT categoryColor FROM tasks WHERE category = :category AND categoryColor IS NOT NULL LIMIT 1")
-    suspend fun getCategoryColorForCategory(category: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTasks(tasks: List<TaskEntity>)
@@ -46,14 +49,42 @@ interface TaskDao {
     @Query("UPDATE tasks SET status = :status, statusColor = :statusColor WHERE id = :id")
     suspend fun updateTaskStatusLocal(id: String, status: String, statusColor: String?)
 
+    @Query("SELECT statusColor FROM tasks WHERE status = :status AND statusColor IS NOT NULL LIMIT 1")
+    suspend fun getStatusColorForStatus(status: String): String?
+
+    @Query("SELECT categoryColor FROM tasks WHERE category = :category AND categoryColor IS NOT NULL LIMIT 1")
+    suspend fun getCategoryColorForCategory(category: String): String?
+
+    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+    suspend fun getTaskById(id: String): TaskEntity?
+
     @Delete
     suspend fun deleteTask(task: TaskEntity)
 }
 
+@Dao
+interface PomodoroLogDao {
+    @Query("SELECT * FROM pomodoro_logs ORDER BY timestamp DESC")
+    fun getAllLogsFlow(): Flow<List<PomodoroLogEntity>>
+
+    @Query("SELECT * FROM pomodoro_logs ORDER BY timestamp DESC")
+    suspend fun getAllLogs(): List<PomodoroLogEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLog(log: PomodoroLogEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLogs(logs: List<PomodoroLogEntity>)
+
+    @Query("DELETE FROM pomodoro_logs")
+    suspend fun clearAllLogs()
+}
+
 // Room Database representing the SQL data source
-@Database(entities = [TaskEntity::class], version = 2, exportSchema = false)
+@Database(entities = [TaskEntity::class, PomodoroLogEntity::class], version = 3, exportSchema = false)
 abstract class TaskDatabase : RoomDatabase() {
     abstract val taskDao: TaskDao
+    abstract val pomodoroLogDao: PomodoroLogDao
 
     companion object {
         @Volatile

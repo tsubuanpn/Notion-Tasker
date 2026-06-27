@@ -122,7 +122,18 @@ class TaskRepository(
 
     suspend fun getDatabaseMetadata(token: String, databaseId: String): NotionDatabaseResponse {
         val authHeader = "Bearer $token"
-        return notionApi.getDatabase(token = authHeader, databaseId = databaseId)
+        val meta = notionApi.getDatabase(token = authHeader, databaseId = databaseId)
+        
+        // Self-Healing: Automatically inspect actual database property types to resolve select vs status mismatches
+        val statusProp = meta.properties[propStatusName]
+        if (statusProp != null) {
+            if (statusProp.type == "select") {
+                propStatusType = "select"
+            } else if (statusProp.type == "status") {
+                propStatusType = "status"
+            }
+        }
+        return meta
     }
 
     // Refresh tasks cache from remote Notion DB
@@ -204,20 +215,38 @@ class TaskRepository(
 
         // Make Remote Patch call
         val authHeader = "Bearer $token"
-        val request = NotionUpdateRequest(
-            properties = mapOf(
-                propStatusName to buildJsonObject {
-                    put(propStatusType, buildJsonObject {
-                        put("name", newStatus)
-                    })
-                }
-            )
-        )
+        
         try {
+            val request = NotionUpdateRequest(
+                properties = mapOf(
+                    propStatusName to buildJsonObject {
+                        put(propStatusType, buildJsonObject {
+                            put("name", newStatus)
+                        })
+                    }
+                )
+            )
             notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
         } catch (e: Exception) {
-            // Rollback is deferred and handled at VM level
-            throw IOException("Failed to save remote change: ${e.message}", e)
+            // Self-Healing Safety Net: Fallback and try alternate type if initial update fails
+            val alternateType = if (propStatusType == "select") "status" else "select"
+            try {
+                val retryRequest = NotionUpdateRequest(
+                    properties = mapOf(
+                        propStatusName to buildJsonObject {
+                            put(alternateType, buildJsonObject {
+                                put("name", newStatus)
+                            })
+                        }
+                    )
+                )
+                notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
+                // If retry succeeds, seamlessly update the configuration
+                propStatusType = alternateType
+            } catch (retryEx: Exception) {
+                // If both fail, surface the failure
+                throw IOException("Failed to save remote status change with either select or status type: ${e.message}", e)
+            }
         }
     }
 
@@ -254,57 +283,68 @@ class TaskRepository(
         )
         taskDao.insertTasks(listOf(updatedLocalRef))
 
-        // Make Remote Patch call
-        val authHeader = "Bearer $token"
-        val properties = mutableMapOf<String, JsonElement>()
-        
-        properties[propTitleName] = buildJsonObject {
-            put("title", buildJsonArray {
-                add(buildJsonObject {
-                    put("text", buildJsonObject {
-                        put("content", title)
+        // Helper to construct request property payload
+        fun buildPropertiesPayload(sType: String): Map<String, JsonElement> {
+            val properties = mutableMapOf<String, JsonElement>()
+            
+            properties[propTitleName] = buildJsonObject {
+                put("title", buildJsonArray {
+                    add(buildJsonObject {
+                        put("text", buildJsonObject {
+                            put("content", title)
+                        })
                     })
                 })
-            })
-        }
-        
-        properties[propStatusName] = buildJsonObject {
-            put(propStatusType, buildJsonObject {
-                put("name", status)
-            })
-        }
-        
-        properties[propCategoryName] = buildJsonObject {
-            put("select", buildJsonObject {
-                put("name", category)
-            })
-        }
-        
-        properties[propDueDateName] = buildJsonObject {
-            if (dueDate.isNullOrBlank()) {
-                put("date", JsonNull)
-            } else {
-                put("date", buildJsonObject {
-                    put("start", dueDate)
+            }
+            
+            properties[propStatusName] = buildJsonObject {
+                put(sType, buildJsonObject {
+                    put("name", status)
                 })
             }
-        }
-        
-        properties[propScheduledDateName] = buildJsonObject {
-            if (scheduledDate.isNullOrBlank()) {
-                put("date", JsonNull)
-            } else {
-                put("date", buildJsonObject {
-                    put("start", scheduledDate)
-                } )
+            
+            properties[propCategoryName] = buildJsonObject {
+                put("select", buildJsonObject {
+                    put("name", category)
+                })
             }
+            
+            properties[propDueDateName] = buildJsonObject {
+                if (dueDate.isNullOrBlank()) {
+                    put("date", JsonNull)
+                } else {
+                    put("date", buildJsonObject {
+                        put("start", dueDate)
+                    })
+                }
+            }
+            
+            properties[propScheduledDateName] = buildJsonObject {
+                if (scheduledDate.isNullOrBlank()) {
+                    put("date", JsonNull)
+                } else {
+                    put("date", buildJsonObject {
+                        put("start", scheduledDate)
+                    })
+                }
+            }
+            return properties
         }
 
-        val request = NotionUpdateRequest(properties = properties)
+        // Make Remote Patch call with fallback mechanism
+        val authHeader = "Bearer $token"
         try {
-            notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
+            val initialPayload = buildPropertiesPayload(propStatusType)
+            notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = initialPayload))
         } catch (e: Exception) {
-            throw IOException("Failed to save remote change: ${e.message}", e)
+            val alternateType = if (propStatusType == "select") "status" else "select"
+            try {
+                val fallbackPayload = buildPropertiesPayload(alternateType)
+                notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = fallbackPayload))
+                propStatusType = alternateType
+            } catch (retryEx: Exception) {
+                throw IOException("Failed to save remote task change: ${e.message}", e)
+            }
         }
     }
 
@@ -319,28 +359,31 @@ class TaskRepository(
     ) {
         val authHeader = "Bearer $token"
         
-        val properties = mutableMapOf<String, PropertyUpdate>()
-        properties[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
-        properties[propStatusName] = if (propStatusType == "select") {
-            PropertyUpdate(select = SelectValue(name = status))
-        } else {
-            PropertyUpdate(status = StatusValue(name = status))
-        }
-        properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
-        
-        if (!dueDate.isNullOrBlank()) {
-            properties[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
-        }
-        if (!scheduledDate.isNullOrBlank()) {
-            properties[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
-        }
+        fun buildCreatePayload(sType: String): NotionCreateRequest {
+            val properties = mutableMapOf<String, PropertyUpdate>()
+            properties[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
+            properties[propStatusName] = if (sType == "select") {
+                PropertyUpdate(select = SelectValue(name = status))
+            } else {
+                PropertyUpdate(status = StatusValue(name = status))
+            }
+            properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+            
+            if (!dueDate.isNullOrBlank()) {
+                properties[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
+            }
+            if (!scheduledDate.isNullOrBlank()) {
+                properties[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
+            }
 
-        val request = NotionCreateRequest(
-            parent = DatabaseParent(databaseId = databaseId),
-            properties = properties
-        )
+            return NotionCreateRequest(
+                parent = DatabaseParent(databaseId = databaseId),
+                properties = properties
+            )
+        }
 
         try {
+            val request = buildCreatePayload(propStatusType)
             val createdPage = notionApi.createPage(token = authHeader, request = request)
             
             val localEntity = TaskEntity(
@@ -353,7 +396,24 @@ class TaskRepository(
             )
             taskDao.insertTasks(listOf(localEntity))
         } catch (e: Exception) {
-            throw IOException("Failed to create remote task: ${e.message}", e)
+            val alternateType = if (propStatusType == "select") "status" else "select"
+            try {
+                val request = buildCreatePayload(alternateType)
+                val createdPage = notionApi.createPage(token = authHeader, request = request)
+                propStatusType = alternateType
+                
+                val localEntity = TaskEntity(
+                    id = createdPage.id,
+                    title = title,
+                    status = status,
+                    category = category,
+                    dueDate = dueDate,
+                    scheduledDate = scheduledDate
+                )
+                taskDao.insertTasks(listOf(localEntity))
+            } catch (retryEx: Exception) {
+                throw IOException("Failed to create remote task: ${e.message}", e)
+            }
         }
     }
 }

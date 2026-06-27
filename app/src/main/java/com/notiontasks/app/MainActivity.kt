@@ -4399,57 +4399,41 @@ fun getCategoryChartColorInCompose(category: String, colorName: String?): Color 
 }
 
 fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
-    val prefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
-    val jsonString = prefs.getString("pomodoro_logs_list", null)
-    if (jsonString == null) {
-        return emptyList()
+    val db = com.notiontasks.app.data.local.TaskDatabase.getInstance(context)
+    val entities = kotlinx.coroutines.runBlocking {
+        db.pomodoroLogDao.getAllLogs()
     }
-    val logs = mutableListOf<PomodoroLog>()
-    try {
-        val jsonArray = org.json.JSONArray(jsonString)
-        for (i in 0 until jsonArray.length()) {
-            val jsonObj = jsonArray.getJSONObject(i)
-            val id = jsonObj.getString("id")
-            if (id.startsWith("pomo_seed_")) {
-                continue
-            }
-            logs.add(PomodoroLog(
-                id = id,
-                taskId = if (jsonObj.isNull("taskId")) null else jsonObj.getString("taskId"),
-                taskTitle = if (jsonObj.isNull("taskTitle")) null else jsonObj.getString("taskTitle"),
-                category = jsonObj.getString("category"),
-                categoryColor = if (jsonObj.isNull("categoryColor")) null else jsonObj.getString("categoryColor"),
-                date = jsonObj.getString("date"),
-                minutes = jsonObj.getInt("minutes"),
-                timestamp = jsonObj.getLong("timestamp")
-            ))
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
+    return entities.map { entity ->
+        PomodoroLog(
+            id = entity.id,
+            taskId = entity.taskId,
+            taskTitle = entity.taskTitle,
+            category = entity.category,
+            categoryColor = entity.categoryColor,
+            date = entity.date,
+            minutes = entity.minutes,
+            timestamp = entity.timestamp
+        )
     }
-    return logs
 }
 
 fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
-    val prefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
-    try {
-        val jsonArray = org.json.JSONArray()
-        for (log in logs) {
-            val jsonObj = org.json.JSONObject().apply {
-                put("id", log.id)
-                put("taskId", log.taskId ?: org.json.JSONObject.NULL)
-                put("taskTitle", log.taskTitle ?: org.json.JSONObject.NULL)
-                put("category", log.category)
-                put("categoryColor", log.categoryColor ?: org.json.JSONObject.NULL)
-                put("date", log.date)
-                put("minutes", log.minutes)
-                put("timestamp", log.timestamp)
-            }
-            jsonArray.put(jsonObj)
+    val db = com.notiontasks.app.data.local.TaskDatabase.getInstance(context)
+    kotlinx.coroutines.runBlocking {
+        db.pomodoroLogDao.clearAllLogs()
+        val entities = logs.map { log ->
+            com.notiontasks.app.data.local.PomodoroLogEntity(
+                id = log.id,
+                taskId = log.taskId,
+                taskTitle = log.taskTitle,
+                category = log.category,
+                categoryColor = log.categoryColor,
+                date = log.date,
+                minutes = log.minutes,
+                timestamp = log.timestamp
+            )
         }
-        prefs.edit().putString("pomodoro_logs_list", jsonArray.toString()).apply()
-    } catch (e: Exception) {
-        e.printStackTrace()
+        db.pomodoroLogDao.insertLogs(entities)
     }
 }
 
