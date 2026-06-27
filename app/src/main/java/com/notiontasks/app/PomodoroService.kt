@@ -12,6 +12,8 @@ import android.os.Build
 import android.os.CountDownTimer
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import android.media.Ringtone
+import android.media.RingtoneManager
 
 class PomodoroService : Service() {
 
@@ -33,6 +35,10 @@ class PomodoroService : Service() {
     var onTickListener: ((timeLeftMs: Long, formattedTime: String) -> Unit)? = null
     var onFinishedListener: (() -> Unit)? = null
     var onStateChangedListener: ((isRunning: Boolean) -> Unit)? = null
+    private var ringtone: Ringtone? = null
+    var isRingtonePlaying: Boolean = false
+        private set
+    var onRingtoneStateChangedListener: ((isPlaying: Boolean) -> Unit)? = null
 
     inner class PomodoroBinder : Binder() {
         fun getService(): PomodoroService = this@PomodoroService
@@ -64,7 +70,17 @@ class PomodoroService : Service() {
                     associatedTaskTitle = taskTitle
                     associatedTaskId = taskId
                     currentMode = mode
-                    
+
+                    // If an alarm is currently playing from a previous finished timer, stop it when starting a new one
+                    try {
+                        ringtone?.stop()
+                    } catch (e: Exception) { }
+                    ringtone = null
+                    if (isRingtonePlaying) {
+                        isRingtonePlaying = false
+                        onRingtoneStateChangedListener?.invoke(false)
+                    }
+
                     startTimer()
                 }
                 ACTION_PAUSE -> {
@@ -101,9 +117,28 @@ class PomodoroService : Service() {
                 isRunning = false
                 onStateChangedListener?.invoke(false)
                 onFinishedListener?.invoke()
-                
+                // Play alarm sound: prefer user-selected URI stored in pomodoro_prefs
+                val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+                val stored = prefs.getString("alarm_uri", "")
+                val alarmUri = if (!stored.isNullOrBlank()) {
+                    try { android.net.Uri.parse(stored) } catch (e: Exception) { null }
+                } else {
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                } ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+                try {
+                    ringtone = RingtoneManager.getRingtone(this@PomodoroService, alarmUri)
+                    ringtone?.play()
+                    isRingtonePlaying = true
+                    onRingtoneStateChangedListener?.invoke(true)
+                } catch (e: Exception) {
+                    // 再生に失敗しても処理は継続
+                }
+
                 // Show completion notification
                 showCompletionNotification()
+
+                // Keep service briefly active so ringtone can play; stop when appropriate
                 stopSelf()
             }
         }.start()
@@ -115,6 +150,13 @@ class PomodoroService : Service() {
         countDownTimer = null
         isRunning = false
         onStateChangedListener?.invoke(false)
+        // 停止時に再生中のアラームがあれば止める
+        ringtone?.stop()
+        ringtone = null
+        if (isRingtonePlaying) {
+            isRingtonePlaying = false
+            onRingtoneStateChangedListener?.invoke(false)
+        }
         updateNotification("${formatTime(timeLeftMs)} (一時停止中)")
     }
 
@@ -124,7 +166,24 @@ class PomodoroService : Service() {
         isRunning = false
         timeLeftMs = durationMs
         onStateChangedListener?.invoke(false)
+        // 停止時に再生中のアラームがあれば止める
+        ringtone?.stop()
+        ringtone = null
+        if (isRingtonePlaying) {
+            isRingtonePlaying = false
+            onRingtoneStateChangedListener?.invoke(false)
+        }
         stopForeground(true)
+    }
+
+    // Public API to stop ringtone playback (for UI button)
+    fun stopRingtonePlayback() {
+        ringtone?.stop()
+        ringtone = null
+        if (isRingtonePlaying) {
+            isRingtonePlaying = false
+            onRingtoneStateChangedListener?.invoke(false)
+        }
     }
 
     private fun updateNotification(timeStr: String) {
@@ -231,6 +290,12 @@ class PomodoroService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         countDownTimer?.cancel()
+        ringtone?.stop()
+        ringtone = null
+        if (isRingtonePlaying) {
+            isRingtonePlaying = false
+            onRingtoneStateChangedListener?.invoke(false)
+        }
     }
 
     companion object {

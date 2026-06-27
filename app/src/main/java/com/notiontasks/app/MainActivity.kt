@@ -30,6 +30,13 @@ import kotlinx.coroutines.delay
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
+import android.net.Uri
+import android.media.RingtoneManager
+import android.media.Ringtone
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -1265,6 +1272,13 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     SettingsMenuItem(
+                        title = "アラーム音設定",
+                        subtitle = "ポモドーロ完了時に鳴らす音を選択",
+                        icon = Icons.Default.Notifications,
+                        onClick = { currentSubPage = "alarm" }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    SettingsMenuItem(
                         title = "外観テーマ設定",
                         subtitle = "ダークモードやライトモードの切り替え設定",
                         icon = Icons.Default.WbSunny,
@@ -1486,6 +1500,95 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("設定を保存して戻る", fontWeight = FontWeight.Bold)
+                    }
+                }
+                "alarm" -> {
+                    val prefsAlarm = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
+                    var alarmUriString by remember { mutableStateOf(prefsAlarm.getString("alarm_uri", "") ?: "") }
+                    var isPlayingPreview by remember { mutableStateOf(false) }
+                    var previewRingtone by remember { mutableStateOf<Ringtone?>(null) }
+
+                    // Launcher for ringtone picker
+                    val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                        if (result.resultCode == Activity.RESULT_OK) {
+                            val picked = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                            if (picked != null) {
+                                alarmUriString = picked.toString()
+                                prefsAlarm.edit().putString("alarm_uri", alarmUriString).apply()
+                            } else {
+                                // cleared selection -> remove
+                                alarmUriString = ""
+                                prefsAlarm.edit().remove("alarm_uri").apply()
+                            }
+                        }
+                    }
+
+                    DisposableEffect(currentSubPage) {
+                        onDispose {
+                            previewRingtone?.stop()
+                            previewRingtone = null
+                        }
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(text = "ポモドーロ完了時に鳴らす音を選択します", style = MaterialTheme.typography.bodyMedium)
+
+                        val currentTitle = remember(alarmUriString) {
+                            try {
+                                val uri = if (alarmUriString.isNotBlank()) Uri.parse(alarmUriString) else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "未設定"
+                            } catch (e: Exception) {
+                                "未設定"
+                            }
+                        }
+
+                        Text(text = "現在の選択: $currentTitle", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "アラーム音を選択")
+                                    if (alarmUriString.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(alarmUriString))
+                                }
+                                ringtonePickerLauncher.launch(intent)
+                            }, shape = RoundedCornerShape(12.dp)) {
+                                Text("音を選択")
+                            }
+
+                            Button(onClick = {
+                                // Play preview (use selected or default)
+                                try {
+                                    previewRingtone?.stop()
+                                    val uri = if (alarmUriString.isNotBlank()) Uri.parse(alarmUriString) else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                    previewRingtone = RingtoneManager.getRingtone(context, uri)
+                                    previewRingtone?.play()
+                                    isPlayingPreview = true
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "再生に失敗しました", Toast.LENGTH_SHORT).show()
+                                }
+                            }, shape = RoundedCornerShape(12.dp)) {
+                                Text("プレビュー再生")
+                            }
+
+                            Button(onClick = {
+                                previewRingtone?.stop()
+                                previewRingtone = null
+                                isPlayingPreview = false
+                            }, shape = RoundedCornerShape(12.dp)) {
+                                Text("停止")
+                            }
+                        }
+
+                        Text(text = "備考: 設定しない場合は端末のデフォルトアラーム音を使用します。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(onClick = { currentSubPage = null }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                            Text("保存して戻る", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
                 "mapping" -> {
@@ -3718,12 +3821,15 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
     }
 
     // Update state based on service
+    var isAlarmPlaying by remember { mutableStateOf(false) }
     LaunchedEffect(boundService) {
         boundService?.let { service ->
             timeLeft = (service.timeLeftMs / 1000).toInt()
             isRunning = service.isRunning
             mode = service.currentMode
             selectedTaskId = service.associatedTaskId
+
+            isAlarmPlaying = service.isRingtonePlaying
 
             service.onTickListener = { ms, _ ->
                 timeLeft = (ms / 1000).toInt()
@@ -3753,6 +3859,9 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
             }
             service.onStateChangedListener = { running ->
                 isRunning = running
+            }
+            service.onRingtoneStateChangedListener = { playing ->
+                isAlarmPlaying = playing
             }
         }
     }
@@ -3941,6 +4050,32 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
                                 tint = Color.White,
                                 modifier = Modifier.size(28.dp)
                             )
+                        }
+                        // Alarm Stop Button (表示条件: アラーム再生中でタイマーは停止)
+                        if (!isRunning && isAlarmPlaying) {
+                            IconButton(
+                                onClick = {
+                                    boundService?.stopRingtonePlayback()
+                                    isAlarmPlaying = false
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(
+                                        color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White,
+                                        shape = RoundedCornerShape(50)
+                                    )
+                                    .border(
+                                        BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF424242) else Color(0xFFE0E0E0)),
+                                        shape = RoundedCornerShape(50)
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsOff,
+                                    contentDescription = "アラーム停止",
+                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Gray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
 
