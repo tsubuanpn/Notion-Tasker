@@ -245,6 +245,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            LaunchedEffect(statusOptions.value) {
+                viewModel.updateStatusOptions(statusOptions.value)
+            }
+
             val darkTheme = when (themeMode.value) {
                 "light" -> false
                 "dark" -> true
@@ -402,7 +406,7 @@ fun MainAppScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 actions = {
-                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Completed.route || currentRoute == Screen.Achievements.route) {
+                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Achievements.route) {
                         IconButton(onClick = { viewModel.syncWithNotion() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "同期")
                         }
@@ -475,9 +479,6 @@ fun MainAppScreen(
                     }
                 )
             }
-            composable(Screen.Completed.route) {
-                CompletedScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
-            }
             composable(Screen.Pomodoro.route) {
                 PomodoroScreen(viewModel = viewModel, statusOptions = statusOptionsState.value)
             }
@@ -529,6 +530,7 @@ fun MainAppScreen(
                 viewModel.addTask(
                     title = title,
                     category = cat,
+                    status = statusOptionsState.value.firstOrNull() ?: "未着手",
                     dueDate = due,
                     scheduledDate = sched,
                     onSuccess = {
@@ -1077,71 +1079,6 @@ fun CategoryScreen(
                             )
                         }
                         items(unstartedTasks) { task ->
-                            TaskItemCard(
-                                task = task,
-                                statusOptions = statusOptions,
-                                onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
-                                onEditClick = { onEditTask(task) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CompletedScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask: (TaskModel) -> Unit) {
-    val uiState by viewModel.tasksState.collectAsState()
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        when (val state = uiState) {
-            is TasksUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            is TasksUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = "エラーが発生しました: ${state.message}", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            is TasksUiState.Idle -> {
-                EmptyStateView(
-                    message = "完了済みのタスクはありません。同期するか、タスクを完了させてみてください。",
-                    onRefresh = { viewModel.syncWithNotion() }
-                )
-            }
-            is TasksUiState.Success -> {
-                val completedStatus = statusOptions.getOrNull(2) ?: "完了"
-                val completedTasks = state.tasks.filter { it.status == completedStatus }
-
-                if (completedTasks.isEmpty()) {
-                    EmptyStateView(
-                        message = "完了済みのタスクはありません！",
-                        onRefresh = { viewModel.syncWithNotion() }
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item {
-                            Text(
-                                text = "完了済み (${completedTasks.size}件)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                        }
-                        items(completedTasks) { task ->
                             TaskItemCard(
                                 task = task,
                                 statusOptions = statusOptions,
@@ -2252,8 +2189,8 @@ fun TaskItemCard(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
     }
 
-    val isCompleted = task.status == completedStatus || task.status == "完了"
-    val isInProgress = task.status == inProgressStatus || task.status == "進行中"
+    val isCompleted = task.status == completedStatus
+    val isInProgress = task.status == inProgressStatus
     val isUnstarted = !isCompleted && !isInProgress
 
     val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
@@ -2854,10 +2791,11 @@ fun AchievementsScreen(
                 val todayStr = remember {
                     java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
                 }
+                val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
                 // 1. Overdue & Carried Over calculation
-                val overdueCount = state.tasks.count { it.status != "完了" && it.dueDate != null && it.dueDate < todayStr }
-                val carriedOverCount = state.tasks.count { it.status != "完了" && it.scheduledDate != null && it.scheduledDate < todayStr }
+                val overdueCount = state.tasks.count { it.status != completedStatus && it.dueDate != null && it.dueDate < todayStr }
+                val carriedOverCount = state.tasks.count { it.status != completedStatus && it.scheduledDate != null && it.scheduledDate < todayStr }
 
                 // 2. Week performance
                 val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
@@ -2892,7 +2830,7 @@ fun AchievementsScreen(
                     (sched != null && sched >= startOfWeekStr && sched <= endOfWeekStr) ||
                     (due != null && due >= startOfWeekStr && due <= endOfWeekStr)
                 }
-                val completedWeekCount = weekTasks.count { it.status == "完了" }
+                val completedWeekCount = weekTasks.count { it.status == completedStatus }
                 val weekRate = if (weekTasks.isNotEmpty()) (completedWeekCount * 100) / weekTasks.size else 0
 
                 // 3. Month performance
@@ -2923,12 +2861,12 @@ fun AchievementsScreen(
                     (sched != null && sched >= startOfMonthStr && sched <= endOfMonthStr) ||
                     (due != null && due >= startOfMonthStr && due <= endOfMonthStr)
                 }
-                val completedMonthCount = monthTasks.count { it.status == "完了" }
+                val completedMonthCount = monthTasks.count { it.status == completedStatus }
                 val monthRate = if (monthTasks.isNotEmpty()) (completedMonthCount * 100) / monthTasks.size else 0
 
                 // Warning / attention tasks: active (not Completed) and (dueDate < today or scheduledDate < today)
                 val warningTasks = state.tasks.filter {
-                    it.status != "完了" && (
+                    it.status != completedStatus && (
                         (it.dueDate != null && it.dueDate < todayStr) ||
                         (it.scheduledDate != null && it.scheduledDate < todayStr)
                     )
@@ -2984,7 +2922,7 @@ fun AchievementsScreen(
                     }
 
                     // Tab Selector
-                    val completedTasksCount = state.tasks.count { it.status == "完了" }
+                    val completedTasksCount = state.tasks.count { it.status == completedStatus }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3336,7 +3274,6 @@ fun AchievementsScreen(
                         }
                     } else {
                         // Completed tasks list view sub-page
-                        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
                         val completedTasks = state.tasks.filter { it.status == completedStatus }
 
                         if (completedTasks.isEmpty()) {
@@ -3419,6 +3356,8 @@ fun CalendarScreen(
 
     val selectedDate = selectedCalendarDate.value ?: todayStr
     val isSystemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -3579,13 +3518,13 @@ fun CalendarScreen(
                                                 ) {
                                                     cellTasks.take(3).forEach { task ->
                                                         // Determine dot color
-                                                        val dotColor = if (task.status == "完了") {
+                                                        val dotColor = if (task.status == completedStatus) {
                                                             // Completed is gray-ish
                                                             if (isSystemDark) Color(0xFF616161) else Color(0xFFD6D6D6)
                                                         } else if (task.categoryColor != null) {
                                                             // Use category color
                                                             getNotionCategoryColorRaw(task.categoryColor, isSystemDark)
-                                                        } else if (task.status == "進行中") {
+                                                        } else if (task.status == inProgressStatus) {
                                                             Color(0xFF29B6F6)
                                                         } else {
                                                             when (task.category) {
@@ -3693,18 +3632,36 @@ fun CalendarScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
+    val todayStr = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+    }
+    val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
+    val initialCompletedCount = remember(todayStr, savedCompletedCountDate) {
+        if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
+    }
     
     var timeLeft by remember { mutableStateOf(25 * 60) }
     var isRunning by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
-    var pomodoroCompletedCount by remember { mutableStateOf(prefs.getInt("completed_count", 0)) }
+    var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+
+    LaunchedEffect(todayStr, savedCompletedCountDate) {
+        if (savedCompletedCountDate != todayStr) {
+            prefs.edit()
+                .putInt("completed_count", 0)
+                .putString("completed_count_date", todayStr)
+                .apply()
+        }
+    }
     
     val tasksState by viewModel.tasksState.collectAsState()
-    val uncompletedTasks = remember(tasksState) {
+    val uncompletedTasks = remember(tasksState, completedStatus) {
         when (val state = tasksState) {
             is TasksUiState.Success -> {
-                state.tasks.filter { it.status != "完了" }.sortedWith(
+                state.tasks.filter { it.status != completedStatus }.sortedWith(
                     compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                         .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
                         .thenBy { it.id }
@@ -3777,7 +3734,10 @@ fun CalendarScreen(
                 isRunning = false
                 if (mode == "work") {
                     pomodoroCompletedCount++
-                    prefs.edit().putInt("completed_count", pomodoroCompletedCount).apply()
+                    prefs.edit()
+                        .putInt("completed_count", pomodoroCompletedCount)
+                        .putString("completed_count_date", todayStr)
+                        .apply()
                     Toast.makeText(context, "集中セッション完了！素晴らしいです！5分の休憩をとりましょう。", Toast.LENGTH_LONG).show()
                     mode = "shortBreak"
                     timeLeft = 5 * 60
@@ -3963,11 +3923,11 @@ fun CalendarScreen(
                                     }
                                     triggerServiceAction(PomodoroService.ACTION_START_OR_RESUME, durationMinutes)
                                     if (mode == "work" && activeFocusTask != null) {
-                                        if (activeFocusTask.status != "進行中" && activeFocusTask.status != "完了") {
+                                        if (activeFocusTask.status != inProgressStatus && activeFocusTask.status != completedStatus) {
                                             viewModel.updateTask(
                                                 id = activeFocusTask.id,
                                                 title = activeFocusTask.title,
-                                                status = "進行中",
+                                                status = inProgressStatus,
                                                 category = activeFocusTask.category,
                                                 dueDate = activeFocusTask.dueDate,
                                                 scheduledDate = activeFocusTask.scheduledDate
@@ -4112,11 +4072,11 @@ fun CalendarScreen(
                                 selectedTaskId = task.id
                                 dropdownExpanded = false
                                 if (isRunning && mode == "work") {
-                                    if (task.status != "進行中" && task.status != "完了") {
+                                    if (task.status != inProgressStatus && task.status != completedStatus) {
                                         viewModel.updateTask(
                                              id = task.id,
                                              title = task.title,
-                                             status = "進行中",
+                                             status = inProgressStatus,
                                              category = task.category,
                                              dueDate = task.dueDate,
                                              scheduledDate = task.scheduledDate
@@ -4190,7 +4150,7 @@ fun CalendarScreen(
                                 viewModel.updateTask(
                                     id = task.id,
                                     title = task.title,
-                                    status = "完了",
+                                    status = completedStatus,
                                     category = task.category,
                                     dueDate = task.dueDate,
                                     scheduledDate = task.scheduledDate
