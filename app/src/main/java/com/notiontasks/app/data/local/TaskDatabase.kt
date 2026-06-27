@@ -28,14 +28,23 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE status = :status")
     fun getTasksByStatus(status: String): Flow<List<TaskEntity>>
 
+    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+    suspend fun getTaskById(id: String): TaskEntity?
+
+    @Query("SELECT statusColor FROM tasks WHERE status = :status AND statusColor IS NOT NULL LIMIT 1")
+    suspend fun getStatusColorForStatus(status: String): String?
+
+    @Query("SELECT categoryColor FROM tasks WHERE category = :category AND categoryColor IS NOT NULL LIMIT 1")
+    suspend fun getCategoryColorForCategory(category: String): String?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTasks(tasks: List<TaskEntity>)
 
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    @Query("UPDATE tasks SET status = :status, statusColor = NULL WHERE id = :id")
-    suspend fun updateTaskStatusLocal(id: String, status: String)
+    @Query("UPDATE tasks SET status = :status, statusColor = :statusColor WHERE id = :id")
+    suspend fun updateTaskStatusLocal(id: String, status: String, statusColor: String?)
 
     @Delete
     suspend fun deleteTask(task: TaskEntity)
