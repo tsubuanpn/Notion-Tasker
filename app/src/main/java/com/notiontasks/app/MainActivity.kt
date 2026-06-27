@@ -103,6 +103,10 @@ import android.content.ServiceConnection
 import android.content.ComponentName
 import android.os.IBinder
 import android.os.Build
+import org.json.JSONArray
+import org.json.JSONObject
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Canvas
 
 class MainActivity : ComponentActivity() {
 
@@ -1511,6 +1515,7 @@ fun SettingsScreen(
                     // Launcher for ringtone picker
                     val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                         if (result.resultCode == Activity.RESULT_OK) {
+                            @Suppress("DEPRECATION")
                             val picked = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
                             if (picked != null) {
                                 alarmUriString = picked.toString()
@@ -2284,7 +2289,6 @@ fun TaskItemCard(
     onStatusClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
     val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
     val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
@@ -3005,8 +3009,9 @@ fun AchievementsScreen(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         listOf(
-                            "main" to "🏆 パフォーマンス実績",
-                            "completed" to "✅ 完了済み (${completedTasksCount}件)"
+                            "main" to "🏆 目標進捗",
+                            "stats" to "📈 作業統計",
+                            "completed" to "✅ 完了タスク (${completedTasksCount}件)"
                         ).forEach { (page, label) ->
                             val isSelected = subPage == page
                             Box(
@@ -3026,10 +3031,14 @@ fun AchievementsScreen(
                             ) {
                                 Text(
                                     text = label,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
                                     color = if (isSelected) {
-                                        if (page == "main") MaterialTheme.colorScheme.primary else Color(0xFF2E7D32)
+                                        when (page) {
+                                            "main" -> MaterialTheme.colorScheme.primary
+                                            "stats" -> Color(0xFF0288D1)
+                                            else -> Color(0xFF2E7D32)
+                                        }
                                     } else {
                                         if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color(0xFF616161)
                                     }
@@ -3038,11 +3047,12 @@ fun AchievementsScreen(
                         }
                     }
 
-                    if (subPage == "main") {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
+                    when (subPage) {
+                        "main" -> {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
                             // 1. Counters Row (Overdue & Carrying over)
                             item {
                                 Row(
@@ -3338,8 +3348,12 @@ fun AchievementsScreen(
                                 }
                             }
                         }
-                    } else {
-                        // Completed tasks list view sub-page
+                    }
+                    "stats" -> {
+                        PomodoroStatsSubPage(context = LocalContext.current)
+                    }
+                    else -> {
+                            // Completed tasks list view sub-page
                         val completedTasks = state.tasks.filter { it.status == completedStatus }
 
                         if (completedTasks.isEmpty()) {
@@ -3395,6 +3409,7 @@ fun AchievementsScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -3675,6 +3690,7 @@ fun CalendarScreen(
  }
 
  // Simple color helper for getting base colors of dots
+ @Suppress("UNUSED_PARAMETER")
  fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
      return when (colorName) {
          "gray" -> Color(0xFF9E9E9E)
@@ -3821,6 +3837,36 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
                         .putInt("completed_count", pomodoroCompletedCount)
                         .putString("completed_count_date", todayStr)
                         .apply()
+
+                    // Record Pomodoro session log
+                    val currentLogs = loadPomodoroLogs(context).toMutableList()
+                    val task = activeFocusTask
+                    val category = task?.category ?: "一般作業"
+                    val categoryColor = if (task != null) {
+                        when (task.category) {
+                            "課題" -> "blue"
+                            "学習" -> "purple"
+                            "作業" -> "green"
+                            "趣味" -> "pink"
+                            "他" -> "orange"
+                            else -> "default"
+                        }
+                    } else {
+                        "default"
+                    }
+                    val newLog = PomodoroLog(
+                        id = "pomo_${System.currentTimeMillis()}",
+                        taskId = task?.id,
+                        taskTitle = task?.title ?: "一般作業の集中セッション",
+                        category = category,
+                        categoryColor = categoryColor,
+                        date = todayStr,
+                        minutes = 25,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    currentLogs.add(newLog)
+                    savePomodoroLogs(context, currentLogs)
+
                     if (pomodoroCompletedCount % POMODOROS_BEFORE_LONG_BREAK == 0) {
                         Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
                         mode = "longBreak"
@@ -4273,6 +4319,648 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
             }
 
 
+        }
+    }
+}
+
+// Data class for PomodoroLog
+data class PomodoroLog(
+    val id: String,
+    val taskId: String?,
+    val taskTitle: String?,
+    val category: String,
+    val categoryColor: String?,
+    val date: String,
+    val minutes: Int,
+    val timestamp: Long
+)
+
+// Data class for CategoryStats
+data class CategoryStats(
+    val category: String,
+    val color: String?,
+    val minutes: Int,
+    val hours: Int,
+    val minsRemainder: Int,
+    val percentage: Int
+)
+
+fun getCategoryChartColorInCompose(category: String, colorName: String?): Color {
+    return when (colorName) {
+        "gray" -> Color(0xFF9E9E9E)
+        "brown" -> Color(0xFF8D6E63)
+        "orange" -> Color(0xFFFF9800)
+        "yellow" -> Color(0xFFFFCA28)
+        "green" -> Color(0xFF10B981)
+        "blue" -> Color(0xFF3B82F6)
+        "purple" -> Color(0xFF8B5CF6)
+        "pink" -> Color(0xFFEC4899)
+        "red" -> Color(0xFFEF5350)
+        else -> {
+            when (category) {
+                "課題" -> Color(0xFF3B82F6)
+                "学習" -> Color(0xFF8B5CF6)
+                "作業" -> Color(0xFF10B981)
+                "趣味" -> Color(0xFFEC4899)
+                "他" -> Color(0xFFFF9800)
+                else -> Color(0xFF737373)
+            }
+        }
+    }
+}
+
+fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
+    val prefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+    val jsonString = prefs.getString("pomodoro_logs_list", null)
+    if (jsonString == null) {
+        return emptyList()
+    }
+    val logs = mutableListOf<PomodoroLog>()
+    try {
+        val jsonArray = org.json.JSONArray(jsonString)
+        for (i in 0 until jsonArray.length()) {
+            val jsonObj = jsonArray.getJSONObject(i)
+            val id = jsonObj.getString("id")
+            if (id.startsWith("pomo_seed_")) {
+                continue
+            }
+            logs.add(PomodoroLog(
+                id = id,
+                taskId = if (jsonObj.isNull("taskId")) null else jsonObj.getString("taskId"),
+                taskTitle = if (jsonObj.isNull("taskTitle")) null else jsonObj.getString("taskTitle"),
+                category = jsonObj.getString("category"),
+                categoryColor = if (jsonObj.isNull("categoryColor")) null else jsonObj.getString("categoryColor"),
+                date = jsonObj.getString("date"),
+                minutes = jsonObj.getInt("minutes"),
+                timestamp = jsonObj.getLong("timestamp")
+            ))
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return logs
+}
+
+fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
+    val prefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+    try {
+        val jsonArray = org.json.JSONArray()
+        for (log in logs) {
+            val jsonObj = org.json.JSONObject().apply {
+                put("id", log.id)
+                put("taskId", log.taskId ?: org.json.JSONObject.NULL)
+                put("taskTitle", log.taskTitle ?: org.json.JSONObject.NULL)
+                put("category", log.category)
+                put("categoryColor", log.categoryColor ?: org.json.JSONObject.NULL)
+                put("date", log.date)
+                put("minutes", log.minutes)
+                put("timestamp", log.timestamp)
+            }
+            jsonArray.put(jsonObj)
+        }
+        prefs.edit().putString("pomodoro_logs_list", jsonArray.toString()).apply()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+@Composable
+fun PomodoroStatsSubPage(context: Context) {
+    val pomodoroLogs = remember { loadPomodoroLogs(context) }
+
+    val todayStr = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+    }
+    val currentMonthPrefix = todayStr.substring(0, 7)
+
+    val todayMinutes = remember(pomodoroLogs, todayStr) {
+        pomodoroLogs.filter { it.date == todayStr }.sumOf { it.minutes }
+    }
+    val todayHours = todayMinutes / 60
+    val todayMinsRemainder = todayMinutes % 60
+
+    val monthMinutes = remember(pomodoroLogs, currentMonthPrefix) {
+        pomodoroLogs.filter { it.date.startsWith(currentMonthPrefix) }.sumOf { it.minutes }
+    }
+    val monthHoursTotal = monthMinutes / 60
+
+    val allTimeMinutes = remember(pomodoroLogs) {
+        pomodoroLogs.sumOf { it.minutes }
+    }
+    val allTimeHoursTotal = allTimeMinutes / 60
+
+    val thisWeekDays = remember {
+        val list = mutableListOf<Pair<String, String>>()
+        val sdfLabel = java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault())
+        val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        
+        val cal = Calendar.getInstance()
+        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+        val offsetToMonday = when (dayOfWeek) {
+            Calendar.SUNDAY -> -6
+            Calendar.MONDAY -> 0
+            Calendar.TUESDAY -> -1
+            Calendar.WEDNESDAY -> -2
+            Calendar.THURSDAY -> -3
+            Calendar.FRIDAY -> -4
+            Calendar.SATURDAY -> -5
+            else -> 0
+        }
+        cal.add(Calendar.DAY_OF_MONTH, offsetToMonday)
+        
+        for (i in 0 until 7) {
+            list.add(Pair(sdfLabel.format(cal.time), sdfIso.format(cal.time)))
+            cal.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        list
+    }
+
+    var selectedDate by remember { mutableStateOf<String?>(todayStr) }
+
+    val maxDailyHours = remember(pomodoroLogs, thisWeekDays) {
+        var max = 10f
+        for (day in thisWeekDays) {
+            val dayHours = pomodoroLogs.filter { it.date == day.second }.sumOf { it.minutes } / 60f
+            if (dayHours > max) {
+                max = dayHours
+            }
+        }
+        max
+    }
+
+    val sortedCategories = remember(pomodoroLogs, thisWeekDays) {
+        val thisWeekDaysStrings = thisWeekDays.map { it.second }
+        val logsInThisWeek = pomodoroLogs.filter { thisWeekDaysStrings.contains(it.date) }
+        val totalReportMins = logsInThisWeek.sumOf { it.minutes }
+        
+        val catGroups = logsInThisWeek.groupBy { it.category }
+        val list = catGroups.map { entry ->
+            val minutes = entry.value.sumOf { it.minutes }
+            val pct = if (totalReportMins > 0) Math.round((minutes.toFloat() / totalReportMins) * 100) else 0
+            val firstWithColor = entry.value.firstOrNull { it.categoryColor != null }
+            CategoryStats(
+                category = entry.key,
+                color = firstWithColor?.categoryColor,
+                minutes = minutes,
+                hours = minutes / 60,
+                minsRemainder = minutes % 60,
+                percentage = pct.toInt()
+            )
+        }.sortedByDescending { it.minutes }
+        
+        Pair(list, totalReportMins)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF1F1F1)
+                            )
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        listOf("今日", "今月", "総計").forEach { label ->
+                            Text(
+                                text = label,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.Center,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (todayHours > 0) "${todayHours}時間${todayMinsRemainder}分" else "${todayMinsRemainder}分",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        Box(modifier = Modifier.width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)))
+                        
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${monthHoursTotal}時間",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        Box(modifier = Modifier.width(1.dp).height(20.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)))
+                        
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${allTimeHoursTotal}時間",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "今週の作業統計",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(36.dp)
+                                .padding(end = 4.dp),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Text(text = "${Math.round(maxDailyHours)}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Text(text = "${Math.round(maxDailyHours / 2)}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Text(text = "0", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(1.dp)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(start = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            val weekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
+                            thisWeekDays.forEachIndexed { index, day ->
+                                val dayLogs = pomodoroLogs.filter { it.date == day.second }
+                                val categoryMinutes = dayLogs.groupBy { it.category }
+                                    .mapValues { entry -> entry.value.sumOf { it.minutes } }
+                                val categoryHours = categoryMinutes.mapValues { it.value / 60f }
+                                val isSelected = selectedDate == day.second
+
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable { selectedDate = day.second }
+                                        .padding(vertical = 4.dp),
+                                    verticalArrangement = Arrangement.Bottom,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(16.dp)
+                                            .height(90.dp)
+                                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                            .background(if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF5F5F5)),
+                                        contentAlignment = Alignment.BottomCenter
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.Bottom
+                                        ) {
+                                            val categoriesList = listOf("課題", "学習", "作業", "趣味", "他", "一般作業")
+                                            categoriesList.forEach { cat ->
+                                                val hrs = categoryHours[cat] ?: 0f
+                                                if (hrs > 0f) {
+                                                    val pct = hrs / maxDailyHours
+                                                    val color = getCategoryChartColorInCompose(cat, dayLogs.firstOrNull { it.category == cat }?.categoryColor)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height((90 * pct).dp)
+                                                            .background(color)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = weekLabels[index],
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Text(
+                                        text = day.first,
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        selectedDate?.let { selDate ->
+            val dateLogs = pomodoroLogs.filter { it.date == selDate }
+            val formattedSelectedDate = try {
+                val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(selDate)
+                if (date != null) {
+                    java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault()).format(date)
+                } else {
+                    selDate
+                }
+            } catch (e: Exception) {
+                selDate
+            }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🎯 $formattedSelectedDate の作業詳細",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            val totalMins = dateLogs.sumOf { it.minutes }
+                            Text(
+                                text = "合計: ${totalMins / 60}時間${totalMins % 60}分 (${dateLogs.size}回)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (dateLogs.isEmpty()) {
+                            Text(
+                                text = "この日の作業記録はありません。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                dateLogs.sortedByDescending { log -> log.timestamp }.forEach { log ->
+                                    val catColor = getCategoryChartColorInCompose(log.category, log.categoryColor)
+                                    val logTimeStr = try {
+                                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestamp))
+                                    } catch (e: Exception) {
+                                        ""
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFFAFAFA),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(RoundedCornerShape(50))
+                                                    .background(catColor)
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = log.taskTitle ?: "ポモドーロセッション",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = log.category,
+                                                    fontSize = 8.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "$logTimeStr (${log.minutes}分)",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            val (sortedCats, totalReportMins) = sortedCategories
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "今週の各作業時間",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.size(80.dp)
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                if (totalReportMins > 0) {
+                                    var startAngle = -90f
+                                    sortedCats.forEach { cat ->
+                                        val sweepAngle = (cat.minutes.toFloat() / totalReportMins) * 360f
+                                        val color = getCategoryChartColorInCompose(cat.category, cat.color)
+                                        drawArc(
+                                            color = color,
+                                            startAngle = startAngle,
+                                            sweepAngle = sweepAngle,
+                                            useCenter = false,
+                                            style = Stroke(width = 8.dp.toPx())
+                                        )
+                                        startAngle += sweepAngle
+                                    }
+                                } else {
+                                    drawArc(
+                                        color = Color.LightGray,
+                                        startAngle = 0f,
+                                        sweepAngle = 360f,
+                                        useCenter = false,
+                                        style = Stroke(width = 8.dp.toPx())
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Total",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val chunkedCats = sortedCats.take(6).chunked(2)
+                            chunkedCats.forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowItems.forEach { sc ->
+                                        val color = getCategoryChartColorInCompose(sc.category, sc.color)
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(RoundedCornerShape(50))
+                                                    .background(color)
+                                                    .align(Alignment.CenterVertically)
+                                            )
+                                            
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = sc.category,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Text(
+                                                        text = "${sc.percentage}%",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (sc.hours > 0) "${sc.hours}時間${sc.minsRemainder}分" else "${sc.minsRemainder}分",
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (rowItems.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
