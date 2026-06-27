@@ -3624,6 +3624,20 @@ fun CalendarScreen(
      }
  }
 
+// Pomodoro duration constants (single source of truth, in seconds)
+private const val POMODORO_WORK_SEC = 25 * 60
+private const val POMODORO_SHORT_BREAK_SEC = 5 * 60
+private const val POMODORO_LONG_BREAK_SEC = 15 * 60
+
+// After this many completed work sessions, take a long break instead of a short one
+private const val POMODOROS_BEFORE_LONG_BREAK = 4
+
+private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
+    "work" -> POMODORO_WORK_SEC
+    "shortBreak" -> POMODORO_SHORT_BREAK_SEC
+    else -> POMODORO_LONG_BREAK_SEC
+}
+
  @OptIn(ExperimentalMaterial3Api::class)
  @Composable
  fun PomodoroScreen(
@@ -3640,7 +3654,7 @@ fun CalendarScreen(
         if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
     
-    var timeLeft by remember { mutableStateOf(25 * 60) }
+    var timeLeft by remember { mutableStateOf(POMODORO_WORK_SEC) }
     var isRunning by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
     var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
@@ -3738,13 +3752,18 @@ fun CalendarScreen(
                         .putInt("completed_count", pomodoroCompletedCount)
                         .putString("completed_count_date", todayStr)
                         .apply()
-                    Toast.makeText(context, "集中セッション完了！素晴らしいです！5分の休憩をとりましょう。", Toast.LENGTH_LONG).show()
-                    mode = "shortBreak"
-                    timeLeft = 5 * 60
+                    if (pomodoroCompletedCount % POMODOROS_BEFORE_LONG_BREAK == 0) {
+                        Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                        mode = "longBreak"
+                    } else {
+                        Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                        mode = "shortBreak"
+                    }
+                    timeLeft = pomodoroDurationSecondsFor(mode)
                 } else {
                     Toast.makeText(context, "休憩終了！次の集中セッションを始めましょう。", Toast.LENGTH_LONG).show()
                     mode = "work"
-                    timeLeft = 25 * 60
+                    timeLeft = pomodoroDurationSecondsFor(mode)
                 }
             }
             service.onStateChangedListener = { running ->
@@ -3796,11 +3815,7 @@ fun CalendarScreen(
                         )
                         .clickable {
                             mode = m
-                            timeLeft = when (m) {
-                                "work" -> 25 * 60
-                                "shortBreak" -> 5 * 60
-                                else -> 15 * 60
-                            }
+                            timeLeft = pomodoroDurationSecondsFor(m)
                             triggerServiceAction(PomodoroService.ACTION_STOP)
                         }
                         .padding(vertical = 10.dp),
@@ -3879,11 +3894,7 @@ fun CalendarScreen(
                             onClick = {
                                 triggerServiceAction(PomodoroService.ACTION_STOP)
                                 isRunning = false
-                                timeLeft = when (mode) {
-                                    "work" -> 25 * 60
-                                    "shortBreak" -> 5 * 60
-                                    else -> 15 * 60
-                                }
+                                timeLeft = pomodoroDurationSecondsFor(mode)
                             },
                             modifier = Modifier
                                 .size(44.dp)
@@ -3916,11 +3927,7 @@ fun CalendarScreen(
                                 if (isRunning) {
                                     triggerServiceAction(PomodoroService.ACTION_PAUSE)
                                 } else {
-                                    val durationMinutes = when (mode) {
-                                        "work" -> 25
-                                        "shortBreak" -> 5
-                                        else -> 15
-                                    }
+                                    val durationMinutes = pomodoroDurationSecondsFor(mode) / 60
                                     triggerServiceAction(PomodoroService.ACTION_START_OR_RESUME, durationMinutes)
                                     if (mode == "work" && activeFocusTask != null) {
                                         if (activeFocusTask.status != inProgressStatus && activeFocusTask.status != completedStatus) {

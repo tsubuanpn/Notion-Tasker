@@ -189,7 +189,7 @@ class PomodoroService : Service() {
         }
         
         val message = when (currentMode) {
-            "work" -> "素晴らしいですね！ 5分間のリフレッシュ休憩をとりましょう。"
+            "work" -> "素晴らしいですね！ ここでリフレッシュ休憩をとりましょう。"
             else -> "次のフォーカスを始めましょう！素晴らしい一日のために。"
         }
 
