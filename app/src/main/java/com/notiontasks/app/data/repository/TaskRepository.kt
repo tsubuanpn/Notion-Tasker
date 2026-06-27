@@ -98,7 +98,7 @@ class TaskRepository(
     ) {
         propTitleName = if (title.isBlank()) "名前" else title
         propStatusName = if (status.isBlank()) "状態" else status
-        propStatusType = if (statusType.isBlank()) "status" else statusType
+        propStatusType = if (statusType == "select") "select" else "status"
         propCategoryName = if (category.isBlank()) "種類" else category
         propScheduledDateName = if (scheduledDate.isBlank()) "予定日" else scheduledDate
         propDueDateName = if (dueDate.isBlank()) "締め切り" else dueDate
@@ -199,7 +199,8 @@ class TaskRepository(
         newStatus: String
     ) {
         // Optimistic UI/Local update
-        taskDao.updateTaskStatusLocal(pageId, newStatus)
+        val statusColor = taskDao.getStatusColorForStatus(newStatus)
+        taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
 
         // Make Remote Patch call
         val authHeader = "Bearer $token"
@@ -230,13 +231,26 @@ class TaskRepository(
         scheduledDate: String?
     ) {
         // Optimistic UI/Local update
+        val currentLocalTask = taskDao.getTaskById(pageId)
+        val statusColor = if (currentLocalTask?.status == status) {
+            currentLocalTask.statusColor
+        } else {
+            taskDao.getStatusColorForStatus(status)
+        }
+        val categoryColor = if (currentLocalTask?.category == category) {
+            currentLocalTask.categoryColor
+        } else {
+            taskDao.getCategoryColorForCategory(category)
+        }
         val updatedLocalRef = TaskEntity(
             id = pageId,
             title = title,
             status = status,
             category = category,
             dueDate = dueDate,
-            scheduledDate = scheduledDate
+            scheduledDate = scheduledDate,
+            statusColor = statusColor,
+            categoryColor = categoryColor
         )
         taskDao.insertTasks(listOf(updatedLocalRef))
 
@@ -307,7 +321,11 @@ class TaskRepository(
         
         val properties = mutableMapOf<String, PropertyUpdate>()
         properties[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
-        properties[propStatusName] = PropertyUpdate(status = StatusValue(name = status))
+        properties[propStatusName] = if (propStatusType == "select") {
+            PropertyUpdate(select = SelectValue(name = status))
+        } else {
+            PropertyUpdate(status = StatusValue(name = status))
+        }
         properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
         
         if (!dueDate.isNullOrBlank()) {
