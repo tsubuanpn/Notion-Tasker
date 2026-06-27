@@ -14,11 +14,12 @@ import androidx.core.content.ContextCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.notiontasks.app.data.local.TaskDatabase
-import com.notiontasks.app.data.model.TaskStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -45,6 +46,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 val allTasks = database.taskDao.getAllTasksFlow().first()
                 
                 val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val completedStatus = getStatusOptions(context).getOrNull(2) ?: "完了"
                 
                 if (type == "MORNING") {
                     val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
@@ -59,7 +61,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                     rescheduleAlarmForType(context, "MORNING")
                 } else if (type == "EVENING") {
                     val unfinishedTasks = allTasks.filter { 
-                        it.scheduledDate == todayStr && it.status != "完了" 
+                        it.scheduledDate == todayStr && it.status != completedStatus
                     }
                     if (unfinishedTasks.isNotEmpty()) {
                         showNotification(
@@ -147,6 +149,21 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
+        }
+
+        fun getStatusOptions(context: Context): List<String> {
+            val json = getSecurePreferences(context).getString(
+                "status_options",
+                "[\"未着手\",\"進行中\",\"完了\"]"
+            ) ?: "[\"未着手\",\"進行中\",\"完了\"]"
+            return try {
+                Json.decodeFromString<List<String>>(json)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .ifEmpty { listOf("未着手", "進行中", "完了") }
+            } catch (e: Exception) {
+                listOf("未着手", "進行中", "完了")
+            }
         }
 
         fun rescheduleAlarms(context: Context) {
