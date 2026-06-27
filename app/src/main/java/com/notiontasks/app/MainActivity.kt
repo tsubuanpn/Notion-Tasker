@@ -3802,6 +3802,8 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
             this.action = action
             putExtra(PomodoroService.EXTRA_TASK_ID, selectedTaskId)
             putExtra(PomodoroService.EXTRA_TASK_TITLE, activeFocusTask?.title)
+            putExtra(PomodoroService.EXTRA_TASK_CATEGORY, activeFocusTask?.category)
+            putExtra(PomodoroService.EXTRA_TASK_CATEGORY_COLOR, activeFocusTask?.categoryColor)
             putExtra(PomodoroService.EXTRA_MODE, mode)
             if (durationMinutes > 0) {
                 putExtra(PomodoroService.EXTRA_DURATION_MINUTES, durationMinutes)
@@ -3811,6 +3813,31 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
+        }
+    }
+
+    // Sync selected task state to the bound PomodoroService
+    LaunchedEffect(selectedTaskId, activeFocusTask, boundService) {
+        boundService?.let { service ->
+            val task = activeFocusTask
+            // もしタスクが選択されているが、activeFocusTaskがまだロード中の場合は同期を待つ（nullで上書きしないため）
+            if (selectedTaskId != null && task == null) {
+                return@LaunchedEffect
+            }
+            
+            // サービス側のタスク情報が、現在の選択状態（ID、タイトル、カテゴリなど）と異なる場合にのみ更新する
+            val isSame = service.associatedTaskId == selectedTaskId &&
+                         service.associatedTaskTitle == task?.title &&
+                         service.associatedTaskCategory == task?.category
+            
+            if (!isSame) {
+                service.updateFocusedTask(
+                    taskId = selectedTaskId,
+                    taskTitle = task?.title,
+                    category = task?.category,
+                    categoryColor = task?.categoryColor
+                )
+            }
         }
     }
 
@@ -3837,35 +3864,6 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
                         .putInt("completed_count", pomodoroCompletedCount)
                         .putString("completed_count_date", todayStr)
                         .apply()
-
-                    // Record Pomodoro session log
-                    val currentLogs = loadPomodoroLogs(context).toMutableList()
-                    val task = activeFocusTask
-                    val category = task?.category ?: "一般作業"
-                    val categoryColor = if (task != null) {
-                        when (task.category) {
-                            "課題" -> "blue"
-                            "学習" -> "purple"
-                            "作業" -> "green"
-                            "趣味" -> "pink"
-                            "他" -> "orange"
-                            else -> "default"
-                        }
-                    } else {
-                        "default"
-                    }
-                    val newLog = PomodoroLog(
-                        id = "pomo_${System.currentTimeMillis()}",
-                        taskId = task?.id,
-                        taskTitle = task?.title ?: "一般作業の集中セッション",
-                        category = category,
-                        categoryColor = categoryColor,
-                        date = todayStr,
-                        minutes = 25,
-                        timestamp = System.currentTimeMillis()
-                    )
-                    currentLogs.add(newLog)
-                    savePomodoroLogs(context, currentLogs)
 
                     if (pomodoroCompletedCount % POMODOROS_BEFORE_LONG_BREAK == 0) {
                         Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
@@ -4214,6 +4212,12 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
                         onClick = {
                             selectedTaskId = null
                             dropdownExpanded = false
+                            boundService?.updateFocusedTask(
+                                taskId = null,
+                                taskTitle = null,
+                                category = null,
+                                categoryColor = null
+                            )
                         }
                     )
                     uncompletedTasks.forEach { task ->
@@ -4222,6 +4226,12 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
                             onClick = {
                                 selectedTaskId = task.id
                                 dropdownExpanded = false
+                                boundService?.updateFocusedTask(
+                                    taskId = task.id,
+                                    taskTitle = task.title,
+                                    category = task.category,
+                                    categoryColor = task.categoryColor
+                                )
                                 if (isRunning && mode == "work") {
                                     if (task.status != inProgressStatus && task.status != completedStatus) {
                                         viewModel.updateTask(
@@ -4774,11 +4784,6 @@ fun PomodoroStatsSubPage(context: Context) {
                             ) {
                                 dateLogs.sortedByDescending { log -> log.timestamp }.forEach { log ->
                                     val catColor = getCategoryChartColorInCompose(log.category, log.categoryColor)
-                                    val logTimeStr = try {
-                                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestamp))
-                                    } catch (e: Exception) {
-                                        ""
-                                    }
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -4818,7 +4823,7 @@ fun PomodoroStatsSubPage(context: Context) {
                                             }
                                         }
                                         Text(
-                                            text = "$logTimeStr (${log.minutes}分)",
+                                            text = "${log.minutes}分",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
