@@ -47,11 +47,15 @@ class TaskViewModel(
     private val _selectedCategory = MutableStateFlow("課題")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    private val _statusOptions = MutableStateFlow(listOf("未着手", "進行中", "完了"))
+
     val filteredCategoryTasks: StateFlow<List<TaskModel>> = combine(
         repository.allTasks,
-        _selectedCategory
-    ) { tasks, category ->
-        tasks.filter { it.category == category && it.status != "完了" }
+        _selectedCategory,
+        _statusOptions
+    ) { tasks, category, statusOptions ->
+        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+        tasks.filter { it.category == category && it.status != completedStatus }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -125,6 +129,12 @@ class TaskViewModel(
         _selectedCategory.value = category
     }
 
+    fun updateStatusOptions(statusOptions: List<String>) {
+        if (statusOptions.isNotEmpty()) {
+            _statusOptions.value = statusOptions
+        }
+    }
+
     // Dynamic cycle logic over defined state options
     fun cycleTaskStatus(task: TaskModel, stateOptions: List<String> = emptyList()) {
         val options = if (stateOptions.isNotEmpty()) stateOptions else listOf("未着手", "進行中", "完了")
@@ -189,7 +199,7 @@ class TaskViewModel(
     fun addTask(
         title: String,
         category: String,
-        status: String = "未着手",
+        status: String = _statusOptions.value.firstOrNull() ?: "未着手",
         dueDate: String? = null,
         scheduledDate: String? = null,
         onSuccess: () -> Unit = {},
