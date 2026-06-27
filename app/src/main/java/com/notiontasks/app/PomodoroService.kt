@@ -23,6 +23,8 @@ class PomodoroService : Service() {
     // Timer States
     var isRunning = false
         private set
+    var isPaused = false
+        private set
     var timeLeftMs: Long = 25 * 60 * 1000L
         private set
     var durationMs: Long = 25 * 60 * 1000L
@@ -33,6 +35,7 @@ class PomodoroService : Service() {
     var associatedTaskCategory: String? = null
     var associatedTaskCategoryColor: String? = null
     var focusStartLeftMs: Long = 0L
+    var currentSessionId: String? = null
 
     // Callback to update UI when active
     var onTickListener: ((timeLeftMs: Long, formattedTime: String) -> Unit)? = null
@@ -68,8 +71,10 @@ class PomodoroService : Service() {
                     val durationMinutes = intent.getIntExtra(EXTRA_DURATION_MINUTES, -1)
                     
                     if (durationMinutes > 0 && !isRunning) {
-                        durationMs = durationMinutes * 60 * 1000L
-                        timeLeftMs = durationMs
+                        if (!isPaused) {
+                            durationMs = durationMinutes * 60 * 1000L
+                            timeLeftMs = durationMs
+                        }
                     }
                     
                     associatedTaskTitle = taskTitle
@@ -105,7 +110,21 @@ class PomodoroService : Service() {
     private fun startTimer() {
         if (isRunning) return
         
+        if (!isPaused) {
+            currentSessionId = System.currentTimeMillis().toString()
+        } else {
+            currentSessionId?.let { sessionId ->
+                val targetId = "pomo_paused_$sessionId"
+                val currentLogs = loadPomodoroLogs(this).toMutableList()
+                val removed = currentLogs.removeAll { it.id == targetId }
+                if (removed) {
+                    savePomodoroLogs(this, currentLogs)
+                }
+            }
+        }
+        
         isRunning = true
+        isPaused = false
         onStateChangedListener?.invoke(true)
         
         if (currentMode == "work") {
@@ -126,9 +145,10 @@ class PomodoroService : Service() {
             override fun onFinish() {
                 timeLeftMs = 0
                 isRunning = false
+                isPaused = false
                 onStateChangedListener?.invoke(false)
                 
-                commitFocusSession()
+                commitFocusSession(isTemporary = false)
                 
                 onFinishedListener?.invoke()
                 // Play alarm sound: prefer user-selected URI stored in pomodoro_prefs
@@ -160,10 +180,11 @@ class PomodoroService : Service() {
 
     private fun pauseTimer() {
         if (!isRunning) return
-        commitFocusSession()
+        commitFocusSession(isTemporary = true)
         countDownTimer?.cancel()
         countDownTimer = null
         isRunning = false
+        isPaused = true
         onStateChangedListener?.invoke(false)
         // 停止時に再生中のアラームがあれば止める
         ringtone?.stop()
@@ -176,10 +197,11 @@ class PomodoroService : Service() {
     }
 
     private fun stopTimer() {
-        commitFocusSession()
+        commitFocusSession(isTemporary = false)
         countDownTimer?.cancel()
         countDownTimer = null
         isRunning = false
+        isPaused = false
         timeLeftMs = durationMs
         onStateChangedListener?.invoke(false)
         // 停止時に再生中のアラームがあれば止める
@@ -202,7 +224,7 @@ class PomodoroService : Service() {
         }
     }
 
-    fun commitFocusSession() {
+    fun commitFocusSession(isTemporary: Boolean = false) {
         if (currentMode != "work") return
         val elapsedMs = focusStartLeftMs - timeLeftMs
         if (elapsedMs < 1000L) return // 1秒未満の極めて短い時間は記録しない
@@ -217,17 +239,27 @@ class PomodoroService : Service() {
 
             val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
             val categoryVal = associatedTaskCategory ?: "一般作業"
-            val categoryColorVal = when (associatedTaskCategory) {
-                "課題" -> "blue"
-                "学習" -> "purple"
-                "作業" -> "green"
-                "趣味" -> "pink"
-                "他" -> "orange"
-                else -> associatedTaskCategoryColor ?: "default"
+            val categoryColorVal = if (!associatedTaskCategoryColor.isNullOrBlank() && associatedTaskCategoryColor != "default") {
+                associatedTaskCategoryColor!!.lowercase()
+            } else {
+                when (associatedTaskCategory) {
+                    "課題" -> "blue"
+                    "学習" -> "purple"
+                    "作業" -> "green"
+                    "趣味" -> "pink"
+                    "他" -> "orange"
+                    else -> "default"
+                }
+            }
+
+            val logId = if (isTemporary && currentSessionId != null) {
+                "pomo_paused_$currentSessionId"
+            } else {
+                "pomo_${System.currentTimeMillis()}"
             }
 
             val newLog = PomodoroLog(
-                id = "pomo_${System.currentTimeMillis()}",
+                id = logId,
                 taskId = associatedTaskId,
                 taskTitle = taskTitleVal,
                 category = categoryVal,
@@ -238,6 +270,12 @@ class PomodoroService : Service() {
             )
 
             val currentLogs = loadPomodoroLogs(this).toMutableList()
+            
+            // 本登録するときに、既に同じセッションの一時的なログがあればそれを削除して新しく追加する
+            if (!isTemporary && currentSessionId != null) {
+                currentLogs.removeAll { it.id == "pomo_paused_$currentSessionId" }
+            }
+
             currentLogs.add(newLog)
             savePomodoroLogs(this, currentLogs)
         }
@@ -248,7 +286,8 @@ class PomodoroService : Service() {
 
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
         if (currentMode == "work" && isRunning) {
-            commitFocusSession()
+            commitFocusSession(isTemporary = false)
+            currentSessionId = System.currentTimeMillis().toString()
         }
 
         associatedTaskId = taskId

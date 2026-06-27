@@ -494,7 +494,12 @@ fun MainAppScreen(
                 PomodoroScreen(viewModel = viewModel, statusOptions = statusOptionsState.value)
             }
             composable(Screen.Achievements.route) {
-                AchievementsScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
+                AchievementsScreen(
+                    viewModel = viewModel,
+                    statusOptions = statusOptionsState.value,
+                    categoryOptions = categoryOptionsState.value,
+                    onEditTask = { editingTask = it }
+                )
             }
             composable(Screen.Calendar.route) {
                 CalendarScreen(
@@ -2868,6 +2873,7 @@ fun EditTaskDialog(
 fun AchievementsScreen(
     viewModel: TaskViewModel,
     statusOptions: List<String>,
+    categoryOptions: List<String>,
     onEditTask: (TaskModel) -> Unit
 ) {
     val uiState by viewModel.tasksState.collectAsState()
@@ -3350,7 +3356,14 @@ fun AchievementsScreen(
                         }
                     }
                     "stats" -> {
-                        PomodoroStatsSubPage(context = LocalContext.current)
+                        val categoryColorMap = remember(state.tasks) {
+                            state.tasks.filter { !it.category.isNullOrBlank() }.associate { it.category to it.categoryColor }
+                        }
+                        PomodoroStatsSubPage(
+                            context = LocalContext.current,
+                            categoryOptions = categoryOptions,
+                            categoryColorMap = categoryColorMap
+                        )
                     }
                     else -> {
                             // Completed tasks list view sub-page
@@ -3741,6 +3754,7 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
     var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    var isInitialSyncDone by remember { mutableStateOf(false) }
     val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
     val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
@@ -3785,6 +3799,7 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 boundService = null
+                isInitialSyncDone = false
             }
         }
     }
@@ -3794,6 +3809,7 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
         context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         onDispose {
             context.unbindService(serviceConnection)
+            isInitialSyncDone = false
         }
     }
 
@@ -3817,7 +3833,9 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
     }
 
     // Sync selected task state to the bound PomodoroService
-    LaunchedEffect(selectedTaskId, activeFocusTask, boundService) {
+    LaunchedEffect(selectedTaskId, activeFocusTask, boundService, isInitialSyncDone) {
+        if (!isInitialSyncDone) return@LaunchedEffect
+        
         boundService?.let { service ->
             val task = activeFocusTask
             // もしタスクが選択されているが、activeFocusTaskがまだロード中の場合は同期を待つ（nullで上書きしないため）
@@ -3849,6 +3867,7 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
             isRunning = service.isRunning
             mode = service.currentMode
             selectedTaskId = service.associatedTaskId
+            isInitialSyncDone = true
 
             isAlarmPlaying = service.isRingtonePlaying
 
@@ -4356,7 +4375,7 @@ data class CategoryStats(
 )
 
 fun getCategoryChartColorInCompose(category: String, colorName: String?): Color {
-    return when (colorName) {
+    return when (colorName?.lowercase()) {
         "gray" -> Color(0xFF9E9E9E)
         "brown" -> Color(0xFF8D6E63)
         "orange" -> Color(0xFFFF9800)
@@ -4435,7 +4454,11 @@ fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
 }
 
 @Composable
-fun PomodoroStatsSubPage(context: Context) {
+fun PomodoroStatsSubPage(
+    context: Context,
+    categoryOptions: List<String>,
+    categoryColorMap: Map<String, String?>
+) {
     val pomodoroLogs = remember { loadPomodoroLogs(context) }
 
     val todayStr = remember {
@@ -4687,12 +4710,13 @@ fun PomodoroStatsSubPage(context: Context) {
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalArrangement = Arrangement.Bottom
                                         ) {
-                                            val categoriesList = listOf("課題", "学習", "作業", "趣味", "他", "一般作業")
+                                            val categoriesList = (categoryOptions + listOf("一般作業")).distinct()
                                             categoriesList.forEach { cat ->
                                                 val hrs = categoryHours[cat] ?: 0f
                                                 if (hrs > 0f) {
                                                     val pct = hrs / maxDailyHours
-                                                    val color = getCategoryChartColorInCompose(cat, dayLogs.firstOrNull { it.category == cat }?.categoryColor)
+                                                    val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor ?: categoryColorMap[cat]
+                                                    val color = getCategoryChartColorInCompose(cat, colorName)
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
@@ -4783,7 +4807,8 @@ fun PomodoroStatsSubPage(context: Context) {
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 dateLogs.sortedByDescending { log -> log.timestamp }.forEach { log ->
-                                    val catColor = getCategoryChartColorInCompose(log.category, log.categoryColor)
+                                    val colorName = log.categoryColor ?: categoryColorMap[log.category]
+                                    val catColor = getCategoryChartColorInCompose(log.category, colorName)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -4873,7 +4898,8 @@ fun PomodoroStatsSubPage(context: Context) {
                                     var startAngle = -90f
                                     sortedCats.forEach { cat ->
                                         val sweepAngle = (cat.minutes.toFloat() / totalReportMins) * 360f
-                                        val color = getCategoryChartColorInCompose(cat.category, cat.color)
+                                        val colorName = cat.color ?: categoryColorMap[cat.category]
+                                        val color = getCategoryChartColorInCompose(cat.category, colorName)
                                         drawArc(
                                             color = color,
                                             startAngle = startAngle,
@@ -4912,7 +4938,8 @@ fun PomodoroStatsSubPage(context: Context) {
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     rowItems.forEach { sc ->
-                                        val color = getCategoryChartColorInCompose(sc.category, sc.color)
+                                        val colorName = sc.color ?: categoryColorMap[sc.category]
+                                        val color = getCategoryChartColorInCompose(sc.category, colorName)
                                         Row(
                                             modifier = Modifier.weight(1f),
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
