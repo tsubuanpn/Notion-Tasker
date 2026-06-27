@@ -2904,21 +2904,6 @@ fun AchievementsScreen(
                                 color = MaterialTheme.colorScheme.onBackground
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF1F1F1),
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "サブページ対応",
-                                color = if (isSystemInDarkTheme()) Color.White else Color.Gray,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                     }
 
                     // Tab Selector
