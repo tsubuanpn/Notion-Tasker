@@ -13,8 +13,8 @@ android {
         applicationId = "com.notiontasks.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.3.1-dev.3"
+        versionCode = 13
+        versionName = "1.3.1-dev.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
