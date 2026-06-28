@@ -37,6 +37,60 @@ class PomodoroService : Service() {
     var focusStartLeftMs: Long = 0L
     var currentSessionId: String? = null
 
+    fun updateModeAndDuration(mode: String) {
+        currentMode = mode
+        durationMs = when (mode) {
+            "work" -> 25 * 60 * 1000L
+            "shortBreak" -> 5 * 60 * 1000L
+            else -> 15 * 60 * 1000L
+        }
+        if (!isRunning) {
+            timeLeftMs = durationMs
+        }
+    }
+
+    fun getCompletedCountToday(): Int {
+        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
+        return if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
+    }
+
+    private fun transitionToNextMode() {
+        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        
+        val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
+        var pomodoroCompletedCount = if (savedCompletedCountDate == todayStr) {
+            prefs.getInt("completed_count", 0)
+        } else {
+            0
+        }
+
+        if (currentMode == "work") {
+            pomodoroCompletedCount++
+            prefs.edit()
+                .putInt("completed_count", pomodoroCompletedCount)
+                .putString("completed_count_date", todayStr)
+                .apply()
+
+            if (pomodoroCompletedCount % 4 == 0) {
+                currentMode = "longBreak"
+            } else {
+                currentMode = "shortBreak"
+            }
+        } else {
+            currentMode = "work"
+        }
+
+        durationMs = when (currentMode) {
+            "work" -> 25 * 60 * 1000L
+            "shortBreak" -> 5 * 60 * 1000L
+            else -> 15 * 60 * 1000L
+        }
+        timeLeftMs = durationMs
+    }
+
     // Callback to update UI when active
     var onTickListener: ((timeLeftMs: Long, formattedTime: String) -> Unit)? = null
     var onFinishedListener: (() -> Unit)? = null
@@ -61,13 +115,23 @@ class PomodoroService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
+            val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: associatedTaskTitle
+            val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: associatedTaskId
+            val taskCategory = intent.getStringExtra(EXTRA_TASK_CATEGORY) ?: associatedTaskCategory
+            val taskCategoryColor = intent.getStringExtra(EXTRA_TASK_CATEGORY_COLOR) ?: associatedTaskCategoryColor
+            val mode = intent.getStringExtra(EXTRA_MODE)
+            
+            associatedTaskTitle = taskTitle
+            associatedTaskId = taskId
+            associatedTaskCategory = taskCategory
+            associatedTaskCategoryColor = taskCategoryColor
+            
+            if (mode != null) {
+                updateModeAndDuration(mode)
+            }
+
             when (intent.action) {
                 ACTION_START_OR_RESUME -> {
-                    val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: associatedTaskTitle
-                    val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: associatedTaskId
-                    val taskCategory = intent.getStringExtra(EXTRA_TASK_CATEGORY) ?: associatedTaskCategory
-                    val taskCategoryColor = intent.getStringExtra(EXTRA_TASK_CATEGORY_COLOR) ?: associatedTaskCategoryColor
-                    val mode = intent.getStringExtra(EXTRA_MODE) ?: currentMode
                     val durationMinutes = intent.getIntExtra(EXTRA_DURATION_MINUTES, -1)
                     
                     if (durationMinutes > 0 && !isRunning) {
@@ -76,12 +140,6 @@ class PomodoroService : Service() {
                             timeLeftMs = durationMs
                         }
                     }
-                    
-                    associatedTaskTitle = taskTitle
-                    associatedTaskId = taskId
-                    associatedTaskCategory = taskCategory
-                    associatedTaskCategoryColor = taskCategoryColor
-                    currentMode = mode
 
                     // If an alarm is currently playing from a previous finished timer, stop it when starting a new one
                     try {
@@ -150,6 +208,8 @@ class PomodoroService : Service() {
                 
                 commitFocusSession(isTemporary = false)
                 
+                transitionToNextMode()
+                
                 onFinishedListener?.invoke()
                 // Play alarm sound: prefer user-selected URI stored in pomodoro_prefs
                 val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
@@ -211,7 +271,12 @@ class PomodoroService : Service() {
             isRingtonePlaying = false
             onRingtoneStateChangedListener?.invoke(false)
         }
-        stopForeground(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
     }
 
     // Public API to stop ringtone playback (for UI button)

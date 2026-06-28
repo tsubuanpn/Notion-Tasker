@@ -170,6 +170,7 @@ fun PomodoroScreen(
             timeLeft = (service.timeLeftMs / 1000).toInt()
             isRunning = service.isRunning
             mode = service.currentMode
+            pomodoroCompletedCount = service.getCompletedCountToday()
             if (service.isRunning) {
                 selectedTaskId = service.associatedTaskId
             } else {
@@ -184,28 +185,22 @@ fun PomodoroScreen(
                 timeLeft = (ms / 1000).toInt()
             }
             service.onFinishedListener = {
-                timeLeft = 0
-                isRunning = false
-                if (mode == "work") {
-                    pomodoroCompletedCount++
-                    prefs.edit()
-                        .putInt("completed_count", pomodoroCompletedCount)
-                        .putString("completed_count_date", todayStr)
-                        .apply()
-
-                    if (pomodoroCompletedCount % POMODOROS_BEFORE_LONG_BREAK == 0) {
-                        Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
-                        mode = "longBreak"
-                    } else {
-                        Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
-                        mode = "shortBreak"
-                    }
-                    timeLeft = pomodoroDurationSecondsFor(mode)
-                } else {
+                val nextMode = service.currentMode
+                val nextTimeLeftSec = (service.timeLeftMs / 1000).toInt()
+                val nextCompletedCount = service.getCompletedCountToday()
+                
+                if (nextMode == "work") {
                     Toast.makeText(context, "休憩終了！次の集中セッションを始めましょう。", Toast.LENGTH_LONG).show()
-                    mode = "work"
-                    timeLeft = pomodoroDurationSecondsFor(mode)
+                } else if (nextMode == "shortBreak") {
+                    Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
                 }
+                
+                mode = nextMode
+                timeLeft = nextTimeLeftSec
+                pomodoroCompletedCount = nextCompletedCount
+                isRunning = false
             }
             service.onStateChangedListener = { running ->
                 isRunning = running
