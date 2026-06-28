@@ -110,7 +110,7 @@ class PomodoroService : Service() {
     private fun startTimer() {
         if (isRunning) return
         
-        if (!isPaused) {
+        if (!isPaused || currentSessionId == null) {
             currentSessionId = System.currentTimeMillis().toString()
         } else {
             currentSessionId?.let { sessionId ->
@@ -284,10 +284,28 @@ class PomodoroService : Service() {
         focusStartLeftMs = timeLeftMs
     }
 
+    private fun promoteTemporarySession() {
+        val sessionId = currentSessionId ?: return
+        val targetId = "pomo_paused_$sessionId"
+        val currentLogs = loadPomodoroLogs(this).toMutableList()
+        val tempLogIndex = currentLogs.indexOfFirst { it.id == targetId }
+        if (tempLogIndex != -1) {
+            val tempLog = currentLogs[tempLogIndex]
+            val promotedLog = tempLog.copy(id = "pomo_${System.currentTimeMillis()}")
+            currentLogs[tempLogIndex] = promotedLog
+            savePomodoroLogs(this, currentLogs)
+        }
+        currentSessionId = null
+    }
+
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
-        if (currentMode == "work" && isRunning) {
-            commitFocusSession(isTemporary = false)
-            currentSessionId = System.currentTimeMillis().toString()
+        if (currentMode == "work") {
+            if (isRunning) {
+                commitFocusSession(isTemporary = false)
+                currentSessionId = System.currentTimeMillis().toString()
+            } else if (isPaused) {
+                promoteTemporarySession()
+            }
         }
 
         associatedTaskId = taskId
