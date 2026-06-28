@@ -23,6 +23,13 @@ import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
+private data class HomeTasksData(
+    val activeTasks: List<TaskModel>,
+    val unstartedTasks: List<TaskModel>,
+    val inProgressTasks: List<TaskModel>,
+    val todayCount: Int
+)
+
 @Composable
 fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask: (TaskModel) -> Unit) {
     val uiState by viewModel.tasksState.collectAsState()
@@ -53,31 +60,46 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
                 val todayStr = remember {
                     java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
                 }
+                val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0) ?: "未着手" }
+                val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1) ?: "進行中" }
 
-                // Sort tasks: scheduledDate (ascending, nullsLast) -> dueDate (ascending, nullsLast)
-                val sortedTasks = state.tasks.sortedWith(
-                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
-                )
-                // Categorize tasks between mapped Unstarted and In Progress
-                val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
-                val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
+                val homeTasksData = remember(state.tasks, homeFilter, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
+                    val sortedTasks = state.tasks.sortedWith(
+                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                            .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                    )
 
-                // Uncompleted tasks
-                val activeTasks = sortedTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }
+                    val active = sortedTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }
 
-                // Filter active tasks based on option
-                val filteredTasks = if (homeFilter == "today") {
-                    activeTasks.filter {
+                    val filtered = if (homeFilter == "today") {
+                        active.filter {
+                            (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
+                            (it.dueDate != null && it.dueDate <= todayStr)
+                        }
+                    } else {
+                        active
+                    }
+
+                    val unstarted = filtered.filter { it.status == unstartedStatus }
+                    val inProgress = filtered.filter { it.status == inProgressStatus }
+
+                    val todayCountVal = active.count {
                         (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
                         (it.dueDate != null && it.dueDate <= todayStr)
                     }
-                } else {
-                    activeTasks
+
+                    HomeTasksData(
+                        activeTasks = active,
+                        unstartedTasks = unstarted,
+                        inProgressTasks = inProgress,
+                        todayCount = todayCountVal
+                    )
                 }
 
-                val unstartedTasks = filteredTasks.filter { it.status == unstartedStatus }
-                val inProgressTasks = filteredTasks.filter { it.status == inProgressStatus }
+                val activeTasks = homeTasksData.activeTasks
+                val unstartedTasks = homeTasksData.unstartedTasks
+                val inProgressTasks = homeTasksData.inProgressTasks
+                val todayCount = homeTasksData.todayCount
 
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Segmented control row
@@ -113,10 +135,6 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
                         }
 
                         // Today button
-                        val todayCount = activeTasks.count {
-                            (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
-                            (it.dueDate != null && it.dueDate <= todayStr)
-                        }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
