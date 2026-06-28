@@ -68,6 +68,25 @@ fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
     }
 }
 
+suspend fun loadPomodoroLogsAsync(context: Context): List<PomodoroLog> {
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val db = com.notiontasks.app.data.local.TaskDatabase.getInstance(context)
+        val entities = db.pomodoroLogDao.getAllLogs()
+        entities.map { entity ->
+            PomodoroLog(
+                id = entity.id,
+                taskId = entity.taskId,
+                taskTitle = entity.taskTitle,
+                category = entity.category,
+                categoryColor = entity.categoryColor,
+                date = entity.date,
+                minutes = entity.minutes,
+                timestamp = entity.timestamp
+            )
+        }
+    }
+}
+
 fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
     val db = com.notiontasks.app.data.local.TaskDatabase.getInstance(context)
     kotlinx.coroutines.runBlocking {
