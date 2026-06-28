@@ -82,16 +82,25 @@ fun CalendarScreen(
                     else -> emptyList()
                 }
 
-                val tasksByDate = remember(tasks) {
+                // 予定日（Scheduled Date）基準のタスクマップ
+                val scheduledTasksByDate = remember(tasks) {
+                    val map = mutableMapOf<String, MutableList<TaskModel>>()
+                    tasks.forEach { task ->
+                        val sched = task.scheduledDate
+                        if (sched != null && sched.isNotBlank()) {
+                            map.getOrPut(sched) { mutableListOf() }.add(task)
+                        }
+                    }
+                    map
+                }
+
+                // 締め切り日（Due Date）基準のタスクマップ
+                val dueTasksByDate = remember(tasks) {
                     val map = mutableMapOf<String, MutableList<TaskModel>>()
                     tasks.forEach { task ->
                         val due = task.dueDate
-                        val sched = task.scheduledDate
                         if (due != null && due.isNotBlank()) {
                             map.getOrPut(due) { mutableListOf() }.add(task)
-                        }
-                        if (sched != null && sched.isNotBlank() && sched != due) {
-                            map.getOrPut(sched) { mutableListOf() }.add(task)
                         }
                     }
                     map
@@ -210,8 +219,8 @@ fun CalendarScreen(
                                             val dayNumber = day.dayNumber
                                             val col = day.colIndex
 
-                                            // Get tasks for this date
-                                            val cellTasks = tasksByDate[dateStr] ?: emptyList()
+                                            // Get tasks for this date (Only scheduled tasks)
+                                            val cellTasks = scheduledTasksByDate[dateStr] ?: emptyList()
 
                                             Column(
                                                 modifier = Modifier
@@ -298,15 +307,62 @@ fun CalendarScreen(
                         selectedDate
                     }
 
-                    Text(
-                        text = "$displaySelectedDate のタスク",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    var selectedTab by remember { mutableStateOf(0) } // 0: 予定日, 1: 締め切り
 
-                    val selectedTasks = remember(tasksByDate, selectedDate) {
-                        tasksByDate[selectedDate] ?: emptyList()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$displaySelectedDate のタスク",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+
+                        // Compact Segmented Capsule Toggle Buttons
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            val scheduledCount = (scheduledTasksByDate[selectedDate] ?: emptyList()).size
+                            val dueCount = (dueTasksByDate[selectedDate] ?: emptyList()).size
+                            val tabs = listOf("予定日 ($scheduledCount)", "締め切り ($dueCount)")
+                            tabs.forEachIndexed { index, label ->
+                                val isSelected = selectedTab == index
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary
+                                            else Color.Transparent
+                                        )
+                                        .clickable { selectedTab = index }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val selectedTasks = remember(scheduledTasksByDate, dueTasksByDate, selectedDate, selectedTab) {
+                        if (selectedTab == 0) {
+                            scheduledTasksByDate[selectedDate] ?: emptyList()
+                        } else {
+                            dueTasksByDate[selectedDate] ?: emptyList()
+                        }
                     }
 
                     if (selectedTasks.isEmpty()) {
@@ -317,7 +373,7 @@ fun CalendarScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "予定はありません",
+                                text = if (selectedTab == 0) "予定はありません" else "締め切りはありません",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
