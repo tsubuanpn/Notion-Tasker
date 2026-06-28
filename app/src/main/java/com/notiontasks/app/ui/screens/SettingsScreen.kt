@@ -26,6 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
@@ -210,6 +214,13 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     SettingsMenuItem(
+                        title = "ポモドーロタイマー設定",
+                        subtitle = "集中・休憩セッションの時間のカスタマイズ",
+                        icon = Icons.Default.Timer,
+                        onClick = { currentSubPage = "pomodoro_settings" }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    SettingsMenuItem(
                         title = "外観テーマ設定",
                         subtitle = "ダークモードやライトモードの切り替え設定",
                         icon = Icons.Default.WbSunny,
@@ -318,6 +329,7 @@ fun SettingsScreen(
                         "notifications" -> "通知スケジュール設定"
                         "theme" -> "外観テーマ設定"
                         "alarm" -> "アラーム音設定"
+                        "pomodoro_settings" -> "ポモドーロタイマー設定"
                         "info" -> "通知 / プロパティについて"
                         else -> ""
                     }
@@ -327,6 +339,7 @@ fun SettingsScreen(
                         "notifications" -> "Android端末でのバックグラウンドタスク動作"
                         "theme" -> "アプリを美しく表示する外観モードの変更"
                         "alarm" -> "ポモドーロ完了時に鳴らす音を選択"
+                        "pomodoro_settings" -> "集中・休憩セッションの時間のカスタマイズ"
                         "info" -> "アプリ仕様と通知機能に関する補足説明"
                         else -> ""
                     }
@@ -522,6 +535,90 @@ fun SettingsScreen(
 
                         Button(onClick = { currentSubPage = null }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                             Text("保存して戻る", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                "pomodoro_settings" -> {
+                    val prefsPomodoro = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
+                    var workMin by remember { mutableStateOf(prefsPomodoro.getInt("work_duration_min", 25)) }
+                    var shortBreakMin by remember { mutableStateOf(prefsPomodoro.getInt("short_break_duration_min", 5)) }
+                    var longBreakMin by remember { mutableStateOf(prefsPomodoro.getInt("long_break_duration_min", 15)) }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "ポモドーロタイマーの時間を設定します。それぞれの時間の長さを変更できます。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        DurationSettingRow(
+                            label = "集中時間",
+                            value = workMin,
+                            onValueChange = { workMin = it.coerceIn(1, 999) },
+                            unit = "分",
+                            color = Color(0xFFEF5350)
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        DurationSettingRow(
+                            label = "短い休憩",
+                            value = shortBreakMin,
+                            onValueChange = { shortBreakMin = it.coerceIn(1, 999) },
+                            unit = "分",
+                            color = Color(0xFF2E7D32)
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        DurationSettingRow(
+                            label = "長い休憩",
+                            value = longBreakMin,
+                            onValueChange = { longBreakMin = it.coerceIn(1, 999) },
+                            unit = "分",
+                            color = Color(0xFF1976D2)
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    workMin = 25
+                                    shortBreakMin = 5
+                                    longBreakMin = 15
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                            ) {
+                                Text("デフォルトに戻す", fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    prefsPomodoro.edit()
+                                        .putInt("work_duration_min", workMin)
+                                        .putInt("short_break_duration_min", shortBreakMin)
+                                        .putInt("long_break_duration_min", longBreakMin)
+                                        .apply()
+                                    
+                                    Toast.makeText(context, "ポモドーロ設定を保存しました", Toast.LENGTH_SHORT).show()
+                                    currentSubPage = null
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("保存して戻る", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -1188,5 +1285,116 @@ fun SettingsMenuItem(
             contentDescription = "詳細",
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
+    }
+}
+
+@Composable
+fun DurationSettingRow(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    unit: String,
+    color: Color
+) {
+    var textValue by remember(value) { mutableStateOf(value.toString()) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            IconButton(
+                onClick = { if (value > 1) onValueChange(value - 1) },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(50)
+                    )
+            ) {
+                Text(
+                    text = "-",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            OutlinedTextField(
+                value = textValue,
+                onValueChange = { newValue ->
+                    val filtered = newValue.filter { it.isDigit() }
+                    if (filtered.length <= 3) {
+                        textValue = filtered
+                        val parsed = filtered.toIntOrNull()
+                        if (parsed != null) {
+                            val validated = parsed.coerceIn(1, 999)
+                            onValueChange(validated)
+                        } else if (filtered.isEmpty()) {
+                            onValueChange(1)
+                        }
+                    }
+                },
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = color
+                ),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = color,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                    unfocusedContainerColor = Color.Transparent
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .width(72.dp)
+                    .height(52.dp)
+            )
+
+            IconButton(
+                onClick = { if (value < 999) onValueChange(value + 1) },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(50)
+                    )
+            ) {
+                Text(
+                    text = "+",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = unit,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(20.dp)
+            )
+        }
     }
 }

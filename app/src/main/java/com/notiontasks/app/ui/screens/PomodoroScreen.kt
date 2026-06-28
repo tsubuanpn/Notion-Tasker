@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.IBinder
 import android.widget.Toast
@@ -33,15 +34,12 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
-private const val POMODORO_WORK_SEC = 25 * 60
-private const val POMODORO_SHORT_BREAK_SEC = 5 * 60
-private const val POMODORO_LONG_BREAK_SEC = 15 * 60
 private const val POMODOROS_BEFORE_LONG_BREAK = 4
 
-private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
-    "work" -> POMODORO_WORK_SEC
-    "shortBreak" -> POMODORO_SHORT_BREAK_SEC
-    else -> POMODORO_LONG_BREAK_SEC
+private fun pomodoroDurationSecondsFor(mode: String, prefs: SharedPreferences): Int = when (mode) {
+    "work" -> prefs.getInt("work_duration_min", 25) * 60
+    "shortBreak" -> prefs.getInt("short_break_duration_min", 5) * 60
+    else -> prefs.getInt("long_break_duration_min", 15) * 60
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,7 +59,7 @@ fun PomodoroScreen(
         if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
     
-    var timeLeft by remember { mutableStateOf(POMODORO_WORK_SEC) }
+    var timeLeft by remember { mutableStateOf(prefs.getInt("work_duration_min", 25) * 60) }
     var isRunning by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
     var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
@@ -167,6 +165,9 @@ fun PomodoroScreen(
     DisposableEffect(boundService) {
         val service = boundService
         if (service != null) {
+            if (!service.isRunning) {
+                service.updateModeAndDuration(service.currentMode)
+            }
             timeLeft = (service.timeLeftMs / 1000).toInt()
             isRunning = service.isRunning
             mode = service.currentMode
@@ -218,6 +219,12 @@ fun PomodoroScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        if (boundService == null && !isRunning) {
+            timeLeft = pomodoroDurationSecondsFor(mode, prefs)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -261,7 +268,7 @@ fun PomodoroScreen(
                         )
                         .clickable {
                             mode = m
-                            timeLeft = pomodoroDurationSecondsFor(m)
+                            timeLeft = pomodoroDurationSecondsFor(m, prefs)
                             triggerServiceAction(PomodoroService.ACTION_STOP)
                         }
                         .padding(vertical = 10.dp),
@@ -340,7 +347,7 @@ fun PomodoroScreen(
                             onClick = {
                                 triggerServiceAction(PomodoroService.ACTION_STOP)
                                 isRunning = false
-                                timeLeft = pomodoroDurationSecondsFor(mode)
+                                timeLeft = pomodoroDurationSecondsFor(mode, prefs)
                             },
                             modifier = Modifier
                                 .size(44.dp)
@@ -373,7 +380,7 @@ fun PomodoroScreen(
                                 if (isRunning) {
                                     triggerServiceAction(PomodoroService.ACTION_PAUSE)
                                 } else {
-                                    val durationMinutes = pomodoroDurationSecondsFor(mode) / 60
+                                    val durationMinutes = pomodoroDurationSecondsFor(mode, prefs) / 60
                                     triggerServiceAction(PomodoroService.ACTION_START_OR_RESUME, durationMinutes)
                                     if (mode == "work" && activeFocusTask != null) {
                                         if (activeFocusTask.status != inProgressStatus && activeFocusTask.status != completedStatus) {

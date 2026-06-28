@@ -37,14 +37,20 @@ class PomodoroService : Service() {
     var focusStartLeftMs: Long = 0L
     var currentSessionId: String? = null
 
+    private fun getDurationMsForMode(mode: String): Long {
+        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val minutes = when (mode) {
+            "work" -> prefs.getInt("work_duration_min", 25)
+            "shortBreak" -> prefs.getInt("short_break_duration_min", 5)
+            else -> prefs.getInt("long_break_duration_min", 15)
+        }
+        return minutes * 60 * 1000L
+    }
+
     fun updateModeAndDuration(mode: String) {
         currentMode = mode
-        durationMs = when (mode) {
-            "work" -> 25 * 60 * 1000L
-            "shortBreak" -> 5 * 60 * 1000L
-            else -> 15 * 60 * 1000L
-        }
-        if (!isRunning) {
+        durationMs = getDurationMsForMode(mode)
+        if (!isRunning && !isPaused) {
             timeLeftMs = durationMs
         }
     }
@@ -83,11 +89,7 @@ class PomodoroService : Service() {
             currentMode = "work"
         }
 
-        durationMs = when (currentMode) {
-            "work" -> 25 * 60 * 1000L
-            "shortBreak" -> 5 * 60 * 1000L
-            else -> 15 * 60 * 1000L
-        }
+        durationMs = getDurationMsForMode(currentMode)
         timeLeftMs = durationMs
     }
 
@@ -111,9 +113,14 @@ class PomodoroService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        durationMs = getDurationMsForMode(currentMode)
+        timeLeftMs = durationMs
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)))
+        }
         if (intent != null) {
             val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: associatedTaskTitle
             val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: associatedTaskId
