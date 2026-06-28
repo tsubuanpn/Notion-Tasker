@@ -23,6 +23,13 @@ import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
+private data class CalendarDay(
+    val dayNumber: Int,
+    val dateStr: String,
+    val isToday: Boolean,
+    val colIndex: Int
+)
+
 @Composable
 fun CalendarScreen(
     viewModel: TaskViewModel,
@@ -47,7 +54,10 @@ fun CalendarScreen(
     }
 
     val selectedDate = selectedCalendarDate.value ?: todayStr
-    val isSystemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val isSystemDark = remember(backgroundColor) {
+        backgroundColor.luminance() < 0.5f
+    }
     val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
     val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
@@ -70,6 +80,21 @@ fun CalendarScreen(
                 val tasks = when (state) {
                     is TasksUiState.Success -> state.tasks
                     else -> emptyList()
+                }
+
+                val tasksByDate = remember(tasks) {
+                    val map = mutableMapOf<String, MutableList<TaskModel>>()
+                    tasks.forEach { task ->
+                        val due = task.dueDate
+                        val sched = task.scheduledDate
+                        if (due != null && due.isNotBlank()) {
+                            map.getOrPut(due) { mutableListOf() }.add(task)
+                        }
+                        if (sched != null && sched.isNotBlank() && sched != due) {
+                            map.getOrPut(sched) { mutableListOf() }.add(task)
+                        }
+                    }
+                    map
                 }
 
                 Column(
@@ -131,28 +156,46 @@ fun CalendarScreen(
                     }
 
                     // Calendar Grid Layout
-                    val calendarHelper = java.util.Calendar.getInstance().apply {
-                        set(java.util.Calendar.YEAR, focusYear)
-                        set(java.util.Calendar.MONTH, focusMonth)
-                        set(java.util.Calendar.DAY_OF_MONTH, 1)
-                    }
-                    val firstDayDayOfWeek = calendarHelper.get(java.util.Calendar.DAY_OF_WEEK) // 1 = Sunday, 2 = Monday, ...
-                    val totalDaysInMonth = calendarHelper.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
-                    val startOffset = firstDayDayOfWeek - 1 // Sunday starts, so offset is simple
+                    val daysList = remember(focusYear, focusMonth, todayStr) {
+                        val calendarHelper = java.util.Calendar.getInstance().apply {
+                            set(java.util.Calendar.YEAR, focusYear)
+                            set(java.util.Calendar.MONTH, focusMonth)
+                            set(java.util.Calendar.DAY_OF_MONTH, 1)
+                        }
+                        val firstDayDayOfWeek = calendarHelper.get(java.util.Calendar.DAY_OF_WEEK) // 1 = Sunday, 2 = Monday, ...
+                        val totalDaysInMonth = calendarHelper.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                        val startOffset = firstDayDayOfWeek - 1 // Sunday starts, so offset is simple
 
-                    val totalDaysToDisplay = startOffset + totalDaysInMonth
-                    val rowsCount = (totalDaysToDisplay + 6) / 7
+                        val list = mutableListOf<CalendarDay?>()
+                        val totalDaysToDisplay = startOffset + totalDaysInMonth
+                        val rowsCount = (totalDaysToDisplay + 6) / 7
+                        val totalCells = rowsCount * 7
+
+                        for (cellIndex in 0 until totalCells) {
+                            val dayNumber = cellIndex - startOffset + 1
+                            if (dayNumber in 1..totalDaysInMonth) {
+                                val dateStr = String.format(java.util.Locale.US, "%04d-%02d-%02d", focusYear, focusMonth + 1, dayNumber)
+                                val isToday = dateStr == todayStr
+                                val colIndex = cellIndex % 7
+                                list.add(CalendarDay(dayNumber, dateStr, isToday, colIndex))
+                            } else {
+                                list.add(null)
+                            }
+                        }
+                        list
+                    }
+
+                    val rows = remember(daysList) {
+                        daysList.chunked(7)
+                    }
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        for (row in 0 until rowsCount) {
+                        rows.forEach { rowDays ->
                             Row(modifier = Modifier.fillMaxWidth()) {
-                                for (col in 0 until 7) {
-                                    val cellIndex = row * 7 + col
-                                    val dayNumber = cellIndex - startOffset + 1
-
+                                rowDays.forEach { day ->
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -160,15 +203,15 @@ fun CalendarScreen(
                                             .padding(2.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (dayNumber in 1..totalDaysInMonth) {
-                                            val dateStr = String.format("%04d-%02d-%02d", focusYear, focusMonth + 1, dayNumber)
+                                        if (day != null) {
+                                            val dateStr = day.dateStr
                                             val isSelected = dateStr == selectedDate
-                                            val isToday = dateStr == todayStr
+                                            val isToday = day.isToday
+                                            val dayNumber = day.dayNumber
+                                            val col = day.colIndex
 
                                             // Get tasks for this date
-                                            val cellTasks = tasks.filter {
-                                                it.dueDate == dateStr || it.scheduledDate == dateStr
-                                            }
+                                            val cellTasks = tasksByDate[dateStr] ?: emptyList()
 
                                             Column(
                                                 modifier = Modifier
@@ -262,8 +305,8 @@ fun CalendarScreen(
                         color = MaterialTheme.colorScheme.onBackground
                     )
 
-                    val selectedTasks = tasks.filter {
-                        it.dueDate == selectedDate || it.scheduledDate == selectedDate
+                    val selectedTasks = remember(tasksByDate, selectedDate) {
+                        tasksByDate[selectedDate] ?: emptyList()
                     }
 
                     if (selectedTasks.isEmpty()) {
