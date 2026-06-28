@@ -142,13 +142,36 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             val mainKey = MasterKey.Builder(context.applicationContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-            return EncryptedSharedPreferences.create(
-                context.applicationContext,
-                "notion_tasks_secure_prefs",
-                mainKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            return try {
+                EncryptedSharedPreferences.create(
+                    context.applicationContext,
+                    "notion_tasks_secure_prefs",
+                    mainKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        context.applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
+                    } else {
+                        val sharedPrefsFile = java.io.File(context.applicationContext.filesDir.parent, "shared_prefs/notion_tasks_secure_prefs.xml")
+                        if (sharedPrefsFile.exists()) {
+                            sharedPrefsFile.delete()
+                        }
+                    }
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
+                }
+                EncryptedSharedPreferences.create(
+                    context.applicationContext,
+                    "notion_tasks_secure_prefs",
+                    mainKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            }
         }
 
         fun getStatusOptions(context: Context): List<String> {
