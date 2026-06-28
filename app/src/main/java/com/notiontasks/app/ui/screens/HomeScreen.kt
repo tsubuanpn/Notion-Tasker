@@ -7,7 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,14 +24,20 @@ import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
 private data class HomeTasksData(
-    val activeTasks: List<TaskModel>,
+    val totalActiveCount: Int,
     val unstartedTasks: List<TaskModel>,
     val inProgressTasks: List<TaskModel>,
+    val allCount: Int,
     val todayCount: Int
 )
 
 @Composable
-fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask: (TaskModel) -> Unit) {
+fun HomeScreen(
+    viewModel: TaskViewModel,
+    statusOptions: List<String>,
+    onEditTask: (TaskModel) -> Unit,
+    isSearchActive: Boolean = false
+) {
     val uiState by viewModel.tasksState.collectAsState()
 
     Surface(
@@ -57,13 +63,20 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
             }
             is TasksUiState.Success -> {
                 var homeFilter by remember { mutableStateOf("all") } // "all" or "today"
+                var searchQuery by remember { mutableStateOf("") }
+
+                LaunchedEffect(isSearchActive) {
+                    if (!isSearchActive) {
+                        searchQuery = ""
+                    }
+                }
                 val todayStr = remember {
                     java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
                 }
                 val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0) ?: "未着手" }
                 val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1) ?: "進行中" }
 
-                val homeTasksData = remember(state.tasks, homeFilter, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
+                val homeTasksData = remember(state.tasks, homeFilter, searchQuery, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
                     val sortedTasks = state.tasks.sortedWith(
                         compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                             .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
@@ -71,37 +84,74 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
 
                     val active = sortedTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }
 
-                    val filtered = if (homeFilter == "today") {
-                        active.filter {
-                            (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
-                            (it.dueDate != null && it.dueDate <= todayStr)
+                    fun filterBySearch(tasks: List<TaskModel>): List<TaskModel> {
+                        if (searchQuery.isBlank()) return tasks
+                        return tasks.filter { task ->
+                            task.title.contains(searchQuery, ignoreCase = true) ||
+                            task.category.contains(searchQuery, ignoreCase = true)
                         }
-                    } else {
-                        active
                     }
 
-                    val unstarted = filtered.filter { it.status == unstartedStatus }
-                    val inProgress = filtered.filter { it.status == inProgressStatus }
-
-                    val todayCountVal = active.count {
+                    val todayActive = active.filter {
                         (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
                         (it.dueDate != null && it.dueDate <= todayStr)
                     }
 
+                    val allFiltered = filterBySearch(active)
+                    val todayFiltered = filterBySearch(todayActive)
+
+                    val filtered = if (homeFilter == "today") todayFiltered else allFiltered
+
+                    val unstarted = filtered.filter { it.status == unstartedStatus }
+                    val inProgress = filtered.filter { it.status == inProgressStatus }
+
                     HomeTasksData(
-                        activeTasks = active,
+                        totalActiveCount = active.size,
                         unstartedTasks = unstarted,
                         inProgressTasks = inProgress,
-                        todayCount = todayCountVal
+                        allCount = allFiltered.size,
+                        todayCount = todayFiltered.size
                     )
                 }
 
-                val activeTasks = homeTasksData.activeTasks
+                val totalActiveCount = homeTasksData.totalActiveCount
                 val unstartedTasks = homeTasksData.unstartedTasks
                 val inProgressTasks = homeTasksData.inProgressTasks
+                val allCount = homeTasksData.allCount
                 val todayCount = homeTasksData.todayCount
 
                 Column(modifier = Modifier.fillMaxSize()) {
+                    // Search Bar
+                    if (isSearchActive) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            placeholder = { Text("タスク名やカテゴリで検索...") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "検索",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "クリア",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
                     // Segmented control row
                     Row(
                         modifier = Modifier
@@ -127,7 +177,7 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "すべて (${activeTasks.size})",
+                                text = "すべて ($allCount)",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (homeFilter == "all") FontWeight.Bold else FontWeight.Normal,
                                 color = if (homeFilter == "all") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
@@ -200,48 +250,88 @@ fun HomeScreen(viewModel: TaskViewModel, statusOptions: List<String>, onEditTask
                         }
                     }
 
-                    if (activeTasks.isEmpty()) {
+                    if (totalActiveCount == 0) {
                         EmptyStateView(
                             message = "未完了および進行中のタスクはありません！",
                             onRefresh = { viewModel.syncWithNotion() }
                         )
                     } else if (unstartedTasks.isEmpty() && inProgressTasks.isEmpty()) {
-                        // Empty today screen
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "完了",
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "今日やるべきタスクはありません",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "今日予定されている、または締め切りの未完了タスクはありません。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(
-                                onClick = { homeFilter = "all" },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
+                        if (searchQuery.isNotBlank()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(32.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("すべてのタスクを表示")
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "検索結果なし",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "検索結果が見つかりません",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "「$searchQuery」に一致するタスクはありません。別のキーワードをお試しください。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { searchQuery = "" },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                ) {
+                                    Text("検索条件をクリア")
+                                }
+                            }
+                        } else {
+                            // Empty today screen
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(32.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "完了",
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "今日やるべきタスクはありません",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "今日予定されている、または締め切りの未完了タスクはありません。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { homeFilter = "all" },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                ) {
+                                    Text("すべてのタスクを表示")
+                                }
                             }
                         }
                     } else {

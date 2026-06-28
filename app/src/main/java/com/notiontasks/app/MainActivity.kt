@@ -13,7 +13,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -397,6 +399,13 @@ fun MainAppScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != Screen.Home.route) {
+            isSearchActive = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -407,6 +416,14 @@ fun MainAppScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 actions = {
+                    if (currentRoute == Screen.Home.route) {
+                        IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                            Icon(
+                                imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = if (isSearchActive) "検索を閉じる" else "検索"
+                            )
+                        }
+                    }
                     if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Achievements.route) {
                         IconButton(onClick = { viewModel.syncWithNotion() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "同期")
@@ -466,7 +483,12 @@ fun MainAppScreen(
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Home.route) {
-                HomeScreen(viewModel = viewModel, statusOptions = statusOptionsState.value, onEditTask = { editingTask = it })
+                HomeScreen(
+                    viewModel = viewModel,
+                    statusOptions = statusOptionsState.value,
+                    onEditTask = { editingTask = it },
+                    isSearchActive = isSearchActive
+                )
             }
             composable(Screen.Category.route) {
                 CategoryScreen(
@@ -528,7 +550,6 @@ fun MainAppScreen(
     }
 
     if (showAddDialog) {
-        val context = LocalContext.current
         val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptionsState.value.firstOrNull() ?: "課題")
         val initialScheduled = if (currentRoute == Screen.Calendar.route) (selectedCalendarDate.value ?: "") else ""
         AddTaskDialog(
@@ -556,7 +577,6 @@ fun MainAppScreen(
     }
 
     editingTask?.let { task ->
-        val context = LocalContext.current
         EditTaskDialog(
             task = task,
             categoryOptions = categoryOptionsState.value,
