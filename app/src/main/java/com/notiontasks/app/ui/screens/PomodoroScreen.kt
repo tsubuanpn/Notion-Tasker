@@ -48,7 +48,8 @@ private fun pomodoroDurationSecondsFor(mode: String): Int = when (mode) {
 @Composable
 fun PomodoroScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<String>
+    statusOptions: List<String>,
+    boundService: PomodoroService?
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
@@ -64,8 +65,24 @@ fun PomodoroScreen(
     var isRunning by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
     var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
-    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    val initialTaskId = remember { prefs.getString("selected_task_id", null) }
+    var selectedTaskId by remember { mutableStateOf<String?>(initialTaskId) }
     var isInitialSyncDone by remember { mutableStateOf(false) }
+
+    val tasksState by viewModel.tasksState.collectAsState()
+
+    LaunchedEffect(selectedTaskId) {
+        prefs.edit().putString("selected_task_id", selectedTaskId).apply()
+    }
+
+    LaunchedEffect(tasksState) {
+        if (tasksState is TasksUiState.Success) {
+            val successState = tasksState as TasksUiState.Success
+            if (selectedTaskId != null && successState.tasks.none { it.id == selectedTaskId }) {
+                selectedTaskId = null
+            }
+        }
+    }
     val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
     val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
@@ -78,7 +95,6 @@ fun PomodoroScreen(
         }
     }
     
-    val tasksState by viewModel.tasksState.collectAsState()
     val uncompletedTasks = remember(tasksState, completedStatus) {
         when (val state = tasksState) {
             is TasksUiState.Success -> {
@@ -92,35 +108,11 @@ fun PomodoroScreen(
         }
     }
     
+
     val activeFocusTask = remember(selectedTaskId, tasksState) {
         when (val state = tasksState) {
             is TasksUiState.Success -> state.tasks.find { it.id == selectedTaskId }
             else -> null
-        }
-    }
-
-    // Service binding setup
-    var boundService by remember { mutableStateOf<PomodoroService?>(null) }
-    val serviceConnection = remember {
-        object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                val pomodoroBinder = binder as? PomodoroService.PomodoroBinder
-                boundService = pomodoroBinder?.getService()
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {
-                boundService = null
-                isInitialSyncDone = false
-            }
-        }
-    }
-
-    DisposableEffect(context) {
-        val intent = Intent(context, PomodoroService::class.java)
-        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-        onDispose {
-            context.unbindService(serviceConnection)
-            isInitialSyncDone = false
         }
     }
 
@@ -172,12 +164,18 @@ fun PomodoroScreen(
 
     // Update state based on service
     var isAlarmPlaying by remember { mutableStateOf(false) }
-    LaunchedEffect(boundService) {
-        boundService?.let { service ->
+    DisposableEffect(boundService) {
+        val service = boundService
+        if (service != null) {
             timeLeft = (service.timeLeftMs / 1000).toInt()
             isRunning = service.isRunning
             mode = service.currentMode
-            selectedTaskId = service.associatedTaskId
+            if (service.isRunning) {
+                selectedTaskId = service.associatedTaskId
+            } else {
+                val savedTaskId = prefs.getString("selected_task_id", null)
+                selectedTaskId = savedTaskId
+            }
             isInitialSyncDone = true
 
             isAlarmPlaying = service.isRingtonePlaying
@@ -215,6 +213,13 @@ fun PomodoroScreen(
             service.onRingtoneStateChangedListener = { playing ->
                 isAlarmPlaying = playing
             }
+        }
+        onDispose {
+            service?.onTickListener = null
+            service?.onFinishedListener = null
+            service?.onStateChangedListener = null
+            service?.onRingtoneStateChangedListener = null
+            isInitialSyncDone = false
         }
     }
 
