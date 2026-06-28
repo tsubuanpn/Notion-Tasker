@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 
@@ -94,7 +96,7 @@ fun SettingsScreen(
         val h = parts.getOrNull(0)?.toIntOrNull() ?: 8
         val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
         android.app.TimePickerDialog(context, { _, hourOfDay, minute ->
-            morningTime = String.format("%02d:%02d", hourOfDay, minute)
+            morningTime = String.format(java.util.Locale.US, "%02d:%02d", hourOfDay, minute)
         }, h, m, true).show()
     }
 
@@ -103,7 +105,7 @@ fun SettingsScreen(
         val h = parts.getOrNull(0)?.toIntOrNull() ?: 20
         val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
         android.app.TimePickerDialog(context, { _, hourOfDay, minute ->
-            eveningTime = String.format("%02d:%02d", hourOfDay, minute)
+            eveningTime = String.format(java.util.Locale.US, "%02d:%02d", hourOfDay, minute)
         }, h, m, true).show()
     }
 
@@ -451,7 +453,6 @@ fun SettingsScreen(
                 "alarm" -> {
                     val prefsAlarm = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
                     var alarmUriString by remember { mutableStateOf(prefsAlarm.getString("alarm_uri", "") ?: "") }
-                    var isPlayingPreview by remember { mutableStateOf(false) }
                     var previewRingtone by remember { mutableStateOf<Ringtone?>(null) }
 
                     // Launcher for ringtone picker
@@ -461,11 +462,11 @@ fun SettingsScreen(
                             val picked = result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
                             if (picked != null) {
                                 alarmUriString = picked.toString()
-                                prefsAlarm.edit().putString("alarm_uri", alarmUriString).apply()
+                                prefsAlarm.edit { putString("alarm_uri", alarmUriString) }
                             } else {
                                 // cleared selection -> remove
                                 alarmUriString = ""
-                                prefsAlarm.edit().remove("alarm_uri").apply()
+                                prefsAlarm.edit { remove("alarm_uri") }
                             }
                         }
                     }
@@ -482,9 +483,9 @@ fun SettingsScreen(
 
                         val currentTitle = remember(alarmUriString) {
                             try {
-                                val uri = if (alarmUriString.isNotBlank()) Uri.parse(alarmUriString) else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                val uri = if (alarmUriString.isNotBlank()) alarmUriString.toUri() else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                                 RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "未設定"
-                            } catch (e: Exception) {
+                            } catch (_: Exception) {
                                 "未設定"
                             }
                         }
@@ -498,7 +499,7 @@ fun SettingsScreen(
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "アラーム音を選択")
-                                    if (alarmUriString.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(alarmUriString))
+                                    if (alarmUriString.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, alarmUriString.toUri())
                                 }
                                 ringtonePickerLauncher.launch(intent)
                             }, shape = RoundedCornerShape(12.dp)) {
@@ -509,11 +510,10 @@ fun SettingsScreen(
                                 // Play preview (use selected or default)
                                 try {
                                     previewRingtone?.stop()
-                                    val uri = if (alarmUriString.isNotBlank()) Uri.parse(alarmUriString) else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                                    val uri = if (alarmUriString.isNotBlank()) alarmUriString.toUri() else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                                     previewRingtone = RingtoneManager.getRingtone(context, uri)
                                     previewRingtone?.play()
-                                    isPlayingPreview = true
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     Toast.makeText(context, "再生に失敗しました", Toast.LENGTH_SHORT).show()
                                 }
                             }, shape = RoundedCornerShape(12.dp)) {
@@ -523,7 +523,6 @@ fun SettingsScreen(
                             Button(onClick = {
                                 previewRingtone?.stop()
                                 previewRingtone = null
-                                isPlayingPreview = false
                             }, shape = RoundedCornerShape(12.dp)) {
                                 Text("停止")
                             }
@@ -540,9 +539,9 @@ fun SettingsScreen(
                 }
                 "pomodoro_settings" -> {
                     val prefsPomodoro = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
-                    var workMin by remember { mutableStateOf(prefsPomodoro.getInt("work_duration_min", 25)) }
-                    var shortBreakMin by remember { mutableStateOf(prefsPomodoro.getInt("short_break_duration_min", 5)) }
-                    var longBreakMin by remember { mutableStateOf(prefsPomodoro.getInt("long_break_duration_min", 15)) }
+                    var workMin by remember { mutableIntStateOf(prefsPomodoro.getInt("work_duration_min", 25)) }
+                    var shortBreakMin by remember { mutableIntStateOf(prefsPomodoro.getInt("short_break_duration_min", 5)) }
+                    var longBreakMin by remember { mutableIntStateOf(prefsPomodoro.getInt("long_break_duration_min", 15)) }
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -605,11 +604,11 @@ fun SettingsScreen(
 
                             Button(
                                 onClick = {
-                                    prefsPomodoro.edit()
-                                        .putInt("work_duration_min", workMin)
-                                        .putInt("short_break_duration_min", shortBreakMin)
-                                        .putInt("long_break_duration_min", longBreakMin)
-                                        .apply()
+                                    prefsPomodoro.edit {
+                                        putInt("work_duration_min", workMin)
+                                        putInt("short_break_duration_min", shortBreakMin)
+                                        putInt("long_break_duration_min", longBreakMin)
+                                    }
                                     
                                     Toast.makeText(context, "ポモドーロ設定を保存しました", Toast.LENGTH_SHORT).show()
                                     currentSubPage = null
@@ -628,7 +627,7 @@ fun SettingsScreen(
                         val titleProps = (loadedMetadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList())
                             .ifEmpty { if (propTitle.isNotBlank()) listOf(propTitle) else emptyList() }
                         OutlinedTextField(
-                            value = if (propTitle.isBlank()) "未選択" else propTitle,
+                            value = propTitle.ifBlank { "未選択" },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("名前 (タスクタイトル) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
@@ -686,7 +685,7 @@ fun SettingsScreen(
                             val statusProps = (loadedMetadata?.properties?.filter { it.value.status != null || it.value.select != null }?.keys?.toList() ?: emptyList())
                                 .ifEmpty { if (propStatus.isNotBlank()) listOf(propStatus) else emptyList() }
                             OutlinedTextField(
-                                value = if (propStatus.isBlank()) "未選択" else propStatus,
+                                value = propStatus.ifBlank { "未選択" },
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text("状態 (ステータス) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
@@ -792,7 +791,7 @@ fun SettingsScreen(
                         val selectProps = (loadedMetadata?.properties?.filter { it.value.select != null }?.keys?.toList() ?: emptyList())
                             .ifEmpty { if (propCategory.isNotBlank()) listOf(propCategory) else emptyList() }
                         OutlinedTextField(
-                            value = if (propCategory.isBlank()) "未選択" else propCategory,
+                            value = propCategory.ifBlank { "未選択" },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("種類 (カテゴリ) プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
@@ -844,7 +843,7 @@ fun SettingsScreen(
                         val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
                             .ifEmpty { if (propScheduled.isNotBlank()) listOf(propScheduled) else emptyList() }
                         OutlinedTextField(
-                            value = if (propScheduled.isBlank()) "未選択" else propScheduled,
+                            value = propScheduled.ifBlank { "未選択" },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("予定日 プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
@@ -896,7 +895,7 @@ fun SettingsScreen(
                         val dateProps = (loadedMetadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList())
                             .ifEmpty { if (propDue.isNotBlank()) listOf(propDue) else emptyList() }
                         OutlinedTextField(
-                            value = if (propDue.isBlank()) "未選択" else propDue,
+                            value = propDue.ifBlank { "未選択" },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("締め切り プロパティ", fontWeight = FontWeight.Bold, fontSize = 11.sp) },

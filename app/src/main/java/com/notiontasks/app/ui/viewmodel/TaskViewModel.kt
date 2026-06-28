@@ -49,19 +49,6 @@ class TaskViewModel(
 
     private val _statusOptions = MutableStateFlow(listOf("未着手", "進行中", "完了"))
 
-    val filteredCategoryTasks: StateFlow<List<TaskModel>> = combine(
-        repository.allTasks,
-        _selectedCategory,
-        _statusOptions
-    ) { tasks, category, statusOptions ->
-        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
-        tasks.filter { it.category == category && it.status != completedStatus }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
     // Fetch database properties definition
     fun fetchDatabaseProperties(
         token: String,
@@ -118,7 +105,7 @@ class TaskViewModel(
         viewModelScope.launch {
             try {
                 repository.syncTasks(token, dbId)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Failures logged
             }
         }
@@ -137,7 +124,7 @@ class TaskViewModel(
 
     // Dynamic cycle logic over defined state options
     fun cycleTaskStatus(task: TaskModel, stateOptions: List<String> = emptyList()) {
-        val options = if (stateOptions.isNotEmpty()) stateOptions else listOf("未着手", "進行中", "完了")
+        val options = stateOptions.ifEmpty { listOf("未着手", "進行中", "完了") }
         val currentIndex = options.indexOf(task.status)
         
         val nextStatus = if (currentIndex == -1) {
@@ -156,7 +143,7 @@ class TaskViewModel(
                     pageId = task.id,
                     newStatus = nextStatus
                 )
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Failback or log
             }
         }

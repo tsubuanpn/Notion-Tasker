@@ -301,8 +301,8 @@ fun AddTaskDialog(
     val dueDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
-            val formattedMonth = String.format("%02d", month + 1)
-            val formattedDay = String.format("%02d", dayOfMonth)
+            val formattedMonth = String.format(java.util.Locale.US, "%02d", month + 1)
+            val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
         calendar.get(Calendar.YEAR),
@@ -313,8 +313,8 @@ fun AddTaskDialog(
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
-            val formattedMonth = String.format("%02d", month + 1)
-            val formattedDay = String.format("%02d", dayOfMonth)
+            val formattedMonth = String.format(java.util.Locale.US, "%02d", month + 1)
+            val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
         calendar.get(Calendar.YEAR),
@@ -450,8 +450,8 @@ fun EditTaskDialog(
     val dueDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
-            val formattedMonth = String.format("%02d", month + 1)
-            val formattedDay = String.format("%02d", dayOfMonth)
+            val formattedMonth = String.format(java.util.Locale.US, "%02d", month + 1)
+            val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
         calendar.get(Calendar.YEAR),
@@ -462,8 +462,8 @@ fun EditTaskDialog(
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
-            val formattedMonth = String.format("%02d", month + 1)
-            val formattedDay = String.format("%02d", dayOfMonth)
+            val formattedMonth = String.format(java.util.Locale.US, "%02d", month + 1)
+            val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
         calendar.get(Calendar.YEAR),

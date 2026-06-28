@@ -12,12 +12,7 @@
 -keepattributes Signature, InnerClasses, EnclosingMethod, AnnotationDefault, RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations, RuntimeVisibleTypeAnnotations, *Annotation*
 
 # ========== Kotlinx Serialization ==========
--dontwarn kotlinx.serialization.**
--keep class kotlinx.serialization.** { *; }
--keep interface kotlinx.serialization.** { *; }
--keepclassmembers class * {
-    *** Companion;
-}
+# Library-specific rules are usually bundled, so we only keep rules for our own DTOs/Serializers
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable *;
 }
@@ -28,9 +23,11 @@
 }
 
 # ========== Jetbrains Kotlin Coroutines & Suspend Functions ==========
--dontwarn kotlinx.coroutines.**
--keep class kotlinx.coroutines.** { *; }
--keep interface kotlinx.coroutines.** { *; }
+# Basic rules for Coroutines (broad keeps removed to avoid R8 warnings)
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepnames class kotlinx.coroutines.android.AndroidExceptionPreHandler {}
+-keepnames class kotlinx.coroutines.android.AndroidDispatcherFactory {}
 
 -keep class kotlin.coroutines.Continuation { *; }
 -keep interface kotlin.coroutines.Continuation { *; }
@@ -40,9 +37,9 @@
 }
 
 # ========== Retrofit 2 & OkHttp3 ==========
--dontwarn retrofit2.**
--keep class retrofit2.** { *; }
--keepclassmembers class * {
+# Retrofit 2 rules: Keep annotations and method signatures
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepclassmembers interface * {
     @retrofit2.http.** <methods>;
 }
 
@@ -52,18 +49,16 @@
     <methods>;
 }
 
+# OkHttp3: Broad keeps removed as library includes its own rules
 -dontwarn okhttp3.**
--keep class okhttp3.** { *; }
-
 -dontwarn okio.**
--keep class okio.** { *; }
+-dontwarn javax.annotation.**
+-dontwarn org.conscrypt.**
 
 # ========== Notion API DTO and Interface Rules ==========
 # Keep all package components and their exact signatures for Retrofit's reflection to read
 -keep class com.notiontasks.app.data.remote.dto.** { *; }
--keepattributes Signature, InnerClasses, EnclosingMethod
 -keep interface com.notiontasks.app.data.remote.NotionApi { *; }
 -keepclassmembers interface com.notiontasks.app.data.remote.NotionApi {
     <methods>;
 }
-

@@ -1,12 +1,9 @@
 package com.notiontasks.app.ui.screens
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.SharedPreferences
-import android.os.Build
-import android.os.IBinder
+import androidx.core.content.edit
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -59,18 +56,18 @@ fun PomodoroScreen(
         if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
     
-    var timeLeft by remember { mutableStateOf(prefs.getInt("work_duration_min", 25) * 60) }
+    var timeLeft by remember { mutableIntStateOf(prefs.getInt("work_duration_min", 25) * 60) }
     var isRunning by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
-    var pomodoroCompletedCount by remember { mutableStateOf(initialCompletedCount) }
+    var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
-    var selectedTaskId by remember { mutableStateOf<String?>(initialTaskId) }
+    var selectedTaskId by remember { mutableStateOf(initialTaskId) }
     var isInitialSyncDone by remember { mutableStateOf(false) }
 
     val tasksState by viewModel.tasksState.collectAsState()
 
     LaunchedEffect(selectedTaskId) {
-        prefs.edit().putString("selected_task_id", selectedTaskId).apply()
+        prefs.edit { putString("selected_task_id", selectedTaskId) }
     }
 
     LaunchedEffect(tasksState) {
@@ -86,10 +83,10 @@ fun PomodoroScreen(
 
     LaunchedEffect(todayStr, savedCompletedCountDate) {
         if (savedCompletedCountDate != todayStr) {
-            prefs.edit()
-                .putInt("completed_count", 0)
-                .putString("completed_count_date", todayStr)
-                .apply()
+            prefs.edit {
+                putInt("completed_count", 0)
+                putString("completed_count_date", todayStr)
+            }
         }
     }
     
@@ -98,7 +95,7 @@ fun PomodoroScreen(
             is TasksUiState.Success -> {
                 state.tasks.filter { it.status != completedStatus }.sortedWith(
                     compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                        .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                         .thenBy { it.id }
                 )
             }
@@ -126,11 +123,7 @@ fun PomodoroScreen(
                 putExtra(PomodoroService.EXTRA_DURATION_MINUTES, durationMinutes)
             }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        context.startForegroundService(intent)
     }
 
     // Sync selected task state to the bound PomodoroService
@@ -138,23 +131,22 @@ fun PomodoroScreen(
         if (!isInitialSyncDone) return@LaunchedEffect
         
         boundService?.let { service ->
-            val task = activeFocusTask
             // もしタスクが選択されているが、activeFocusTaskがまだロード中の場合は同期を待つ（nullで上書きしないため）
-            if (selectedTaskId != null && task == null) {
+            if (selectedTaskId != null && activeFocusTask == null) {
                 return@LaunchedEffect
             }
             
             // サービス側のタスク情報が、現在の選択状態（ID、タイトル、カテゴリなど）と異なる場合にのみ更新する
             val isSame = service.associatedTaskId == selectedTaskId &&
-                         service.associatedTaskTitle == task?.title &&
-                         service.associatedTaskCategory == task?.category
+                         service.associatedTaskTitle == activeFocusTask?.title &&
+                         service.associatedTaskCategory == activeFocusTask?.category
             
             if (!isSame) {
                 service.updateFocusedTask(
                     taskId = selectedTaskId,
-                    taskTitle = task?.title,
-                    category = task?.category,
-                    categoryColor = task?.categoryColor
+                    taskTitle = activeFocusTask?.title,
+                    category = activeFocusTask?.category,
+                    categoryColor = activeFocusTask?.categoryColor
                 )
             }
         }
@@ -163,39 +155,42 @@ fun PomodoroScreen(
     // Update state based on service
     var isAlarmPlaying by remember { mutableStateOf(false) }
     DisposableEffect(boundService) {
-        val service = boundService
-        if (service != null) {
-            if (!service.isRunning) {
-                service.updateModeAndDuration(service.currentMode)
+        if (boundService != null) {
+            if (!boundService.isRunning) {
+                boundService.updateModeAndDuration(boundService.currentMode)
             }
-            timeLeft = (service.timeLeftMs / 1000).toInt()
-            isRunning = service.isRunning
-            mode = service.currentMode
-            pomodoroCompletedCount = service.getCompletedCountToday()
-            if (service.isRunning) {
-                selectedTaskId = service.associatedTaskId
+            timeLeft = (boundService.timeLeftMs / 1000).toInt()
+            isRunning = boundService.isRunning
+            mode = boundService.currentMode
+            pomodoroCompletedCount = boundService.getCompletedCountToday()
+            if (boundService.isRunning) {
+                selectedTaskId = boundService.associatedTaskId
             } else {
                 val savedTaskId = prefs.getString("selected_task_id", null)
                 selectedTaskId = savedTaskId
             }
             isInitialSyncDone = true
 
-            isAlarmPlaying = service.isRingtonePlaying
+            isAlarmPlaying = boundService.isRingtonePlaying
 
-            service.onTickListener = { ms, _ ->
+            boundService.onTickListener = { ms, _ ->
                 timeLeft = (ms / 1000).toInt()
             }
-            service.onFinishedListener = {
-                val nextMode = service.currentMode
-                val nextTimeLeftSec = (service.timeLeftMs / 1000).toInt()
-                val nextCompletedCount = service.getCompletedCountToday()
+            boundService.onFinishedListener = {
+                val nextMode = boundService.currentMode
+                val nextTimeLeftSec = (boundService.timeLeftMs / 1000).toInt()
+                val nextCompletedCount = boundService.getCompletedCountToday()
                 
-                if (nextMode == "work") {
-                    Toast.makeText(context, "休憩終了！次の集中セッションを始めましょう。", Toast.LENGTH_LONG).show()
-                } else if (nextMode == "shortBreak") {
-                    Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                when (nextMode) {
+                    "work" -> {
+                        Toast.makeText(context, "休憩終了！次の集中セッションを始めましょう。", Toast.LENGTH_LONG).show()
+                    }
+                    "shortBreak" -> {
+                        Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                    }
+                    else -> {
+                        Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                    }
                 }
                 
                 mode = nextMode
@@ -203,18 +198,18 @@ fun PomodoroScreen(
                 pomodoroCompletedCount = nextCompletedCount
                 isRunning = false
             }
-            service.onStateChangedListener = { running ->
+            boundService.onStateChangedListener = { running ->
                 isRunning = running
             }
-            service.onRingtoneStateChangedListener = { playing ->
+            boundService.onRingtoneStateChangedListener = { playing ->
                 isAlarmPlaying = playing
             }
         }
         onDispose {
-            service?.onTickListener = null
-            service?.onFinishedListener = null
-            service?.onStateChangedListener = null
-            service?.onRingtoneStateChangedListener = null
+            boundService?.onTickListener = null
+            boundService?.onFinishedListener = null
+            boundService?.onStateChangedListener = null
+            boundService?.onRingtoneStateChangedListener = null
             isInitialSyncDone = false
         }
     }
@@ -326,7 +321,7 @@ fun PomodoroScreen(
                     // Timer digits text
                     val minutes = timeLeft / 60
                     val seconds = timeLeft % 60
-                    val timeStr = String.format("%02d:%02d", minutes, seconds)
+                    val timeStr = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
                     
                     Text(
                         text = timeStr,

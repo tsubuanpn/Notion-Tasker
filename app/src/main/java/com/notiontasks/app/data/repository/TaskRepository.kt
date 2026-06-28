@@ -25,7 +25,7 @@ fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
     return try {
         val titleArray = element.jsonObject["title"]?.jsonArray
         titleArray?.firstOrNull()?.jsonObject?.get("plain_text")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -34,7 +34,7 @@ fun Map<String, JsonElement>.getStatusText(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         element.jsonObject["status"]?.jsonObject?.get("name")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -43,7 +43,7 @@ fun Map<String, JsonElement>.getSelectText(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         element.jsonObject["select"]?.jsonObject?.get("name")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -52,7 +52,7 @@ fun Map<String, JsonElement>.getDateValue(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         element.jsonObject["date"]?.jsonObject?.get("start")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -61,7 +61,7 @@ fun Map<String, JsonElement>.getStatusColor(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         element.jsonObject["status"]?.jsonObject?.get("color")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -70,7 +70,7 @@ fun Map<String, JsonElement>.getSelectColor(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         element.jsonObject["select"]?.jsonObject?.get("color")?.jsonPrimitive?.content
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -96,12 +96,12 @@ class TaskRepository(
         scheduledDate: String,
         dueDate: String
     ) {
-        propTitleName = if (title.isBlank()) "名前" else title
-        propStatusName = if (status.isBlank()) "状態" else status
+        propTitleName = title.ifBlank { "名前" }
+        propStatusName = status.ifBlank { "状態" }
         propStatusType = if (statusType == "select") "select" else "status"
-        propCategoryName = if (category.isBlank()) "種類" else category
-        propScheduledDateName = if (scheduledDate.isBlank()) "予定日" else scheduledDate
-        propDueDateName = if (dueDate.isBlank()) "締め切り" else dueDate
+        propCategoryName = category.ifBlank { "種類" }
+        propScheduledDateName = scheduledDate.ifBlank { "予定日" }
+        propDueDateName = dueDate.ifBlank { "締め切り" }
     }
 
     // Main local flow as single source of truth, converting Entities to Domain Models
@@ -179,6 +179,7 @@ class TaskRepository(
     }
 
     // Direct filters across cached elements
+    @Suppress("unused")
     fun getTasksByStatus(status: String): Flow<List<TaskModel>> {
         return taskDao.getTasksByStatus(status).map { entities ->
             entities.map { entity ->
@@ -197,6 +198,7 @@ class TaskRepository(
     }
 
     // Local-filter representation for category screens
+    @Suppress("unused")
     fun getTasksByCategory(category: String): Flow<List<TaskModel>> {
         return allTasks.map { tasks ->
             tasks.filter { it.category == category }
@@ -243,7 +245,7 @@ class TaskRepository(
                 notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
                 // If retry succeeds, seamlessly update the configuration
                 propStatusType = alternateType
-            } catch (retryEx: Exception) {
+            } catch (_: Exception) {
                 // If both fail, surface the failure
                 throw IOException("Failed to save remote status change with either select or status type: ${e.message}", e)
             }
@@ -342,7 +344,7 @@ class TaskRepository(
                 val fallbackPayload = buildPropertiesPayload(alternateType)
                 notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = fallbackPayload))
                 propStatusType = alternateType
-            } catch (retryEx: Exception) {
+            } catch (_: Exception) {
                 throw IOException("Failed to save remote task change: ${e.message}", e)
             }
         }
@@ -411,7 +413,7 @@ class TaskRepository(
                     scheduledDate = scheduledDate
                 )
                 taskDao.insertTasks(listOf(localEntity))
-            } catch (retryEx: Exception) {
+            } catch (_: Exception) {
                 throw IOException("Failed to create remote task: ${e.message}", e)
             }
         }

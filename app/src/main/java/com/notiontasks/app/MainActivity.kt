@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.notiontasks.app
 
 import android.content.ComponentName
@@ -28,10 +29,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.core.content.edit
 import androidx.navigation.compose.rememberNavController
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.notiontasks.app.data.local.TaskDatabase
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.NotionApi
@@ -47,7 +49,6 @@ import com.notiontasks.app.ui.screens.AchievementsScreen
 import com.notiontasks.app.ui.screens.SettingsScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -56,6 +57,7 @@ import retrofit2.Retrofit
 
 class MainActivity : ComponentActivity() {
 
+    private val json = Json { ignoreUnknownKeys = true }
     private lateinit var viewModel: TaskViewModel
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -85,7 +87,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Initialize Crypto SharedPreferences for security guidelines
-        val mainKey = MasterKey.Builder(applicationContext)
+        val mainKey = MasterKey.Builder(applicationContext, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
         val sharedPreferences = try {
@@ -99,14 +101,7 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             e.printStackTrace()
             try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
-                } else {
-                    val sharedPrefsFile = java.io.File(applicationContext.filesDir.parent, "shared_prefs/notion_tasks_secure_prefs.xml")
-                    if (sharedPrefsFile.exists()) {
-                        sharedPrefsFile.delete()
-                    }
-                }
+                applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
             } catch (ex: Exception) {
                 ex.printStackTrace()
             }
@@ -131,7 +126,7 @@ class MainActivity : ComponentActivity() {
         val retrofit = Retrofit.Builder()
             .baseUrl("https://api.notion.com/")
             .client(client)
-            .addConverterFactory(Json { ignoreUnknownKeys = true }.asConverterFactory(contentType))
+            .addConverterFactory(json.asConverterFactory(contentType))
             .build()
 
         val notionApi = retrofit.create(NotionApi::class.java)
@@ -170,7 +165,7 @@ class MainActivity : ComponentActivity() {
                     requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            sharedPreferences.edit().putBoolean("has_req_notif_launch_v2", true).apply()
+            sharedPreferences.edit { putBoolean("has_req_notif_launch_v2", true) }
         }
 
         setContent {
@@ -191,8 +186,8 @@ class MainActivity : ComponentActivity() {
             val categoryOptions = remember {
                 mutableStateOf(
                     try {
-                        Json.decodeFromString<List<String>>(categoryOptionsJson)
-                    } catch (e: Exception) {
+                        json.decodeFromString<List<String>>(categoryOptionsJson)
+                    } catch (_: Exception) {
                         listOf("課題", "学習", "作業", "趣味", "他")
                     }
                 )
@@ -202,8 +197,8 @@ class MainActivity : ComponentActivity() {
             val statusOptions = remember {
                 mutableStateOf(
                     try {
-                        Json.decodeFromString<List<String>>(statusOptionsJson)
-                    } catch (e: Exception) {
+                        json.decodeFromString<List<String>>(statusOptionsJson)
+                    } catch (_: Exception) {
                         listOf("未着手", "進行中", "完了")
                     }
                 )
@@ -252,34 +247,37 @@ class MainActivity : ComponentActivity() {
                     categoryOptionsState = categoryOptions,
                     statusOptionsState = statusOptions,
                     onUpdateCategoryOptions = { newOrder ->
-                        val catJson = try { Json.encodeToString<List<String>>(newOrder) } catch(e: Exception) { "" }
+                        val catJson = try { json.encodeToString<List<String>>(newOrder) } catch(_: Exception) { "" }
                         if (catJson.isNotBlank()) {
-                            sharedPreferences.edit().putString("category_options", catJson).apply()
+                            sharedPreferences.edit { putString("category_options", catJson) }
                         }
                     },
                     onSaveCredentials = { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
                         // Automatically stringify Options to SharedPrefs
-                        val catJson = try { Json.encodeToString<List<String>>(mCatOptions) } catch(e: Exception) { "" }
-                        val statJson = try { Json.encodeToString<List<String>>(mStatOptions) } catch(e: Exception) { "" }
+                        val catJson = try { json.encodeToString<List<String>>(mCatOptions) } catch(_: Exception) { "" }
+                        val statJson = try { json.encodeToString<List<String>>(mStatOptions) } catch(_: Exception) { "" }
 
-                        sharedPreferences.edit()
-                            .putString("notion_token", token)
-                            .putString("database_id", dbId)
-                            .putString("morning_notif_time", morning)
-                            .putString("evening_notif_time", evening)
-                            .putBoolean("morning_notif_enabled", mEnabled)
-                            .putBoolean("evening_notif_enabled", eEnabled)
-                            .putString("theme_mode", theme)
-                            .putString("mapping_prop_title", mTitle)
-                            .putString("mapping_prop_status", mStatus)
-                            .putString("mapping_prop_status_type", mStatusType)
-                            .putString("mapping_prop_category", mCategory)
-                            .putString("mapping_prop_scheduled_date", mScheduled)
-                            .putString("mapping_prop_due_date", mDue)
-                            .apply()
-                        
-                        if (catJson.isNotBlank()) sharedPreferences.edit().putString("category_options", catJson).apply()
-                        if (statJson.isNotBlank()) sharedPreferences.edit().putString("status_options", statJson).apply()
+                        sharedPreferences.edit {
+                            putString("notion_token", token)
+                            putString("database_id", dbId)
+                            putString("morning_notif_time", morning)
+                            putString("evening_notif_time", evening)
+                            putBoolean("morning_notif_enabled", mEnabled)
+                            putBoolean("evening_notif_enabled", eEnabled)
+                            putString("theme_mode", theme)
+                            putString("mapping_prop_title", mTitle)
+                            putString("mapping_prop_status", mStatus)
+                            putString("mapping_prop_status_type", mStatusType)
+                            putString("mapping_prop_category", mCategory)
+                            putString("mapping_prop_scheduled_date", mScheduled)
+                            putString("mapping_prop_due_date", mDue)
+                            if (catJson.isNotBlank()) {
+                                putString("category_options", catJson)
+                            }
+                            if (statJson.isNotBlank()) {
+                                putString("status_options", statJson)
+                            }
+                        }
 
                         propTitle.value = mTitle
                         propStatus.value = mStatus
@@ -396,8 +394,8 @@ fun MainAppScreen(
         }
     }
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var editingTask by remember { mutableStateOf<TaskModel?>(null) }
+    val showAddDialogState = remember { mutableStateOf(false) }
+    val editingTaskState = remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
     var isSearchActive by remember { mutableStateOf(false) }
 
@@ -468,7 +466,7 @@ fun MainAppScreen(
         floatingActionButton = {
             if (currentRoute != Screen.Settings.route && currentRoute != Screen.Achievements.route) {
                 FloatingActionButton(
-                    onClick = { showAddDialog = true },
+                    onClick = { showAddDialogState.value = true },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
@@ -486,7 +484,7 @@ fun MainAppScreen(
                 HomeScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptionsState.value,
-                    onEditTask = { editingTask = it },
+                    onEditTask = { editingTaskState.value = it },
                     isSearchActive = isSearchActive
                 )
             }
@@ -495,7 +493,7 @@ fun MainAppScreen(
                     viewModel = viewModel,
                     categoryOptions = categoryOptionsState.value,
                     statusOptions = statusOptionsState.value,
-                    onEditTask = { editingTask = it },
+                    onEditTask = { editingTaskState.value = it },
                     onReorderCategories = { newOrder ->
                         categoryOptionsState.value = newOrder
                         onUpdateCategoryOptions(newOrder)
@@ -514,7 +512,7 @@ fun MainAppScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptionsState.value,
                     categoryOptions = categoryOptionsState.value,
-                    onEditTask = { editingTask = it }
+                    onEditTask = { editingTaskState.value = it }
                 )
             }
             composable(Screen.Calendar.route) {
@@ -522,7 +520,7 @@ fun MainAppScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptionsState.value,
                     selectedCalendarDate = selectedCalendarDate,
-                    onEditTask = { editingTask = it }
+                    onEditTask = { editingTaskState.value = it }
                 )
             }
             composable(Screen.Settings.route) {
@@ -549,14 +547,14 @@ fun MainAppScreen(
         }
     }
 
-    if (showAddDialog) {
+    if (showAddDialogState.value) {
         val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptionsState.value.firstOrNull() ?: "課題")
         val initialScheduled = if (currentRoute == Screen.Calendar.route) (selectedCalendarDate.value ?: "") else ""
         AddTaskDialog(
             initialCategory = defaultCategory,
             categoryOptions = categoryOptionsState.value,
             initialScheduledDate = initialScheduled,
-            onDismiss = { showAddDialog = false },
+            onDismiss = { showAddDialogState.value = false },
             onConfirm = { title, cat, due, sched ->
                 viewModel.addTask(
                     title = title,
@@ -565,7 +563,7 @@ fun MainAppScreen(
                     dueDate = due,
                     scheduledDate = sched,
                     onSuccess = {
-                        showAddDialog = false
+                        showAddDialogState.value = false
                         Toast.makeText(context, "タスクを追加しました", Toast.LENGTH_SHORT).show()
                     },
                     onFailure = { errorMsg ->
@@ -576,12 +574,12 @@ fun MainAppScreen(
         )
     }
 
-    editingTask?.let { task ->
+    editingTaskState.value?.let { task ->
         EditTaskDialog(
             task = task,
             categoryOptions = categoryOptionsState.value,
             statusOptions = statusOptionsState.value,
-            onDismiss = { editingTask = null },
+            onDismiss = { editingTaskState.value = null },
             onConfirm = { title, cat, stat, due, sched ->
                 viewModel.updateTask(
                     id = task.id,
@@ -591,7 +589,7 @@ fun MainAppScreen(
                     dueDate = due,
                     scheduledDate = sched,
                     onSuccess = {
-                        editingTask = null
+                        editingTaskState.value = null
                         Toast.makeText(context, "タスクを更新しました", Toast.LENGTH_SHORT).show()
                     },
                     onFailure = { errorMsg ->

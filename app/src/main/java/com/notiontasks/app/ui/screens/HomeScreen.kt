@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
@@ -79,7 +78,7 @@ fun HomeScreen(
                 val homeTasksData = remember(state.tasks, homeFilter, searchQuery, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
                     val sortedTasks = state.tasks.sortedWith(
                         compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                            .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                            .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                     )
 
                     val active = sortedTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }

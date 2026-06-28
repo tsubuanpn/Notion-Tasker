@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -14,6 +13,13 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import android.media.Ringtone
 import android.media.RingtoneManager
+import androidx.core.content.edit
+import androidx.core.net.toUri
+import android.content.pm.ServiceInfo
+import kotlin.math.ceil
+import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.loadPomodoroLogs
+import com.notiontasks.app.data.savePomodoroLogs
 
 class PomodoroService : Service() {
 
@@ -38,7 +44,7 @@ class PomodoroService : Service() {
     var currentSessionId: String? = null
 
     private fun getDurationMsForMode(mode: String): Long {
-        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
         val minutes = when (mode) {
             "work" -> prefs.getInt("work_duration_min", 25)
             "shortBreak" -> prefs.getInt("short_break_duration_min", 5)
@@ -56,14 +62,14 @@ class PomodoroService : Service() {
     }
 
     fun getCompletedCountToday(): Int {
-        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
         val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         return if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
 
     private fun transitionToNextMode() {
-        val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
         val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
         
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
@@ -75,18 +81,16 @@ class PomodoroService : Service() {
 
         if (currentMode == "work") {
             pomodoroCompletedCount++
-            prefs.edit()
-                .putInt("completed_count", pomodoroCompletedCount)
-                .putString("completed_count_date", todayStr)
-                .apply()
-
-            if (pomodoroCompletedCount % 4 == 0) {
-                currentMode = "longBreak"
-            } else {
-                currentMode = "shortBreak"
+            prefs.edit {
+                putInt("completed_count", pomodoroCompletedCount)
+                putString("completed_count_date", todayStr)
             }
+        }
+
+        currentMode = if (currentMode == "work") {
+            if (pomodoroCompletedCount % 4 == 0) "longBreak" else "shortBreak"
         } else {
-            currentMode = "work"
+            "work"
         }
 
         durationMs = getDurationMsForMode(currentMode)
@@ -118,7 +122,9 @@ class PomodoroService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
             startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)))
         }
         if (intent != null) {
@@ -151,7 +157,7 @@ class PomodoroService : Service() {
                     // If an alarm is currently playing from a previous finished timer, stop it when starting a new one
                     try {
                         ringtone?.stop()
-                    } catch (e: Exception) { }
+                    } catch (_: Exception) { }
                     ringtone = null
                     if (isRingtonePlaying) {
                         isRingtonePlaying = false
@@ -197,7 +203,11 @@ class PomodoroService : Service() {
         }
         
         // Android 14+ require immediate startForeground for special use or short service types
-        startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)))
+        }
 
         countDownTimer = object : CountDownTimer(timeLeftMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {
@@ -219,10 +229,10 @@ class PomodoroService : Service() {
                 
                 onFinishedListener?.invoke()
                 // Play alarm sound: prefer user-selected URI stored in pomodoro_prefs
-                val prefs = getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+                val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
                 val stored = prefs.getString("alarm_uri", "")
                 val alarmUri = if (!stored.isNullOrBlank()) {
-                    try { android.net.Uri.parse(stored) } catch (e: Exception) { null }
+                    try { stored.toUri() } catch (_: Exception) { null }
                 } else {
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 } ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -232,7 +242,7 @@ class PomodoroService : Service() {
                     ringtone?.play()
                     isRingtonePlaying = true
                     onRingtoneStateChangedListener?.invoke(true)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     // 再生に失敗しても処理は継続
                 }
 
@@ -303,7 +313,7 @@ class PomodoroService : Service() {
 
         // 1秒以上作業していれば、端数を切り上げて（最低1分として）記録。テストや短い作業でも確実にログが残る。
         val elapsedSeconds = elapsedMs / 1000.0
-        val elapsedMins = java.lang.Math.ceil(elapsedSeconds / 60.0).toInt()
+        val elapsedMins = ceil(elapsedSeconds / 60.0).toInt()
 
         if (elapsedMins > 0) {
             val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
@@ -391,7 +401,7 @@ class PomodoroService : Service() {
     }
 
     private fun updateNotification(timeStr: String) {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, createNotification(timeStr))
     }
 
@@ -444,7 +454,7 @@ class PomodoroService : Service() {
     }
 
     private fun showCompletionNotification() {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         
         val title = when (currentMode) {
             "work" -> "🎉 集中完了！"
@@ -473,22 +483,20 @@ class PomodoroService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "ポモドーロ常駐タイマー"
-            val descriptionText = "ポモドーロの進捗状況をバックグラウンド（通知）で常時表示します"
-            val importance = NotificationManager.IMPORTANCE_LOW
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+        val name = "ポモドーロ常駐タイマー"
+        val descriptionText = "ポモドーロの進捗状況をバックグラウンド（通知）で常時表示します"
+        val importance = NotificationManager.IMPORTANCE_LOW
+        val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+            description = descriptionText
         }
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
     }
 
     private fun formatTime(millis: Long): String {
         val minutes = (millis / 1000) / 60
         val seconds = (millis / 1000) % 60
-        return String.format("%02d:%02d", minutes, seconds)
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
     override fun onDestroy() {

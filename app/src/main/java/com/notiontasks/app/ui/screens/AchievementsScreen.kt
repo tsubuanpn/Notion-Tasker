@@ -25,17 +25,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.notiontasks.app.CategoryStats
-import com.notiontasks.app.PomodoroLog
+import com.notiontasks.app.data.CategoryStats
+import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.model.TaskModel
-import com.notiontasks.app.getCategoryChartColorInCompose
-import com.notiontasks.app.loadPomodoroLogs
-import com.notiontasks.app.loadPomodoroLogsAsync
+import com.notiontasks.app.data.getCategoryChartColorInCompose
+import com.notiontasks.app.data.loadPomodoroLogsAsync
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import java.util.Calendar
+import kotlin.math.roundToInt
 
 private data class AchievementsData(
     val overdueCount: Int,
@@ -166,7 +166,7 @@ fun AchievementsScreen(
                         )
                     }.sortedWith(
                         compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                            .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                            .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                             .thenBy { it.id }
                     )
 
@@ -559,7 +559,7 @@ fun AchievementsScreen(
                         }
                         "stats" -> {
                             val categoryColorMap = remember(state.tasks) {
-                                state.tasks.filter { !it.category.isNullOrBlank() }.associate { it.category to it.categoryColor }
+                                state.tasks.filter { it.category.isNotBlank() }.associate { it.category to it.categoryColor }
                             }
                             PomodoroStatsSubPage(
                                 context = LocalContext.current,
@@ -678,7 +678,7 @@ fun PomodoroStatsSubPage(
         }
         cal.add(Calendar.DAY_OF_MONTH, offsetToMonday)
         
-        for (i in 0 until 7) {
+        repeat(7) {
             list.add(Pair(sdfLabel.format(cal.time), sdfIso.format(cal.time)))
             cal.add(Calendar.DAY_OF_MONTH, 1)
         }
@@ -706,7 +706,7 @@ fun PomodoroStatsSubPage(
         val catGroups = logsInThisWeek.groupBy { it.category }
         val list = catGroups.map { entry ->
             val minutes = entry.value.sumOf { it.minutes }
-            val pct = if (totalReportMins > 0) Math.round((minutes.toFloat() / totalReportMins) * 100) else 0
+            val pct = if (totalReportMins > 0) ((minutes.toFloat() / totalReportMins) * 100).roundToInt() else 0
             val firstWithColor = entry.value.firstOrNull { it.categoryColor != null }
             CategoryStats(
                 category = entry.key,
@@ -714,7 +714,7 @@ fun PomodoroStatsSubPage(
                 minutes = minutes,
                 hours = minutes / 60,
                 minsRemainder = minutes % 60,
-                percentage = pct.toInt()
+                percentage = pct
             )
         }.sortedByDescending { it.minutes }
         
@@ -833,8 +833,8 @@ fun PomodoroStatsSubPage(
                             verticalArrangement = Arrangement.SpaceBetween,
                             horizontalAlignment = Alignment.End
                         ) {
-                            Text(text = "${Math.round(maxDailyHours)}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                            Text(text = "${Math.round(maxDailyHours / 2)}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Text(text = "${maxDailyHours.roundToInt()}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            Text(text = "${(maxDailyHours / 2).roundToInt()}h", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                             Text(text = "0", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                         }
 
@@ -934,7 +934,7 @@ fun PomodoroStatsSubPage(
                 } else {
                     selDate
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 selDate
             }
             item {

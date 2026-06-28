@@ -39,8 +39,8 @@ fun CalendarScreen(
 ) {
     val uiState by viewModel.tasksState.collectAsState()
 
-    var focusYear by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)) }
-    var focusMonth by remember { mutableStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)) } // 0-indexed
+    var focusYear by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)) }
+    var focusMonth by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)) } // 0-indexed
 
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
@@ -87,7 +87,7 @@ fun CalendarScreen(
                     val map = mutableMapOf<String, MutableList<TaskModel>>()
                     tasks.forEach { task ->
                         val sched = task.scheduledDate
-                        if (sched != null && sched.isNotBlank()) {
+                        if (!sched.isNullOrBlank()) {
                             map.getOrPut(sched) { mutableListOf() }.add(task)
                         }
                     }
@@ -99,7 +99,7 @@ fun CalendarScreen(
                     val map = mutableMapOf<String, MutableList<TaskModel>>()
                     tasks.forEach { task ->
                         val due = task.dueDate
-                        if (due != null && due.isNotBlank()) {
+                        if (!due.isNullOrBlank()) {
                             map.getOrPut(due) { mutableListOf() }.add(task)
                         }
                     }
@@ -307,7 +307,7 @@ fun CalendarScreen(
                         selectedDate
                     }
 
-                    var selectedTab by remember { mutableStateOf(0) } // 0: 予定日, 1: 締め切り
+                    var selectedTab by remember { mutableIntStateOf(0) } // 0: 予定日, 1: 締め切り
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

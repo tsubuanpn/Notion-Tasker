@@ -23,7 +23,7 @@ import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CategoryScreen(
     viewModel: TaskViewModel,
@@ -46,7 +46,7 @@ fun CategoryScreen(
         val rawTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
         val sortedTasks = rawTasks.sortedWith(
             compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                .thenBy(nullsLast(naturalOrder())) { it.dueDate }
         )
         val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
         val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
@@ -64,7 +64,7 @@ fun CategoryScreen(
     val pagerState = rememberPagerState(initialPage = initialPage) { categories.size }
     val coroutineScope = rememberCoroutineScope()
 
-    var showReorderDialog by remember { mutableStateOf(false) }
+    val showReorderDialog = remember { mutableStateOf(false) }
 
     // Sync selectedCategory to ensure it's a valid category
     LaunchedEffect(categories, selectedCategory) {
@@ -89,10 +89,10 @@ fun CategoryScreen(
         }
     }
 
-    if (showReorderDialog) {
+    if (showReorderDialog.value) {
         var tempCategories by remember { mutableStateOf(categories) }
         AlertDialog(
-            onDismissRequest = { showReorderDialog = false },
+            onDismissRequest = { showReorderDialog.value = false },
             title = { Text("種別の並び替え") },
             text = {
                 Column(
@@ -162,14 +162,14 @@ fun CategoryScreen(
                 TextButton(
                     onClick = {
                         onReorderCategories(tempCategories)
-                        showReorderDialog = false
+                        showReorderDialog.value = false
                     }
                 ) {
                     Text("保存")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showReorderDialog = false }) {
+                TextButton(onClick = { showReorderDialog.value = false }) {
                     Text("キャンセル")
                 }
             }
@@ -189,7 +189,7 @@ fun CategoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.weight(1f)) {
-                ScrollableTabRow(
+                PrimaryScrollableTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     edgePadding = 16.dp,
                     containerColor = Color.Transparent,
@@ -209,7 +209,7 @@ fun CategoryScreen(
                 }
             }
             IconButton(
-                onClick = { showReorderDialog = true },
+                onClick = { showReorderDialog.value = true },
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Icon(

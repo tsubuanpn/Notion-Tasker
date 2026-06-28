@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.notiontasks.app
 
 import android.app.AlarmManager
@@ -18,7 +19,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -28,9 +28,9 @@ import java.util.Locale
 class TaskNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED || 
-            intent.action == "android.intent.action.BOOT_COMPLETED" || 
-            intent.action == "android.intent.action.QUICKBOOT_POWERON") {
+        if ((intent.action == Intent.ACTION_BOOT_COMPLETED) || 
+            (intent.action == "android.intent.action.BOOT_COMPLETED") || 
+            (intent.action == "android.intent.action.QUICKBOOT_POWERON")) {
             rescheduleAlarms(context)
             return
         }
@@ -61,7 +61,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                     rescheduleAlarmForType(context, "MORNING")
                 } else if (type == "EVENING") {
                     val unfinishedTasks = allTasks.filter { 
-                        it.scheduledDate == todayStr && it.status != completedStatus
+                        (it.scheduledDate == todayStr) && (it.status != completedStatus)
                     }
                     if (unfinishedTasks.isNotEmpty()) {
                         showNotification(
@@ -85,7 +85,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         context: Context,
         notifId: Int,
         title: String,
-        tasksList: List<String>
+        tasksList: List<String>,
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -126,20 +126,18 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
     companion object {
         fun createNotificationChannel(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val name = "Notionタスク通知"
-                val descriptionText = "朝と夜のタスク通知用チャネル"
-                val importance = NotificationManager.IMPORTANCE_DEFAULT
-                val channel = NotificationChannel("notion_tasks_channel", name, importance).apply {
-                    description = descriptionText
-                }
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.createNotificationChannel(channel)
+            val name = "Notionタスク通知"
+            val descriptionText = "朝と夜のタスク通知用チャネル"
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            val channel = NotificationChannel("notion_tasks_channel", name, importance).apply {
+                description = descriptionText
             }
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
         }
 
         fun getSecurePreferences(context: Context): SharedPreferences {
-            val mainKey = MasterKey.Builder(context.applicationContext)
+            val mainKey = MasterKey.Builder(context.applicationContext, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
             return try {
@@ -153,14 +151,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                        context.applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
-                    } else {
-                        val sharedPrefsFile = java.io.File(context.applicationContext.filesDir.parent, "shared_prefs/notion_tasks_secure_prefs.xml")
-                        if (sharedPrefsFile.exists()) {
-                            sharedPrefsFile.delete()
-                        }
-                    }
+                    context.applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
                 } catch (ex: Exception) {
                     ex.printStackTrace()
                 }
@@ -181,10 +172,12 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             ) ?: "[\"未着手\",\"進行中\",\"完了\"]"
             return try {
                 Json.decodeFromString<List<String>>(json)
+                    .asSequence()
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
+                    .toList()
                     .ifEmpty { listOf("未着手", "進行中", "完了") }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 listOf("未着手", "進行中", "完了")
             }
         }
@@ -276,19 +269,11 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 calendar.add(Calendar.DATE, 1)
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    calendar.timeInMillis,
-                    pendingIntent
-                )
-            } else {
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    calendar.timeInMillis,
-                    pendingIntent
-                )
-            }
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                calendar.timeInMillis,
+                pendingIntent
+            )
         }
     }
 }

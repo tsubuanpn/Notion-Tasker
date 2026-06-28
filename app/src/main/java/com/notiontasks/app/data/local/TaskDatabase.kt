@@ -2,8 +2,6 @@ package com.notiontasks.app.data.local
 
 import android.content.Context
 import androidx.room.*
-import com.notiontasks.app.data.model.TaskCategory
-import com.notiontasks.app.data.model.TaskStatus
 import kotlinx.coroutines.flow.Flow
 
 // TaskEntity represents a row in the local SQLite table for caching
@@ -96,7 +94,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     context.applicationContext,
                     TaskDatabase::class.java,
                     "notion_tasks_cache.db"
-                ).fallbackToDestructiveMigration().build()
+                ).fallbackToDestructiveMigration(true).build()
                 INSTANCE = instance
                 instance
             }

@@ -1,4 +1,4 @@
-package com.notiontasks.app
+package com.notiontasks.app.data
 
 import android.content.Context
 import androidx.compose.ui.graphics.Color

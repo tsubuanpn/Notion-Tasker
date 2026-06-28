@@ -1,3 +1,6 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+@file:Suppress("unused")
+
 package com.notiontasks.app.data.remote.dto
 
 import kotlinx.serialization.SerialName
