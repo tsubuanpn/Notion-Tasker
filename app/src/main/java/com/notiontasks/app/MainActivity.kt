@@ -1,7 +1,11 @@
 package com.notiontasks.app
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.IBinder
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -82,13 +86,36 @@ class MainActivity : ComponentActivity() {
         val mainKey = MasterKey.Builder(applicationContext)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
-        val sharedPreferences = EncryptedSharedPreferences.create(
-            applicationContext,
-            "notion_tasks_secure_prefs",
-            mainKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        val sharedPreferences = try {
+            EncryptedSharedPreferences.create(
+                applicationContext,
+                "notion_tasks_secure_prefs",
+                mainKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
+                } else {
+                    val sharedPrefsFile = java.io.File(applicationContext.filesDir.parent, "shared_prefs/notion_tasks_secure_prefs.xml")
+                    if (sharedPrefsFile.exists()) {
+                        sharedPrefsFile.delete()
+                    }
+                }
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+            EncryptedSharedPreferences.create(
+                applicationContext,
+                "notion_tasks_secure_prefs",
+                mainKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
 
         // API Setup
         val logging = HttpLoggingInterceptor().apply {
@@ -337,6 +364,29 @@ fun MainAppScreen(
     val databaseId by viewModel.databaseId.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
 
+    val context = LocalContext.current
+    var boundService by remember { mutableStateOf<PomodoroService?>(null) }
+    val serviceConnection = remember {
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                val pomodoroBinder = binder as? PomodoroService.PomodoroBinder
+                boundService = pomodoroBinder?.getService()
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                boundService = null
+            }
+        }
+    }
+
+    DisposableEffect(context) {
+        val intent = Intent(context, PomodoroService::class.java)
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        onDispose {
+            context.unbindService(serviceConnection)
+        }
+    }
+
     // Automatic synchronizer trigger on launch if token is already defined
     LaunchedEffect(notionToken, databaseId) {
         if (notionToken.isNotBlank() && databaseId.isNotBlank()) {
@@ -431,7 +481,11 @@ fun MainAppScreen(
                 )
             }
             composable(Screen.Pomodoro.route) {
-                PomodoroScreen(viewModel = viewModel, statusOptions = statusOptionsState.value)
+                PomodoroScreen(
+                    viewModel = viewModel,
+                    statusOptions = statusOptionsState.value,
+                    boundService = boundService
+                )
             }
             composable(Screen.Achievements.route) {
                 AchievementsScreen(
