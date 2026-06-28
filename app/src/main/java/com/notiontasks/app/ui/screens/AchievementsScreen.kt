@@ -30,11 +30,24 @@ import com.notiontasks.app.PomodoroLog
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.getCategoryChartColorInCompose
 import com.notiontasks.app.loadPomodoroLogs
+import com.notiontasks.app.loadPomodoroLogsAsync
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import java.util.Calendar
+
+private data class AchievementsData(
+    val overdueCount: Int,
+    val carriedOverCount: Int,
+    val weekTasks: List<TaskModel>,
+    val completedWeekCount: Int,
+    val weekRate: Int,
+    val monthTasks: List<TaskModel>,
+    val completedMonthCount: Int,
+    val monthRate: Int,
+    val warningTasks: List<TaskModel>
+)
 
 @Composable
 fun AchievementsScreen(
@@ -73,11 +86,6 @@ fun AchievementsScreen(
                 }
                 val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
-                // 1. Overdue & Carried Over calculation
-                val overdueCount = state.tasks.count { it.status != completedStatus && it.dueDate != null && it.dueDate < todayStr }
-                val carriedOverCount = state.tasks.count { it.status != completedStatus && it.scheduledDate != null && it.scheduledDate < todayStr }
-
-                // 2. Week performance
                 val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
                 val startOfWeekCal = remember {
                     Calendar.getInstance().apply {
@@ -104,16 +112,6 @@ fun AchievementsScreen(
                 val startOfWeekStr = remember(startOfWeekCal) { sdf.format(startOfWeekCal.time) }
                 val endOfWeekStr = remember(endOfWeekCal) { sdf.format(endOfWeekCal.time) }
 
-                val weekTasks = state.tasks.filter {
-                    val sched = it.scheduledDate
-                    val due = it.dueDate
-                    (sched != null && sched >= startOfWeekStr && sched <= endOfWeekStr) ||
-                    (due != null && due >= startOfWeekStr && due <= endOfWeekStr)
-                }
-                val completedWeekCount = weekTasks.count { it.status == completedStatus }
-                val weekRate = if (weekTasks.isNotEmpty()) (completedWeekCount * 100) / weekTasks.size else 0
-
-                // 3. Month performance
                 val startOfMonthCal = remember {
                     Calendar.getInstance().apply {
                         set(Calendar.DAY_OF_MONTH, 1)
@@ -135,26 +133,65 @@ fun AchievementsScreen(
                 val startOfMonthStr = remember(startOfMonthCal) { sdf.format(startOfMonthCal.time) }
                 val endOfMonthStr = remember(endOfMonthCal) { sdf.format(endOfMonthCal.time) }
 
-                val monthTasks = state.tasks.filter {
-                    val sched = it.scheduledDate
-                    val due = it.dueDate
-                    (sched != null && sched >= startOfMonthStr && sched <= endOfMonthStr) ||
-                    (due != null && due >= startOfMonthStr && due <= endOfMonthStr)
-                }
-                val completedMonthCount = monthTasks.count { it.status == completedStatus }
-                val monthRate = if (monthTasks.isNotEmpty()) (completedMonthCount * 100) / monthTasks.size else 0
+                // 1. Overdue, Carried Over, Week, Month and Warning calculations optimized with remember
+                val achievementsData = remember(
+                    state.tasks, todayStr, completedStatus,
+                    startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
+                ) {
+                    val overdueCountVal = state.tasks.count { it.status != completedStatus && it.dueDate != null && it.dueDate < todayStr }
+                    val carriedOverCountVal = state.tasks.count { it.status != completedStatus && it.scheduledDate != null && it.scheduledDate < todayStr }
 
-                // Warning / attention tasks: active (not Completed) and (dueDate < today or scheduledDate < today)
-                val warningTasks = state.tasks.filter {
-                    it.status != completedStatus && (
-                        (it.dueDate != null && it.dueDate < todayStr) ||
-                        (it.scheduledDate != null && it.scheduledDate < todayStr)
+                    val weekTasksVal = state.tasks.filter {
+                        val sched = it.scheduledDate
+                        val due = it.dueDate
+                        (sched != null && sched >= startOfWeekStr && sched <= endOfWeekStr) ||
+                        (due != null && due >= startOfWeekStr && due <= endOfWeekStr)
+                    }
+                    val completedWeekCountVal = weekTasksVal.count { it.status == completedStatus }
+                    val weekRateVal = if (weekTasksVal.isNotEmpty()) (completedWeekCountVal * 100) / weekTasksVal.size else 0
+
+                    val monthTasksVal = state.tasks.filter {
+                        val sched = it.scheduledDate
+                        val due = it.dueDate
+                        (sched != null && sched >= startOfMonthStr && sched <= endOfMonthStr) ||
+                        (due != null && due >= startOfMonthStr && due <= endOfMonthStr)
+                    }
+                    val completedMonthCountVal = monthTasksVal.count { it.status == completedStatus }
+                    val monthRateVal = if (monthTasksVal.isNotEmpty()) (completedMonthCountVal * 100) / monthTasksVal.size else 0
+
+                    val warningTasksVal = state.tasks.filter {
+                        it.status != completedStatus && (
+                            (it.dueDate != null && it.dueDate < todayStr) ||
+                            (it.scheduledDate != null && it.scheduledDate < todayStr)
+                        )
+                    }.sortedWith(
+                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                            .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+                            .thenBy { it.id }
                     )
-                }.sortedWith(
-                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
-                        .thenBy { it.id }
-                )
+
+                    AchievementsData(
+                        overdueCount = overdueCountVal,
+                        carriedOverCount = carriedOverCountVal,
+                        weekTasks = weekTasksVal,
+                        completedWeekCount = completedWeekCountVal,
+                        weekRate = weekRateVal,
+                        monthTasks = monthTasksVal,
+                        completedMonthCount = completedMonthCountVal,
+                        monthRate = monthRateVal,
+                        warningTasks = warningTasksVal
+                    )
+                }
+
+                val overdueCount = achievementsData.overdueCount
+                val carriedOverCount = achievementsData.carriedOverCount
+                val weekTasks = achievementsData.weekTasks
+                val completedWeekCount = achievementsData.completedWeekCount
+                val weekRate = achievementsData.weekRate
+                val monthTasks = achievementsData.monthTasks
+                val completedMonthCount = achievementsData.completedMonthCount
+                val monthRate = achievementsData.monthRate
+                val warningTasks = achievementsData.warningTasks
 
                 Column(
                     modifier = Modifier
@@ -596,7 +633,10 @@ fun PomodoroStatsSubPage(
     categoryOptions: List<String>,
     categoryColorMap: Map<String, String?>
 ) {
-    val pomodoroLogs = remember { loadPomodoroLogs(context) }
+    var pomodoroLogs by remember { mutableStateOf<List<PomodoroLog>>(emptyList()) }
+    LaunchedEffect(context) {
+        pomodoroLogs = loadPomodoroLogsAsync(context)
+    }
 
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
