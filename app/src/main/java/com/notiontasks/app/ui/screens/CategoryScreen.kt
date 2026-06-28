@@ -35,10 +35,30 @@ fun CategoryScreen(
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val uiState by viewModel.tasksState.collectAsState()
 
-    val allTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
-    val activeTaskCategories = allTasks.map { it.category.trim() }.distinct().filter { it.isNotBlank() }
-    val combinedCategories = (categoryOptions.map { it.trim() } + activeTaskCategories).distinct().filter { it.isNotBlank() }
-    val categories = combinedCategories.ifEmpty { listOf("課題", "学習", "作業", "趣味", "他") }
+    val categories = remember(uiState, categoryOptions) {
+        val allTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
+        val activeTaskCategories = allTasks.map { it.category.trim() }.distinct().filter { it.isNotBlank() }
+        val combinedCategories = (categoryOptions.map { it.trim() } + activeTaskCategories).distinct().filter { it.isNotBlank() }
+        combinedCategories.ifEmpty { listOf("課題", "学習", "作業", "趣味", "他") }
+    }
+
+    val tasksByCategoryAndStatus = remember(uiState, categories, statusOptions) {
+        val rawTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
+        val sortedTasks = rawTasks.sortedWith(
+            compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
+        )
+        val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
+        val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
+        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+
+        categories.associateWith { cat ->
+            val categoryTasks = sortedTasks.filter { it.category == cat && it.status != completedStatus }
+            val unstartedTasks = categoryTasks.filter { it.status == unstartedStatus }
+            val inProgressTasks = categoryTasks.filter { it.status == inProgressStatus }
+            Triple(categoryTasks, unstartedTasks, inProgressTasks)
+        }
+    }
 
     val initialPage = categories.indexOf(selectedCategory).coerceAtLeast(0)
     val pagerState = rememberPagerState(initialPage = initialPage) { categories.size }
@@ -206,20 +226,13 @@ fun CategoryScreen(
                 .weight(1f)
         ) { page ->
             val pageCategory = categories.getOrNull(page) ?: ""
-            val rawTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
-            // Sort tasks: scheduledDate (ascending, nullsLast) -> dueDate (ascending, nullsLast)
-            val sortedTasks = rawTasks.sortedWith(
-                compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                    .thenBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.dueDate }
-            )
-
             val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
             val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
-            val completedStatus = statusOptions.getOrNull(2) ?: "完了"
 
-            val categoryTasks = sortedTasks.filter { it.category == pageCategory && it.status != completedStatus }
-            val unstartedTasks = categoryTasks.filter { it.status == unstartedStatus }
-            val inProgressTasks = categoryTasks.filter { it.status == inProgressStatus }
+            val triple = tasksByCategoryAndStatus[pageCategory] ?: Triple(emptyList(), emptyList(), emptyList())
+            val categoryTasks = triple.first
+            val unstartedTasks = triple.second
+            val inProgressTasks = triple.third
 
             if (categoryTasks.isEmpty()) {
                 Box(
