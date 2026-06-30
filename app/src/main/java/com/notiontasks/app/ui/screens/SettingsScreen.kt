@@ -3,9 +3,11 @@ package com.notiontasks.app.ui.screens
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -512,6 +514,13 @@ fun SettingsScreen(
                                     previewRingtone?.stop()
                                     val uri = if (alarmUriString.isNotBlank()) alarmUriString.toUri() else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                                     previewRingtone = RingtoneManager.getRingtone(context, uri)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                        val audioAttributes = AudioAttributes.Builder()
+                                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                            .build()
+                                        previewRingtone?.audioAttributes = audioAttributes
+                                    }
                                     previewRingtone?.play()
                                 } catch (_: Exception) {
                                     Toast.makeText(context, "再生に失敗しました", Toast.LENGTH_SHORT).show()
