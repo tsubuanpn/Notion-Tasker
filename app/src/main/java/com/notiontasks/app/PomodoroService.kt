@@ -13,6 +13,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.media.AudioAttributes
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
@@ -239,6 +240,13 @@ class PomodoroService : Service() {
 
                 try {
                     ringtone = RingtoneManager.getRingtone(this@PomodoroService, alarmUri)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        val audioAttributes = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                        ringtone?.audioAttributes = audioAttributes
+                    }
                     ringtone?.play()
                     isRingtonePlaying = true
                     onRingtoneStateChangedListener?.invoke(true)

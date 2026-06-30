@@ -2,3 +2,6 @@
 .idea/
 .gradle/
 app/build/
+gradlew.bat
+gradlew
+gradle-wrapper.jar
