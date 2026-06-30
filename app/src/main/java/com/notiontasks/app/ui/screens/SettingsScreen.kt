@@ -7,7 +7,6 @@ import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,6 +56,11 @@ fun SettingsScreen(
     initialPropCategory: String,
     initialPropScheduled: String,
     initialPropDue: String,
+    initialCategoryTabEnabled: Boolean,
+    initialCalendarTabEnabled: Boolean,
+    initialPomodoroTabEnabled: Boolean,
+    initialAchievementsTabEnabled: Boolean,
+    onTabToggle: (String, Boolean) -> Unit,
     initialCategoryOptions: List<String>,
     initialStatusOptions: List<String>,
     onSave: (
@@ -229,6 +234,13 @@ fun SettingsScreen(
                         subtitle = "ダークモードやライトモードの切り替え設定",
                         icon = Icons.Default.WbSunny,
                         onClick = { currentSubPage = "theme" }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    SettingsMenuItem(
+                        title = "表示タブ設定",
+                        subtitle = "ナビゲーションバーに表示するタブの管理",
+                        icon = Icons.Default.Menu,
+                        onClick = { currentSubPage = "tabs" }
                     )
                 }
             }
@@ -514,13 +526,11 @@ fun SettingsScreen(
                                     previewRingtone?.stop()
                                     val uri = if (alarmUriString.isNotBlank()) alarmUriString.toUri() else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                                     previewRingtone = RingtoneManager.getRingtone(context, uri)
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                        val audioAttributes = AudioAttributes.Builder()
-                                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                            .build()
-                                        previewRingtone?.audioAttributes = audioAttributes
-                                    }
+                                    val audioAttributes = AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                        .build()
+                                    previewRingtone?.audioAttributes = audioAttributes
                                     previewRingtone?.play()
                                 } catch (_: Exception) {
                                     Toast.makeText(context, "再生に失敗しました", Toast.LENGTH_SHORT).show()
@@ -543,6 +553,68 @@ fun SettingsScreen(
 
                         Button(onClick = { currentSubPage = null }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                             Text("保存して戻る", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                "tabs" -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "下部ナビゲーションバーに表示するタブを選択します。よく使う機能だけを表示して画面をスッキリさせることができます。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        TabSettingRow(
+                            title = "カテゴリ別",
+                            subtitle = "カテゴリごとに分類してタスクを表示",
+                            icon = Icons.AutoMirrored.Filled.List,
+                            enabled = initialCategoryTabEnabled,
+                            onCheckedChange = { onTabToggle("category", it) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        TabSettingRow(
+                            title = "カレンダー",
+                            subtitle = "日付ごとにタスクをカレンダーで確認",
+                            icon = Icons.Default.DateRange,
+                            enabled = initialCalendarTabEnabled,
+                            onCheckedChange = { onTabToggle("calendar", it) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        TabSettingRow(
+                            title = "ポモドーロ",
+                            subtitle = "集中と休憩を繰り返すポモドーロタイマー",
+                            icon = Icons.Default.Timer,
+                            enabled = initialPomodoroTabEnabled,
+                            onCheckedChange = { onTabToggle("pomodoro", it) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        TabSettingRow(
+                            title = "実績",
+                            subtitle = "完了したタスクの統計や達成実績の表示",
+                            icon = Icons.Default.Star,
+                            enabled = initialAchievementsTabEnabled,
+                            onCheckedChange = { onTabToggle("achievements", it) }
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = { currentSubPage = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("戻る", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1404,5 +1476,86 @@ fun DurationSettingRow(
                 modifier = Modifier.width(20.dp)
             )
         }
+    }
+}
+
+@Composable
+fun TabSettingRow(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    isLocked: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isLocked) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "必須",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = if (isLocked) null else onCheckedChange,
+            enabled = !isLocked
+        )
     }
 }

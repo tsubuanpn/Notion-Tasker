@@ -240,13 +240,11 @@ class PomodoroService : Service() {
 
                 try {
                     ringtone = RingtoneManager.getRingtone(this@PomodoroService, alarmUri)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        val audioAttributes = AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                        ringtone?.audioAttributes = audioAttributes
-                    }
+                    val audioAttributes = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                    ringtone?.audioAttributes = audioAttributes
                     ringtone?.play()
                     isRingtonePlaying = true
                     onRingtoneStateChangedListener?.invoke(true)

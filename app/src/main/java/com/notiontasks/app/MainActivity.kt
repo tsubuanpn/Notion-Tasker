@@ -175,6 +175,11 @@ class MainActivity : ComponentActivity() {
             val eveningEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("evening_notif_enabled", true)) }
             val themeMode = remember { mutableStateOf(sharedPreferences.getString("theme_mode", "system") ?: "system") }
 
+            val categoryTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_category_enabled", true)) }
+            val calendarTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_calendar_enabled", true)) }
+            val pomodoroTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_pomodoro_enabled", true)) }
+            val achievementsTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_achievements_enabled", true)) }
+
             val propTitle = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_title", "") ?: "") }
             val propStatus = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_status", "") ?: "") }
             val propStatusType = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_status_type", "status") ?: "status") }
@@ -244,6 +249,19 @@ class MainActivity : ComponentActivity() {
                     initialPropCategory = propCategory.value,
                     initialPropScheduled = propScheduled.value,
                     initialPropDue = propDue.value,
+                    initialCategoryTabEnabled = categoryTabEnabled.value,
+                    initialCalendarTabEnabled = calendarTabEnabled.value,
+                    initialPomodoroTabEnabled = pomodoroTabEnabled.value,
+                    initialAchievementsTabEnabled = achievementsTabEnabled.value,
+                    onTabToggle = { tabKey, isEnabled ->
+                        sharedPreferences.edit { putBoolean("tab_${tabKey}_enabled", isEnabled) }
+                        when (tabKey) {
+                            "category" -> categoryTabEnabled.value = isEnabled
+                            "calendar" -> calendarTabEnabled.value = isEnabled
+                            "pomodoro" -> pomodoroTabEnabled.value = isEnabled
+                            "achievements" -> achievementsTabEnabled.value = isEnabled
+                        }
+                    },
                     categoryOptionsState = categoryOptions,
                     statusOptionsState = statusOptions,
                     onUpdateCategoryOptions = { newOrder ->
@@ -335,6 +353,11 @@ fun MainAppScreen(
     initialPropCategory: String,
     initialPropScheduled: String,
     initialPropDue: String,
+    initialCategoryTabEnabled: Boolean,
+    initialCalendarTabEnabled: Boolean,
+    initialPomodoroTabEnabled: Boolean,
+    initialAchievementsTabEnabled: Boolean,
+    onTabToggle: (String, Boolean) -> Unit,
     categoryOptionsState: MutableState<List<String>>,
     statusOptionsState: MutableState<List<String>>,
     onUpdateCategoryOptions: (List<String>) -> Unit,
@@ -405,6 +428,24 @@ fun MainAppScreen(
         }
     }
 
+    LaunchedEffect(initialCategoryTabEnabled, initialCalendarTabEnabled, initialPomodoroTabEnabled, initialAchievementsTabEnabled, currentRoute) {
+        val isCurrentRouteDisabled = when (currentRoute) {
+            Screen.Category.route -> !initialCategoryTabEnabled
+            Screen.Calendar.route -> !initialCalendarTabEnabled
+            Screen.Pomodoro.route -> !initialPomodoroTabEnabled
+            Screen.Achievements.route -> !initialAchievementsTabEnabled
+            else -> false
+        }
+        if (isCurrentRouteDisabled) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(navController.graph.startDestinationId) {
+                    inclusive = false
+                }
+                launchSingleTop = true
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -434,7 +475,23 @@ fun MainAppScreen(
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface
             ) {
-                val screens = listOf(Screen.Home, Screen.Category, Screen.Calendar, Screen.Pomodoro, Screen.Achievements, Screen.Settings)
+                val screens = listOf(
+                    Screen.Home,
+                    Screen.Category,
+                    Screen.Calendar,
+                    Screen.Pomodoro,
+                    Screen.Achievements,
+                    Screen.Settings
+                ).filter { screen ->
+                    when (screen) {
+                        is Screen.Home -> true
+                        is Screen.Settings -> true
+                        is Screen.Category -> initialCategoryTabEnabled
+                        is Screen.Calendar -> initialCalendarTabEnabled
+                        is Screen.Pomodoro -> initialPomodoroTabEnabled
+                        is Screen.Achievements -> initialAchievementsTabEnabled
+                    }
+                }
                 screens.forEach { screen ->
                     NavigationBarItem(
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -539,6 +596,11 @@ fun MainAppScreen(
                     initialPropCategory = initialPropCategory,
                     initialPropScheduled = initialPropScheduled,
                     initialPropDue = initialPropDue,
+                    initialCategoryTabEnabled = initialCategoryTabEnabled,
+                    initialCalendarTabEnabled = initialCalendarTabEnabled,
+                    initialPomodoroTabEnabled = initialPomodoroTabEnabled,
+                    initialAchievementsTabEnabled = initialAchievementsTabEnabled,
+                    onTabToggle = onTabToggle,
                     initialCategoryOptions = categoryOptionsState.value,
                     initialStatusOptions = statusOptionsState.value,
                     onSave = onSaveCredentials
