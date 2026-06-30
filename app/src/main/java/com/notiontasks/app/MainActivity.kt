@@ -14,9 +14,11 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -450,6 +452,15 @@ fun MainAppScreen(
         topBar = {
             TopAppBar(
                 title = { Text("NotionTasker", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    if (currentRoute == Screen.Settings.route && notionToken.isNotBlank() && databaseId.isNotBlank()) {
+                        IconButton(onClick = {
+                            navController.popBackStack()
+                        }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -468,55 +479,65 @@ fun MainAppScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "同期")
                         }
                     }
+                    if (currentRoute != Screen.Settings.route) {
+                        IconButton(onClick = {
+                            navController.navigate(Screen.Settings.route) {
+                                launchSingleTop = true
+                            }
+                        }) {
+                            Icon(Icons.Default.Settings, contentDescription = "設定")
+                        }
+                    }
                 }
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                val screens = listOf(
-                    Screen.Home,
-                    Screen.Category,
-                    Screen.Calendar,
-                    Screen.Pomodoro,
-                    Screen.Achievements,
-                    Screen.Settings
-                ).filter { screen ->
-                    when (screen) {
-                        is Screen.Home -> true
-                        is Screen.Settings -> true
-                        is Screen.Category -> initialCategoryTabEnabled
-                        is Screen.Calendar -> initialCalendarTabEnabled
-                        is Screen.Pomodoro -> initialPomodoroTabEnabled
-                        is Screen.Achievements -> initialAchievementsTabEnabled
+            if (currentRoute != Screen.Settings.route) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ) {
+                    val screens = listOf(
+                        Screen.Home,
+                        Screen.Category,
+                        Screen.Calendar,
+                        Screen.Pomodoro,
+                        Screen.Achievements
+                    ).filter { screen ->
+                        when (screen) {
+                            is Screen.Home -> true
+                            is Screen.Category -> initialCategoryTabEnabled
+                            is Screen.Calendar -> initialCalendarTabEnabled
+                            is Screen.Pomodoro -> initialPomodoroTabEnabled
+                            is Screen.Achievements -> initialAchievementsTabEnabled
+                            else -> true
+                        }
                     }
-                }
-                screens.forEach { screen ->
-                    NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = {
-                            Text(
-                                text = screen.title,
-                                fontSize = 9.5.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        selected = currentRoute == screen.route,
-                        onClick = {
-                            if (currentRoute != screen.route) {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        saveState = true
+                    screens.forEach { screen ->
+                        NavigationBarItem(
+                            icon = { Icon(screen.icon, contentDescription = screen.title) },
+                            label = {
+                                Text(
+                                    text = screen.title,
+                                    fontSize = 9.5.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            selected = currentRoute == screen.route,
+                            onClick = {
+                                if (currentRoute != screen.route) {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         },

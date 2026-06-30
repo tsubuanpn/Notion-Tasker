@@ -659,7 +659,9 @@ fun PomodoroStatsSubPage(
     }
     val allTimeHoursTotal = allTimeMinutes / 60
 
-    val thisWeekDays = remember {
+    var weekOffset by remember { mutableIntStateOf(0) }
+
+    val thisWeekDays = remember(weekOffset) {
         val list = mutableListOf<Pair<String, String>>()
         val sdfLabel = java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault())
         val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
@@ -676,7 +678,7 @@ fun PomodoroStatsSubPage(
             Calendar.SATURDAY -> -5
             else -> 0
         }
-        cal.add(Calendar.DAY_OF_MONTH, offsetToMonday)
+        cal.add(Calendar.DAY_OF_MONTH, offsetToMonday + (weekOffset * 7))
         
         repeat(7) {
             list.add(Pair(sdfLabel.format(cal.time), sdfIso.format(cal.time)))
@@ -686,6 +688,14 @@ fun PomodoroStatsSubPage(
     }
 
     var selectedDate by remember { mutableStateOf<String?>(todayStr) }
+
+    LaunchedEffect(weekOffset) {
+        selectedDate = if (weekOffset == 0) {
+            todayStr
+        } else {
+            thisWeekDays.firstOrNull()?.second
+        }
+    }
 
     val maxDailyHours = remember(pomodoroLogs, thisWeekDays) {
         var max = 10f
@@ -811,20 +821,61 @@ fun PomodoroStatsSubPage(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "今週の作業統計",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = if (weekOffset == 0) "今週の作業統計" else "過去の作業統計",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (thisWeekDays.isNotEmpty()) {
+                                Text(
+                                    text = "${thisWeekDays.first().first} 〜 ${thisWeekDays.last().first}",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                        
+                        if (weekOffset != 0) {
+                            TextButton(
+                                onClick = { weekOffset = 0 },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text("今週に戻る", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
 
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.Bottom
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        FilledTonalIconButton(
+                            onClick = { weekOffset -= 1 },
+                            modifier = Modifier.size(24.dp),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Text("◀", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(140.dp)
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.Bottom
+                        ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxHeight()
@@ -921,23 +972,44 @@ fun PomodoroStatsSubPage(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    FilledTonalIconButton(
+                        onClick = { if (weekOffset < 0) weekOffset += 1 },
+                        enabled = weekOffset < 0,
+                        modifier = Modifier.size(24.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                        )
+                    ) {
+                        Text(
+                            text = "▶",
+                            fontSize = 8.sp,
+                            color = if (weekOffset < 0) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
+                    }
                 }
             }
         }
+    }
 
-        selectedDate?.let { selDate ->
-            val dateLogs = pomodoroLogs.filter { it.date == selDate }
-            val formattedSelectedDate = try {
-                val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(selDate)
-                if (date != null) {
-                    java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault()).format(date)
-                } else {
-                    selDate
+    item {
+            selectedDate?.let { selDate ->
+                val dateLogs = remember(pomodoroLogs, selDate) { pomodoroLogs.filter { it.date == selDate } }
+                val formattedSelectedDate = remember(selDate) {
+                    try {
+                        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(selDate)
+                        if (date != null) {
+                            java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault()).format(date)
+                        } else {
+                            selDate
+                        }
+                    } catch (_: Exception) {
+                        selDate
+                    }
                 }
-            } catch (_: Exception) {
-                selDate
-            }
-            item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -1055,7 +1127,7 @@ fun PomodoroStatsSubPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "今週の各作業時間",
+                        text = if (weekOffset == 0) "今週の各作業時間" else "選択した週の各作業時間",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary

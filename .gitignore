@@ -5,3 +5,4 @@ app/build/
 gradlew.bat
 gradlew
 gradle-wrapper.jar
+build/reports/problems/

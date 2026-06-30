@@ -122,6 +122,38 @@ class TaskViewModel(
         }
     }
 
+    /**
+     * NotionのDBメタデータからプロパティのマッピングを自動検知する
+     */
+    fun autoDetectMapping(meta: NotionDatabaseResponse): Map<String, String> {
+        val detected = mutableMapOf<String, String>()
+        meta.properties.forEach { (pName, pVal) ->
+            when {
+                pVal.title != null -> detected["title"] = pName
+                pVal.status != null -> {
+                    detected["status"] = pName
+                    detected["statusType"] = "status"
+                }
+                pVal.select != null && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
+                    if (!detected.containsKey("status")) {
+                        detected["status"] = pName
+                        detected["statusType"] = "select"
+                    }
+                }
+                pVal.select != null && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category")) -> {
+                    detected["category"] = pName
+                }
+                pVal.date != null && (pName.contains("予定") || pName.lowercase().contains("scheduled")) -> {
+                    detected["scheduled"] = pName
+                }
+                pVal.date != null && (pName.contains("締切") || pName.contains("期限") || pName.lowercase().contains("due")) -> {
+                    detected["due"] = pName
+                }
+            }
+        }
+        return detected
+    }
+
     // Dynamic cycle logic over defined state options
     fun cycleTaskStatus(task: TaskModel, stateOptions: List<String> = emptyList()) {
         val options = stateOptions.ifEmpty { listOf("未着手", "進行中", "完了") }

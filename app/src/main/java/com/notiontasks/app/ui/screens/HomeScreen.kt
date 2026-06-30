@@ -21,6 +21,9 @@ import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private data class HomeTasksData(
     val totalActiveCount: Int,
@@ -70,7 +73,7 @@ fun HomeScreen(
                     }
                 }
                 val todayStr = remember {
-                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 }
                 val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0) ?: "未着手" }
                 val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1) ?: "進行中" }
@@ -223,29 +226,6 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                        }
-                    }
-
-                    if (homeFilter == "today") {
-                        // Banner for context
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "📅 対象日: $todayStr",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "予定日/締切が今日以前",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.Gray
-                            )
                         }
                     }
 
