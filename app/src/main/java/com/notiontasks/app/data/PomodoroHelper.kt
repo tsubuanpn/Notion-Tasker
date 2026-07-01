@@ -36,16 +36,7 @@ fun getCategoryChartColorInCompose(category: String, colorName: String?): Color 
         "purple" -> Color(0xFF8B5CF6)
         "pink" -> Color(0xFFEC4899)
         "red" -> Color(0xFFEF5350)
-        else -> {
-            when (category) {
-                "課題" -> Color(0xFF3B82F6)
-                "学習" -> Color(0xFF8B5CF6)
-                "作業" -> Color(0xFF10B981)
-                "趣味" -> Color(0xFFEC4899)
-                "他" -> Color(0xFFFF9800)
-                else -> Color(0xFF737373)
-            }
-        }
+        else -> Color(0xFF737373)
     }
 }
 

@@ -15,11 +15,13 @@ import androidx.core.content.ContextCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.notiontasks.app.data.local.TaskDatabase
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import com.notiontasks.app.data.model.TimeBlock
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -46,7 +48,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 val allTasks = database.taskDao.getAllTasksFlow().first()
                 
                 val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                val completedStatus = getStatusOptions(context).getOrNull(2) ?: "完了"
+                val completedStatus = getStatusOptions(context).getOrNull(2)?.name ?: "完了"
                 
                 if (type == "MORNING") {
                     val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
@@ -72,6 +74,18 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                         )
                     }
                     rescheduleAlarmForType(context, "EVENING")
+                } else if (type == "BLOCK_START") {
+                    val blockTitle = intent.getStringExtra("BLOCK_TITLE") ?: "時間割のアラート"
+                    val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
+                    val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
+                    val associatedId = intent.getStringExtra("ASSOCIATED_ID")
+                    showBlockNotification(
+                        context = context,
+                        notifId = 3000 + blockId.hashCode(),
+                        title = blockTitle,
+                        blockType = blockType,
+                        associatedId = associatedId
+                    )
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -124,6 +138,53 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         notificationManager.notify(notifId, notification)
     }
 
+    private fun showBlockNotification(
+        context: Context,
+        notifId: Int,
+        title: String,
+        blockType: String,
+        associatedId: String?
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+        }
+
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            if (blockType == "task" && !associatedId.isNullOrBlank()) {
+                putExtra("DESTINATION", "pomodoro")
+                putExtra("FOCUS_TASK_ID", associatedId)
+            }
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val textBody = if (blockType == "task") "タスク「$title」を開始する時間割です。タップして集中を開始しましょう！" else "「$title」の予定時間になりました。"
+
+        val notification = NotificationCompat.Builder(context, "notion_tasks_channel")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("時間割: $title")
+            .setContentText(textBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(textBody))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(notifId, notification)
+    }
+
     companion object {
         fun createNotificationChannel(context: Context) {
             val name = "Notionタスク通知"
@@ -165,20 +226,17 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             }
         }
 
-        fun getStatusOptions(context: Context): List<String> {
+        fun getStatusOptions(context: Context): List<NotionOptionInfo> {
             val json = getSecurePreferences(context).getString(
-                "status_options",
-                "[\"未着手\",\"進行中\",\"完了\"]"
-            ) ?: "[\"未着手\",\"進行中\",\"完了\"]"
+                "status_options_v2",
+                null
+            )
+            if (json == null) return emptyList()
+            
             return try {
-                Json.decodeFromString<List<String>>(json)
-                    .asSequence()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .toList()
-                    .ifEmpty { listOf("未着手", "進行中", "完了") }
+                Json.decodeFromString<List<NotionOptionInfo>>(json)
             } catch (_: Exception) {
-                listOf("未着手", "進行中", "完了")
+                emptyList()
             }
         }
 
@@ -274,6 +332,69 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 calendar.timeInMillis,
                 pendingIntent
             )
+        }
+
+        fun scheduleBlockAlarm(context: Context, block: TimeBlock) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, TaskNotificationReceiver::class.java).apply {
+                putExtra("NOTIF_TYPE", "BLOCK_START")
+                putExtra("BLOCK_ID", block.id)
+                putExtra("BLOCK_TITLE", block.title)
+                putExtra("BLOCK_TYPE", block.type)
+                putExtra("ASSOCIATED_ID", block.associatedId)
+            }
+            
+            val requestCode = 3000 + block.id.hashCode()
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Convert date and startTime
+            val dateParts = block.date.split("-")
+            if (dateParts.size != 3) return
+            val year = dateParts[0].toIntOrNull() ?: return
+            val month = dateParts[1].toIntOrNull() ?: return
+            val day = dateParts[2].toIntOrNull() ?: return
+
+            val hour = block.startTime / 60
+            val minute = block.startTime % 60
+
+            val calendar = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month - 1)
+                set(Calendar.DAY_OF_MONTH, day)
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+
+            val now = Calendar.getInstance()
+            if (calendar.before(now)) {
+                return // already past
+            }
+
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                calendar.timeInMillis,
+                pendingIntent
+            )
+        }
+
+        fun cancelBlockAlarm(context: Context, blockId: String) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, TaskNotificationReceiver::class.java)
+            val requestCode = 3000 + blockId.hashCode()
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.cancel(pendingIntent)
         }
     }
 }

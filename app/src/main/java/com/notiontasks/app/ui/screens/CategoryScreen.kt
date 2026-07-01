@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -27,10 +28,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun CategoryScreen(
     viewModel: TaskViewModel,
-    categoryOptions: List<String>,
-    statusOptions: List<String>,
+    categoryOptions: List<NotionOptionInfo>,
+    statusOptions: List<NotionOptionInfo>,
     onEditTask: (TaskModel) -> Unit,
-    onReorderCategories: (List<String>) -> Unit
+    onReorderCategories: (List<NotionOptionInfo>) -> Unit
 ) {
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val uiState by viewModel.tasksState.collectAsState()
@@ -38,8 +39,14 @@ fun CategoryScreen(
     val categories = remember(uiState, categoryOptions) {
         val allTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
         val activeTaskCategories = allTasks.map { it.category.trim() }.distinct().filter { it.isNotBlank() }
-        val combinedCategories = (categoryOptions.map { it.trim() } + activeTaskCategories).distinct().filter { it.isNotBlank() }
-        combinedCategories.ifEmpty { listOf("課題", "学習", "作業", "趣味", "他") }
+        
+        // useful NotionOptionInfo if name matches, otherwise create a temporary one
+        val activeOptions = activeTaskCategories.map { name ->
+            categoryOptions.find { it.name == name } ?: NotionOptionInfo(name = name)
+        }
+        
+        val combinedCategories = (categoryOptions + activeOptions).distinctBy { it.name }.filter { it.name.isNotBlank() }
+        combinedCategories.ifEmpty { listOf(NotionOptionInfo(name = "未選択")) }
     }
 
     val tasksByCategoryAndStatus = remember(uiState, categories, statusOptions) {
@@ -48,19 +55,19 @@ fun CategoryScreen(
             compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                 .thenBy(nullsLast(naturalOrder())) { it.dueDate }
         )
-        val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
-        val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
-        val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+        val unstartedStatus = statusOptions.getOrNull(0)?.name ?: "未着手"
+        val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
+        val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
         categories.associateWith { cat ->
-            val categoryTasks = sortedTasks.filter { it.category == cat && it.status != completedStatus }
+            val categoryTasks = sortedTasks.filter { it.category == cat.name && it.status != completedStatus }
             val unstartedTasks = categoryTasks.filter { it.status == unstartedStatus }
             val inProgressTasks = categoryTasks.filter { it.status == inProgressStatus }
             Triple(categoryTasks, unstartedTasks, inProgressTasks)
         }
     }
 
-    val initialPage = categories.indexOf(selectedCategory).coerceAtLeast(0)
+    val initialPage = categories.indexOfFirst { it.name == selectedCategory }.coerceAtLeast(0)
     val pagerState = rememberPagerState(initialPage = initialPage) { categories.size }
     val coroutineScope = rememberCoroutineScope()
 
@@ -68,14 +75,14 @@ fun CategoryScreen(
 
     // Sync selectedCategory to ensure it's a valid category
     LaunchedEffect(categories, selectedCategory) {
-        if (categories.isNotEmpty() && !categories.contains(selectedCategory)) {
-            viewModel.selectCategory(categories.first())
+        if (categories.isNotEmpty() && categories.none { it.name == selectedCategory }) {
+            viewModel.selectCategory(categories.first().name)
         }
     }
 
     // Sync pagerState from selectedCategory (e.g. when user clicks a tab)
     LaunchedEffect(selectedCategory) {
-        val index = categories.indexOf(selectedCategory)
+        val index = categories.indexOfFirst { it.name == selectedCategory }
         if (index >= 0 && pagerState.currentPage != index) {
             pagerState.animateScrollToPage(index)
         }
@@ -84,8 +91,8 @@ fun CategoryScreen(
     // Sync selectedCategory from pagerState (e.g. when user swipe pages)
     LaunchedEffect(pagerState.settledPage) {
         val targetCategory = categories.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
-        if (selectedCategory != targetCategory) {
-            viewModel.selectCategory(targetCategory)
+        if (selectedCategory != targetCategory.name) {
+            viewModel.selectCategory(targetCategory.name)
         }
     }
 
@@ -115,7 +122,7 @@ fun CategoryScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = category,
+                                    text = category.name,
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
@@ -203,7 +210,7 @@ fun CategoryScreen(
                                     pagerState.animateScrollToPage(index)
                                 }
                             },
-                            text = { Text(category) }
+                            text = { Text(category.name) }
                         )
                     }
                 }
@@ -225,9 +232,9 @@ fun CategoryScreen(
                 .fillMaxSize()
                 .weight(1f)
         ) { page ->
-            val pageCategory = categories.getOrNull(page) ?: ""
-            val unstartedStatus = statusOptions.getOrNull(0) ?: "未着手"
-            val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
+            val pageCategory = categories.getOrNull(page)
+            val unstartedStatus = statusOptions.getOrNull(0)?.name ?: "未着手"
+            val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
 
             val triple = tasksByCategoryAndStatus[pageCategory] ?: Triple(emptyList(), emptyList(), emptyList())
             val categoryTasks = triple.first
@@ -240,7 +247,7 @@ fun CategoryScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "$pageCategory のタスクはありません",
+                        text = "${pageCategory?.name ?: ""} のタスクはありません",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.Gray
                     )

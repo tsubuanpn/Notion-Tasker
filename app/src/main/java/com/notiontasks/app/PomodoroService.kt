@@ -330,14 +330,7 @@ class PomodoroService : Service() {
             val categoryColorVal = if (!associatedTaskCategoryColor.isNullOrBlank() && associatedTaskCategoryColor != "default") {
                 associatedTaskCategoryColor!!.lowercase()
             } else {
-                when (associatedTaskCategory) {
-                    "課題" -> "blue"
-                    "学習" -> "purple"
-                    "作業" -> "green"
-                    "趣味" -> "pink"
-                    "他" -> "orange"
-                    else -> "default"
-                }
+                "default"
             }
 
             val logId = if (isTemporary && currentSessionId != null) {

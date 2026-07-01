@@ -39,6 +39,7 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.notiontasks.app.data.local.TaskDatabase
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.NotionApi
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.TaskRepository
 import com.notiontasks.app.ui.components.AddTaskDialog
 import com.notiontasks.app.ui.components.EditTaskDialog
@@ -48,6 +49,7 @@ import com.notiontasks.app.ui.screens.CategoryScreen
 import com.notiontasks.app.ui.screens.CalendarScreen
 import com.notiontasks.app.ui.screens.PomodoroScreen
 import com.notiontasks.app.ui.screens.AchievementsScreen
+import com.notiontasks.app.ui.screens.ScheduleScreen
 import com.notiontasks.app.ui.screens.SettingsScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
@@ -140,7 +142,7 @@ class MainActivity : ComponentActivity() {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(TaskViewModel::class.java)) {
                     @Suppress("UNCHECKED_CAST")
-                    return TaskViewModel(repository) as T
+                    return TaskViewModel(repository, sharedPreferences) as T
                 }
                 throw IllegalArgumentException("Unknown ViewModel class")
             }
@@ -179,6 +181,7 @@ class MainActivity : ComponentActivity() {
 
             val categoryTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_category_enabled", true)) }
             val calendarTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_calendar_enabled", true)) }
+            val scheduleTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_schedule_enabled", true)) }
             val pomodoroTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_pomodoro_enabled", true)) }
             val achievementsTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_achievements_enabled", true)) }
 
@@ -189,27 +192,8 @@ class MainActivity : ComponentActivity() {
             val propScheduled = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_scheduled_date", "") ?: "") }
             val propDue = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_due_date", "") ?: "") }
 
-            val categoryOptionsJson = sharedPreferences.getString("category_options", "[\"課題\",\"学習\",\"作業\",\"趣味\",\"他\"]") ?: "[\"課題\",\"学習\",\"作業\",\"趣味\",\"他\"]"
-            val categoryOptions = remember {
-                mutableStateOf(
-                    try {
-                        json.decodeFromString<List<String>>(categoryOptionsJson)
-                    } catch (_: Exception) {
-                        listOf("課題", "学習", "作業", "趣味", "他")
-                    }
-                )
-            }
-
-            val statusOptionsJson = sharedPreferences.getString("status_options", "[\"未着手\",\"進行中\",\"完了\"]") ?: "[\"未着手\",\"進行中\",\"完了\"]"
-            val statusOptions = remember {
-                mutableStateOf(
-                    try {
-                        json.decodeFromString<List<String>>(statusOptionsJson)
-                    } catch (_: Exception) {
-                        listOf("未着手", "進行中", "完了")
-                    }
-                )
-            }
+            val categoryOptions by viewModel.categoryOptions.collectAsState()
+            val statusOptions by viewModel.statusOptions.collectAsState()
 
             // Sync property mappings on initialization or when updated
             LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propCategory.value, propScheduled.value, propDue.value) {
@@ -225,10 +209,6 @@ class MainActivity : ComponentActivity() {
                     scheduledDate = propScheduled.value,
                     dueDate = propDue.value
                 )
-            }
-
-            LaunchedEffect(statusOptions.value) {
-                viewModel.updateStatusOptions(statusOptions.value)
             }
 
             val darkTheme = when (themeMode.value) {
@@ -253,6 +233,7 @@ class MainActivity : ComponentActivity() {
                     initialPropDue = propDue.value,
                     initialCategoryTabEnabled = categoryTabEnabled.value,
                     initialCalendarTabEnabled = calendarTabEnabled.value,
+                    initialScheduleTabEnabled = scheduleTabEnabled.value,
                     initialPomodoroTabEnabled = pomodoroTabEnabled.value,
                     initialAchievementsTabEnabled = achievementsTabEnabled.value,
                     onTabToggle = { tabKey, isEnabled ->
@@ -260,22 +241,24 @@ class MainActivity : ComponentActivity() {
                         when (tabKey) {
                             "category" -> categoryTabEnabled.value = isEnabled
                             "calendar" -> calendarTabEnabled.value = isEnabled
+                            "schedule" -> scheduleTabEnabled.value = isEnabled
                             "pomodoro" -> pomodoroTabEnabled.value = isEnabled
                             "achievements" -> achievementsTabEnabled.value = isEnabled
                         }
                     },
-                    categoryOptionsState = categoryOptions,
-                    statusOptionsState = statusOptions,
+                    categoryOptions = categoryOptions,
+                    statusOptions = statusOptions,
                     onUpdateCategoryOptions = { newOrder ->
-                        val catJson = try { json.encodeToString<List<String>>(newOrder) } catch(_: Exception) { "" }
+                        val catJson = try { json.encodeToString<List<NotionOptionInfo>>(newOrder) } catch(_: Exception) { "" }
                         if (catJson.isNotBlank()) {
-                            sharedPreferences.edit { putString("category_options", catJson) }
+                            sharedPreferences.edit { putString("category_options_v2", catJson) }
                         }
+                        viewModel.updateCategoryOptions(newOrder)
                     },
                     onSaveCredentials = { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
                         // Automatically stringify Options to SharedPrefs
-                        val catJson = try { json.encodeToString<List<String>>(mCatOptions) } catch(_: Exception) { "" }
-                        val statJson = try { json.encodeToString<List<String>>(mStatOptions) } catch(_: Exception) { "" }
+                        val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
+                        val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
 
                         sharedPreferences.edit {
                             putString("notion_token", token)
@@ -292,10 +275,10 @@ class MainActivity : ComponentActivity() {
                             putString("mapping_prop_scheduled_date", mScheduled)
                             putString("mapping_prop_due_date", mDue)
                             if (catJson.isNotBlank()) {
-                                putString("category_options", catJson)
+                                putString("category_options_v2", catJson)
                             }
                             if (statJson.isNotBlank()) {
-                                putString("status_options", statJson)
+                                putString("status_options_v2", statJson)
                             }
                         }
 
@@ -306,8 +289,8 @@ class MainActivity : ComponentActivity() {
                         propScheduled.value = mScheduled
                         propDue.value = mDue
                         
-                        if (mCatOptions.isNotEmpty()) categoryOptions.value = mCatOptions
-                        if (mStatOptions.isNotEmpty()) statusOptions.value = mStatOptions
+                        viewModel.updateCategoryOptions(mCatOptions)
+                        viewModel.updateStatusOptions(mStatOptions)
 
                         viewModel.updateCredentials(
                             token = token,
@@ -357,12 +340,13 @@ fun MainAppScreen(
     initialPropDue: String,
     initialCategoryTabEnabled: Boolean,
     initialCalendarTabEnabled: Boolean,
+    initialScheduleTabEnabled: Boolean,
     initialPomodoroTabEnabled: Boolean,
     initialAchievementsTabEnabled: Boolean,
     onTabToggle: (String, Boolean) -> Unit,
-    categoryOptionsState: MutableState<List<String>>,
-    statusOptionsState: MutableState<List<String>>,
-    onUpdateCategoryOptions: (List<String>) -> Unit,
+    categoryOptions: List<NotionOptionInfo>,
+    statusOptions: List<NotionOptionInfo>,
+    onUpdateCategoryOptions: (List<NotionOptionInfo>) -> Unit,
     onSaveCredentials: (
         token: String,
         dbId: String,
@@ -377,8 +361,8 @@ fun MainAppScreen(
         mCategory: String,
         mScheduled: String,
         mDue: String,
-        mCatOptions: List<String>,
-        mStatOptions: List<String>
+        mCatOptions: List<NotionOptionInfo>,
+        mStatOptions: List<NotionOptionInfo>
     ) -> Unit
 ) {
     val navController = rememberNavController()
@@ -430,10 +414,35 @@ fun MainAppScreen(
         }
     }
 
-    LaunchedEffect(initialCategoryTabEnabled, initialCalendarTabEnabled, initialPomodoroTabEnabled, initialAchievementsTabEnabled, currentRoute) {
+    val activity = context as? ComponentActivity
+    LaunchedEffect(activity?.intent) {
+        val intent = activity?.intent
+        if (intent != null) {
+            val dest = intent.getStringExtra("DESTINATION")
+            val focusTaskId = intent.getStringExtra("FOCUS_TASK_ID")
+            if (dest == "pomodoro") {
+                if (focusTaskId != null) {
+                    val pPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+                    pPrefs.edit { putString("selected_task_id", focusTaskId) }
+                }
+                navController.navigate(Screen.Pomodoro.route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+                intent.removeExtra("DESTINATION")
+                intent.removeExtra("FOCUS_TASK_ID")
+            }
+        }
+    }
+
+    LaunchedEffect(initialCategoryTabEnabled, initialCalendarTabEnabled, initialScheduleTabEnabled, initialPomodoroTabEnabled, initialAchievementsTabEnabled, currentRoute) {
         val isCurrentRouteDisabled = when (currentRoute) {
             Screen.Category.route -> !initialCategoryTabEnabled
             Screen.Calendar.route -> !initialCalendarTabEnabled
+            Screen.Schedule.route -> !initialScheduleTabEnabled
             Screen.Pomodoro.route -> !initialPomodoroTabEnabled
             Screen.Achievements.route -> !initialAchievementsTabEnabled
             else -> false
@@ -474,7 +483,7 @@ fun MainAppScreen(
                             )
                         }
                     }
-                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Achievements.route) {
+                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Category.route || currentRoute == Screen.Calendar.route || currentRoute == Screen.Schedule.route || currentRoute == Screen.Achievements.route) {
                         IconButton(onClick = { viewModel.syncWithNotion() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "同期")
                         }
@@ -500,6 +509,7 @@ fun MainAppScreen(
                         Screen.Home,
                         Screen.Category,
                         Screen.Calendar,
+                        Screen.Schedule,
                         Screen.Pomodoro,
                         Screen.Achievements
                     ).filter { screen ->
@@ -507,6 +517,7 @@ fun MainAppScreen(
                             is Screen.Home -> true
                             is Screen.Category -> initialCategoryTabEnabled
                             is Screen.Calendar -> initialCalendarTabEnabled
+                            is Screen.Schedule -> initialScheduleTabEnabled
                             is Screen.Pomodoro -> initialPomodoroTabEnabled
                             is Screen.Achievements -> initialAchievementsTabEnabled
                             else -> true
@@ -561,7 +572,7 @@ fun MainAppScreen(
             composable(Screen.Home.route) {
                 HomeScreen(
                     viewModel = viewModel,
-                    statusOptions = statusOptionsState.value,
+                    statusOptions = statusOptions,
                     onEditTask = { editingTaskState.value = it },
                     isSearchActive = isSearchActive
                 )
@@ -569,34 +580,38 @@ fun MainAppScreen(
             composable(Screen.Category.route) {
                 CategoryScreen(
                     viewModel = viewModel,
-                    categoryOptions = categoryOptionsState.value,
-                    statusOptions = statusOptionsState.value,
+                    categoryOptions = categoryOptions,
+                    statusOptions = statusOptions,
                     onEditTask = { editingTaskState.value = it },
                     onReorderCategories = { newOrder ->
-                        categoryOptionsState.value = newOrder
                         onUpdateCategoryOptions(newOrder)
                     }
+                )
+            }
+            composable(Screen.Schedule.route) {
+                ScheduleScreen(
+                    viewModel = viewModel
                 )
             }
             composable(Screen.Pomodoro.route) {
                 PomodoroScreen(
                     viewModel = viewModel,
-                    statusOptions = statusOptionsState.value,
+                    statusOptions = statusOptions,
                     boundService = boundService
                 )
             }
             composable(Screen.Achievements.route) {
                 AchievementsScreen(
                     viewModel = viewModel,
-                    statusOptions = statusOptionsState.value,
-                    categoryOptions = categoryOptionsState.value,
+                    statusOptions = statusOptions,
+                    categoryOptions = categoryOptions,
                     onEditTask = { editingTaskState.value = it }
                 )
             }
             composable(Screen.Calendar.route) {
                 CalendarScreen(
                     viewModel = viewModel,
-                    statusOptions = statusOptionsState.value,
+                    statusOptions = statusOptions,
                     selectedCalendarDate = selectedCalendarDate,
                     onEditTask = { editingTaskState.value = it }
                 )
@@ -619,11 +634,12 @@ fun MainAppScreen(
                     initialPropDue = initialPropDue,
                     initialCategoryTabEnabled = initialCategoryTabEnabled,
                     initialCalendarTabEnabled = initialCalendarTabEnabled,
+                    initialScheduleTabEnabled = initialScheduleTabEnabled,
                     initialPomodoroTabEnabled = initialPomodoroTabEnabled,
                     initialAchievementsTabEnabled = initialAchievementsTabEnabled,
                     onTabToggle = onTabToggle,
-                    initialCategoryOptions = categoryOptionsState.value,
-                    initialStatusOptions = statusOptionsState.value,
+                    initialCategoryOptions = categoryOptions,
+                    initialStatusOptions = statusOptions,
                     onSave = onSaveCredentials
                 )
             }
@@ -631,18 +647,18 @@ fun MainAppScreen(
     }
 
     if (showAddDialogState.value) {
-        val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptionsState.value.firstOrNull() ?: "課題")
+        val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptions.firstOrNull()?.name ?: "")
         val initialScheduled = if (currentRoute == Screen.Calendar.route) (selectedCalendarDate.value ?: "") else ""
         AddTaskDialog(
             initialCategory = defaultCategory,
-            categoryOptions = categoryOptionsState.value,
+            categoryOptions = categoryOptions,
             initialScheduledDate = initialScheduled,
             onDismiss = { showAddDialogState.value = false },
             onConfirm = { title, cat, due, sched ->
                 viewModel.addTask(
                     title = title,
                     category = cat,
-                    status = statusOptionsState.value.firstOrNull() ?: "未着手",
+                    status = statusOptions.firstOrNull()?.name,
                     dueDate = due,
                     scheduledDate = sched,
                     onSuccess = {
@@ -660,8 +676,8 @@ fun MainAppScreen(
     editingTaskState.value?.let { task ->
         EditTaskDialog(
             task = task,
-            categoryOptions = categoryOptionsState.value,
-            statusOptions = statusOptionsState.value,
+            categoryOptions = categoryOptions,
+            statusOptions = statusOptions,
             onDismiss = { editingTaskState.value = null },
             onConfirm = { title, cat, stat, due, sched ->
                 viewModel.updateTask(

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -33,7 +34,7 @@ private data class CalendarDay(
 @Composable
 fun CalendarScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<String>,
+    statusOptions: List<NotionOptionInfo>,
     selectedCalendarDate: MutableState<String?>,
     onEditTask: (TaskModel) -> Unit
 ) {
@@ -58,8 +59,8 @@ fun CalendarScreen(
     val isSystemDark = remember(backgroundColor) {
         backgroundColor.luminance() < 0.5f
     }
-    val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -271,13 +272,7 @@ fun CalendarScreen(
                                                         } else if (task.status == inProgressStatus) {
                                                             Color(0xFF29B6F6)
                                                         } else {
-                                                            when (task.category) {
-                                                                "課題" -> Color(0xFF42A5F5)
-                                                                "学習" -> Color(0xFFAB47BC)
-                                                                "作業" -> Color(0xFFFFCA28)
-                                                                "趣味" -> Color(0xFF66BB6A)
-                                                                else -> Color(0xFF78909C)
-                                                            }
+                                                            Color(0xFF78909C)
                                                         }
 
                                                         Box(

@@ -37,6 +37,7 @@ import androidx.core.content.edit
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 
 /**
@@ -50,6 +51,7 @@ sealed class SettingsSubPage(val title: String, val subtitle: String) {
     data object Theme : SettingsSubPage("外観テーマ設定", "アプリを美しく表示する外観モードの変更")
     data object Alarm : SettingsSubPage("アラーム音設定", "ポモドーロ完了時に鳴らす音を選択")
     data object Pomodoro : SettingsSubPage("ポモドーロタイマー設定", "集中・休憩セッションの時間のカスタマイズ")
+    data object LifeActivitySettings : SettingsSubPage("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集")
     data object Tabs : SettingsSubPage("表示タブ設定", "ナビゲーションバーに表示するタブの管理")
     data object Info : SettingsSubPage("通知 / プロパティについて", "アプリ仕様と通知機能に関する補足説明")
 }
@@ -73,11 +75,12 @@ fun SettingsScreen(
     initialPropDue: String,
     initialCategoryTabEnabled: Boolean,
     initialCalendarTabEnabled: Boolean,
+    initialScheduleTabEnabled: Boolean,
     initialPomodoroTabEnabled: Boolean,
     initialAchievementsTabEnabled: Boolean,
     onTabToggle: (String, Boolean) -> Unit,
-    initialCategoryOptions: List<String>,
-    initialStatusOptions: List<String>,
+    initialCategoryOptions: List<NotionOptionInfo>,
+    initialStatusOptions: List<NotionOptionInfo>,
     onSave: (
         token: String,
         dbId: String,
@@ -92,8 +95,8 @@ fun SettingsScreen(
         mCategory: String,
         mScheduled: String,
         mDue: String,
-        mCatOptions: List<String>,
-        mStatOptions: List<String>,
+        mCatOptions: List<NotionOptionInfo>,
+        mStatOptions: List<NotionOptionInfo>,
     ) -> Unit
 ) {
     // --- 内部状態 ---
@@ -139,19 +142,19 @@ fun SettingsScreen(
         } else {
             // 動的なオプションの同期
             val chosenCatProp = loadedMetadata?.properties?.get(propCategory)
-            val catOptions = chosenCatProp?.select?.options?.asSequence()?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()?.toList()
-                ?.ifEmpty { initialCategoryOptions.asSequence().map { it.trim() }.distinct().toList() }
-                ?: initialCategoryOptions.asSequence().map { it.trim() }.distinct().toList()
+            val catOptions = chosenCatProp?.select?.options?.filter { it.name.trim().isNotBlank() }
+                ?.ifEmpty { initialCategoryOptions }
+                ?: initialCategoryOptions
 
             val chosenStatProp = loadedMetadata?.properties?.get(propStatus)
             val statOptions = if (propStatusType == "status") {
-                chosenStatProp?.status?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
-                    ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
-                    ?: initialStatusOptions.map { it.trim() }.distinct()
+                chosenStatProp?.status?.options?.filter { it.name.trim().isNotBlank() }
+                    ?.ifEmpty { initialStatusOptions }
+                    ?: initialStatusOptions
             } else {
-                chosenStatProp?.select?.options?.map { it.name.trim() }?.filter { it.isNotBlank() }?.distinct()
-                    ?.ifEmpty { initialStatusOptions.map { it.trim() }.distinct() }
-                    ?: initialStatusOptions.map { it.trim() }.distinct()
+                chosenStatProp?.select?.options?.filter { it.name.trim().isNotBlank() }
+                    ?.ifEmpty { initialStatusOptions }
+                    ?: initialStatusOptions
             }
 
             onSave(
@@ -240,9 +243,14 @@ fun SettingsScreen(
                 )
                 is SettingsSubPage.Alarm -> AlarmSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
                 is SettingsSubPage.Pomodoro -> PomodoroSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
+                is SettingsSubPage.LifeActivitySettings -> LifeActivitySettingsSection(
+                    viewModel = viewModel,
+                    onBack = { currentSubPage = SettingsSubPage.Main }
+                )
                 is SettingsSubPage.Tabs -> TabsSettingsSection(
                     catEnabled = initialCategoryTabEnabled,
                     calEnabled = initialCalendarTabEnabled,
+                    schEnabled = initialScheduleTabEnabled,
                     pomEnabled = initialPomodoroTabEnabled,
                     achEnabled = initialAchievementsTabEnabled,
                     onTabToggle = onTabToggle,
@@ -269,6 +277,8 @@ fun MainSettingsMenu(onNavigate: (SettingsSubPage) -> Unit) {
 
     SettingsGroup("アプリ設定") {
         SettingsMenuItem("通知スケジュール設定", "今日期限タスクを知らせる朝・夕の通知タイマー", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Notifications) }
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        SettingsMenuItem("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集", Icons.Default.Favorite) { onNavigate(SettingsSubPage.LifeActivitySettings) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         SettingsMenuItem("アラーム音設定", "ポモドーロ完了時に鳴らす音を選択", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Alarm) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -577,10 +587,11 @@ fun PomodoroSettingsSection(onBack: () -> Unit) {
 }
 
 @Composable
-fun TabsSettingsSection(catEnabled: Boolean, calEnabled: Boolean, pomEnabled: Boolean, achEnabled: Boolean, onTabToggle: (String, Boolean) -> Unit, onBack: () -> Unit) {
+fun TabsSettingsSection(catEnabled: Boolean, calEnabled: Boolean, schEnabled: Boolean, pomEnabled: Boolean, achEnabled: Boolean, onTabToggle: (String, Boolean) -> Unit, onBack: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         TabSettingRow("カテゴリ別", "分類してタスクを表示", Icons.AutoMirrored.Filled.List, catEnabled) { onTabToggle("category", it) }
         TabSettingRow("カレンダー", "日付ごとに確認", Icons.Default.DateRange, calEnabled) { onTabToggle("calendar", it) }
+        TabSettingRow("時間割", "1日のタイムブロッキング", Icons.Default.Schedule, schEnabled) { onTabToggle("schedule", it) }
         TabSettingRow("ポモドーロ", "集中タイマー", Icons.Default.Timer, pomEnabled) { onTabToggle("pomodoro", it) }
         TabSettingRow("実績", "完了統計の表示", Icons.Default.Star, achEnabled) { onTabToggle("achievements", it) }
         Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("戻る") }
@@ -652,5 +663,373 @@ fun TabSettingRow(title: String, subtitle: String, icon: androidx.compose.ui.gra
             }
         }
         Switch(checked = enabled, onCheckedChange = onCheckedChange)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LifeActivitySettingsSection(
+    viewModel: TaskViewModel,
+    onBack: () -> Unit
+) {
+    val lifeActivities by viewModel.lifeActivities.collectAsState()
+    
+    var showDialog by remember { mutableStateOf(false) }
+    var editingActivity by remember { mutableStateOf<com.notiontasks.app.data.model.LifeActivity?>(null) }
+    
+    var actName by remember { mutableStateOf("") }
+    var actDuration by remember { mutableStateOf("30") }
+    var actColor by remember { mutableStateOf("#4CAF50") }
+    
+    var hasDefaultTime by remember { mutableStateOf(false) }
+    var defaultStartHour by remember { mutableIntStateOf(8) }
+    var defaultStartMin by remember { mutableIntStateOf(0) }
+    var defaultEndHour by remember { mutableIntStateOf(9) }
+    var defaultEndMin by remember { mutableIntStateOf(0) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "生活習慣プリセットの設定",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Button(
+                onClick = {
+                    editingActivity = null
+                    actName = ""
+                    actDuration = "30"
+                    actColor = "#4CAF50"
+                    hasDefaultTime = false
+                    defaultStartHour = 8
+                    defaultStartMin = 0
+                    defaultEndHour = 9
+                    defaultEndMin = 0
+                    showDialog = true
+                }
+            ) {
+                Icon(Icons.Default.Add, "追加")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("追加")
+            }
+        }
+
+        Text(
+            "ここで設定した生活習慣は、時間割の登録時にプリセットとして使えるだけでなく、デフォルト時間を設定しておくことで、毎日最初から時間割に自動的に配置されます。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (lifeActivities.isEmpty()) {
+                    Text(
+                        "プリセットがありません",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally)
+                    )
+                } else {
+                    lifeActivities.forEach { act ->
+                        val colorParsed = try {
+                            Color(android.graphics.Color.parseColor(act.color))
+                        } catch (_: Exception) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    editingActivity = act
+                                    actName = act.name
+                                    actDuration = act.durationMinutes.toString()
+                                    actColor = act.color
+                                    hasDefaultTime = act.defaultStartTime != null && act.defaultEndTime != null
+                                    
+                                    val startTot = act.defaultStartTime ?: 480
+                                    defaultStartHour = startTot / 60
+                                    defaultStartMin = (startTot % 60 / 15) * 15
+                                    
+                                    val endTot = act.defaultEndTime ?: (startTot + act.durationMinutes)
+                                    defaultEndHour = endTot / 60
+                                    defaultEndMin = (endTot % 60 / 15) * 15
+                                    
+                                    showDialog = true
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(colorParsed, RoundedCornerShape(100.dp))
+                                )
+                                Column {
+                                    Text(
+                                        text = act.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "標準: ${act.durationMinutes}分",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (act.defaultStartTime != null && act.defaultEndTime != null) {
+                                            val startH = act.defaultStartTime / 60
+                                            val startM = act.defaultStartTime % 60
+                                            val endH = act.defaultEndTime / 60
+                                            val endM = act.defaultEndTime % 60
+                                            Text(
+                                                text = String.format(java.util.Locale.US, "• 自動配置: %02d:%02d ~ %02d:%02d", startH, startM, endH, endM),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            IconButton(
+                                onClick = { viewModel.deleteLifeActivity(act.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "削除",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Dialog for Add/Edit
+        if (showDialog) {
+            AlertDialog(
+                onDismissRequest = { showDialog = false },
+                title = {
+                    Text(
+                        text = if (editingActivity != null) "生活習慣を編集" else "生活習慣を追加",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = actName,
+                            onValueChange = { actName = it },
+                            label = { Text("生活習慣名 (必須)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = actDuration,
+                            onValueChange = { actDuration = it.filter { c -> c.isDigit() } },
+                            label = { Text("標準の時間 (分)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+
+                        // Color options
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("カラー:")
+                            val colors = listOf("#EF5350", "#FF9800", "#4CAF50", "#2196F3", "#9C27B0", "#00BCD4", "#E91E63", "#78909C")
+                            colors.forEach { c ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(Color(android.graphics.Color.parseColor(c)), RoundedCornerShape(100.dp))
+                                        .border(
+                                            width = if (actColor == c) 2.dp else 0.dp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            shape = RoundedCornerShape(100.dp)
+                                        )
+                                        .clickable { actColor = c }
+                                )
+                            }
+                        }
+
+                        // Switch for Auto scheduling
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("デフォルト時間の設定", fontWeight = FontWeight.Bold)
+                                Text("毎日この時間に自動で時間割へ配置されます", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = hasDefaultTime,
+                                onCheckedChange = { hasDefaultTime = it }
+                            )
+                        }
+
+                        if (hasDefaultTime) {
+                            // Start Time
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("開始時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
+                                
+                                Box(modifier = Modifier.weight(1f)) {
+                                    var expandedHour by remember { mutableStateOf(false) }
+                                    Button(onClick = { expandedHour = true }) {
+                                        Text(String.format(java.util.Locale.US, "%02d時", defaultStartHour))
+                                    }
+                                    DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
+                                        for (h in 0..23) {
+                                            DropdownMenuItem(text = { Text("${h}時") }, onClick = {
+                                                defaultStartHour = h
+                                                expandedHour = false
+                                            })
+                                        }
+                                    }
+                                }
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    var expandedMin by remember { mutableStateOf(false) }
+                                    Button(onClick = { expandedMin = true }) {
+                                        Text(String.format(java.util.Locale.US, "%02d分", defaultStartMin))
+                                    }
+                                    DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
+                                        listOf(0, 15, 30, 45).forEach { m ->
+                                            DropdownMenuItem(text = { Text("${m}分") }, onClick = {
+                                                defaultStartMin = m
+                                                expandedMin = false
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+
+                            // End Time
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("終了時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
+                                
+                                Box(modifier = Modifier.weight(1f)) {
+                                    var expandedHour by remember { mutableStateOf(false) }
+                                    Button(onClick = { expandedHour = true }) {
+                                        Text(String.format(java.util.Locale.US, "%02d時", defaultEndHour))
+                                    }
+                                    DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
+                                        for (h in 0..24) {
+                                            DropdownMenuItem(text = { Text("${h}時") }, onClick = {
+                                                defaultEndHour = h
+                                                expandedHour = false
+                                            })
+                                        }
+                                    }
+                                }
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    var expandedMin by remember { mutableStateOf(false) }
+                                    Button(onClick = { expandedMin = true }) {
+                                        Text(String.format(java.util.Locale.US, "%02d分", defaultEndMin))
+                                    }
+                                    DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
+                                        listOf(0, 15, 30, 45).forEach { m ->
+                                            DropdownMenuItem(text = { Text("${m}分") }, onClick = {
+                                                defaultEndMin = m
+                                                expandedMin = false
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (actName.isBlank()) return@Button
+                            val duration = actDuration.toIntOrNull() ?: 30
+                            
+                            val startTot = if (hasDefaultTime) defaultStartHour * 60 + defaultStartMin else null
+                            val endTot = if (hasDefaultTime) defaultEndHour * 60 + defaultEndMin else null
+
+                            val newAct = com.notiontasks.app.data.model.LifeActivity(
+                                id = editingActivity?.id ?: ("la_" + java.util.UUID.randomUUID().toString().take(6)),
+                                name = actName,
+                                durationMinutes = duration,
+                                color = actColor,
+                                defaultStartTime = startTot,
+                                defaultEndTime = endTot
+                            )
+
+                            if (editingActivity != null) {
+                                val updated = lifeActivities.map {
+                                    if (it.id == editingActivity!!.id) newAct else it
+                                }
+                                viewModel.saveLifeActivities(updated)
+                            } else {
+                                viewModel.addLifeActivity(newAct)
+                            }
+
+                            showDialog = false
+                        },
+                        enabled = actName.isNotBlank()
+                    ) {
+                        Text("保存")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDialog = false }) {
+                        Text("キャンセル")
+                    }
+                }
+            )
+        }
     }
 }

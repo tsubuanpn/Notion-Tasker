@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import java.util.Calendar
 
 fun getNotionCategoryColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
@@ -48,12 +49,12 @@ fun getNotionStatusColors(colorName: String?, isDark: Boolean): Pair<Color, Colo
 @Composable
 fun TaskItemCard(
     task: TaskModel,
-    statusOptions: List<String>,
+    statusOptions: List<NotionOptionInfo>,
     onStatusClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
@@ -90,13 +91,7 @@ fun TaskItemCard(
     val categoryColors = if (task.categoryColor != null) {
         getNotionCategoryColors(task.categoryColor, isSystemDark)
     } else {
-        when (task.category) {
-            "課題" -> getNotionCategoryColors("blue", isSystemDark)
-            "学習" -> getNotionCategoryColors("purple", isSystemDark)
-            "作業" -> getNotionCategoryColors("yellow", isSystemDark)
-            "趣味" -> getNotionCategoryColors("green", isSystemDark)
-            else -> getNotionCategoryColors("default", isSystemDark)
-        }
+        getNotionCategoryColors("default", isSystemDark)
     }
 
     val statusColors = if (isUnstarted) {
@@ -104,11 +99,7 @@ fun TaskItemCard(
     } else if (task.statusColor != null) {
         getNotionStatusColors(task.statusColor, isSystemDark)
     } else {
-        when (task.status) {
-            inProgressStatus -> Pair(Color(0xFFE3F2FD), Color(0xFF1565C0))
-            completedStatus -> Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
-            else -> Pair(Color(0xFFECEFF1), Color(0xFF37474F))
-        }
+        getNotionStatusColors("default", isSystemDark)
     }
 
     Card(
@@ -283,7 +274,7 @@ fun EmptyStateView(
 @Composable
 fun AddTaskDialog(
     initialCategory: String,
-    categoryOptions: List<String>,
+    categoryOptions: List<NotionOptionInfo>,
     initialScheduledDate: String = "",
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, dueDate: String?, scheduledDate: String?) -> Unit
@@ -361,9 +352,9 @@ fun AddTaskDialog(
                     ) {
                         categoryOptions.forEach { cat ->
                             DropdownMenuItem(
-                                text = { Text(cat) },
+                                text = { Text(cat.name) },
                                 onClick = {
-                                    category = cat
+                                    category = cat.name
                                     isCategoryDropdownExpanded = false
                                 }
                             )
@@ -430,8 +421,8 @@ fun AddTaskDialog(
 @Composable
 fun EditTaskDialog(
     task: TaskModel,
-    categoryOptions: List<String>,
-    statusOptions: List<String>,
+    categoryOptions: List<NotionOptionInfo>,
+    statusOptions: List<NotionOptionInfo>,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
@@ -510,9 +501,9 @@ fun EditTaskDialog(
                     ) {
                         categoryOptions.forEach { cat ->
                             DropdownMenuItem(
-                                text = { Text(cat) },
+                                text = { Text(cat.name) },
                                 onClick = {
-                                    category = cat
+                                    category = cat.name
                                     isCategoryDropdownExpanded = false
                                 }
                             )
@@ -540,9 +531,9 @@ fun EditTaskDialog(
                     ) {
                         statusOptions.forEach { stat ->
                             DropdownMenuItem(
-                                text = { Text(stat) },
+                                text = { Text(stat.name) },
                                 onClick = {
-                                    status = stat
+                                    status = stat.name
                                     isStatusDropdownExpanded = false
                                 }
                             )

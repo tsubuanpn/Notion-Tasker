@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
@@ -43,7 +44,7 @@ private fun pomodoroDurationSecondsFor(mode: String, prefs: SharedPreferences): 
 @Composable
 fun PomodoroScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<String>,
+    statusOptions: List<NotionOptionInfo>,
     boundService: PomodoroService?
 ) {
     val context = LocalContext.current
@@ -78,8 +79,8 @@ fun PomodoroScreen(
             }
         }
     }
-    val inProgressStatus = statusOptions.getOrNull(1) ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     LaunchedEffect(todayStr, savedCompletedCountDate) {
         if (savedCompletedCountDate != todayStr) {
@@ -90,10 +91,15 @@ fun PomodoroScreen(
         }
     }
     
-    val uncompletedTasks = remember(tasksState, completedStatus) {
+    val uncompletedTasks = remember(tasksState, completedStatus, todayStr) {
         when (val state = tasksState) {
             is TasksUiState.Success -> {
-                state.tasks.filter { it.status != completedStatus }.sortedWith(
+                state.tasks.filter { task ->
+                    val isUncompleted = task.status != completedStatus
+                    task.scheduledDate == todayStr ||
+                    (isUncompleted && (task.scheduledDate != null && task.scheduledDate < todayStr)) ||
+                    (isUncompleted && (task.dueDate != null && task.dueDate < todayStr))
+                }.sortedWith(
                     compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                         .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                         .thenBy { it.id }

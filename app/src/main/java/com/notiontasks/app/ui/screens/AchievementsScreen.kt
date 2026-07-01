@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.getCategoryChartColorInCompose
 import com.notiontasks.app.data.loadPomodoroLogsAsync
 import com.notiontasks.app.ui.components.EmptyStateView
@@ -52,8 +53,8 @@ private data class AchievementsData(
 @Composable
 fun AchievementsScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<String>,
-    categoryOptions: List<String>,
+    statusOptions: List<NotionOptionInfo>,
+    categoryOptions: List<NotionOptionInfo>,
     onEditTask: (TaskModel) -> Unit
 ) {
     val uiState by viewModel.tasksState.collectAsState()
@@ -84,7 +85,7 @@ fun AchievementsScreen(
                 val todayStr = remember {
                     java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
                 }
-                val completedStatus = statusOptions.getOrNull(2) ?: "完了"
+                val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
                 val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
                 val startOfWeekCal = remember {
@@ -630,7 +631,7 @@ fun AchievementsScreen(
 @Composable
 fun PomodoroStatsSubPage(
     context: Context,
-    categoryOptions: List<String>,
+    categoryOptions: List<NotionOptionInfo>,
     categoryColorMap: Map<String, String?>
 ) {
     var pomodoroLogs by remember { mutableStateOf<List<PomodoroLog>>(emptyList()) }
@@ -938,8 +939,8 @@ fun PomodoroStatsSubPage(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalArrangement = Arrangement.Bottom
                                         ) {
-                                            val categoriesList = (categoryOptions + listOf("一般作業")).distinct()
-                                            categoriesList.forEach { cat ->
+                                            val activeCategories = (categoryOptions.map { it.name } + listOf("一般作業")).distinct()
+                                            activeCategories.forEach { cat ->
                                                 val hrs = categoryHours[cat] ?: 0f
                                                 if (hrs > 0f) {
                                                     val pct = hrs / maxDailyHours

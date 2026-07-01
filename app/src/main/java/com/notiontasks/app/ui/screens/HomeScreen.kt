@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
@@ -36,7 +37,7 @@ private data class HomeTasksData(
 @Composable
 fun HomeScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<String>,
+    statusOptions: List<NotionOptionInfo>,
     onEditTask: (TaskModel) -> Unit,
     isSearchActive: Boolean = false
 ) {
@@ -75,8 +76,8 @@ fun HomeScreen(
                 val todayStr = remember {
                     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 }
-                val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0) ?: "未着手" }
-                val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1) ?: "進行中" }
+                val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0)?.name ?: "未着手" }
+                val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1)?.name ?: "進行中" }
 
                 val homeTasksData = remember(state.tasks, homeFilter, searchQuery, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
                     val sortedTasks = state.tasks.sortedWith(
@@ -95,8 +96,9 @@ fun HomeScreen(
                     }
 
                     val todayActive = active.filter {
-                        (it.scheduledDate != null && it.scheduledDate <= todayStr) ||
-                        (it.dueDate != null && it.dueDate <= todayStr)
+                        it.scheduledDate == todayStr ||
+                        (it.scheduledDate != null && it.scheduledDate < todayStr) ||
+                        (it.dueDate != null && it.dueDate < todayStr)
                     }
 
                     val allFiltered = filterBySearch(active)
