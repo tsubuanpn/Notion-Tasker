@@ -3,7 +3,7 @@ package com.notiontasks.app.data
 import android.content.Context
 import androidx.compose.ui.graphics.Color
 
-// Data class for PomodoroLog
+// PomodoroLog 用のデータクラス
 data class PomodoroLog(
     val id: String,
     val taskId: String?,
@@ -15,7 +15,7 @@ data class PomodoroLog(
     val timestamp: Long
 )
 
-// Data class for CategoryStats
+// CategoryStats 用のデータクラス
 data class CategoryStats(
     val category: String,
     val color: String?,

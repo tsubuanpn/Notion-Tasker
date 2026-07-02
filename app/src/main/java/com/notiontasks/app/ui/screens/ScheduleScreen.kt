@@ -59,7 +59,7 @@ fun ScheduleScreen(
     val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0)?.name ?: "未着手" }
     val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1)?.name ?: "進行中" }
 
-    // Date selector state
+    // 日付セレクターの状態
     val calendar = remember { Calendar.getInstance() }
     var selectedDateStr by remember {
         mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time))
@@ -73,7 +73,7 @@ fun ScheduleScreen(
         mutableStateOf(SimpleDateFormat("yyyy年MM月dd日 (E)", Locale.JAPAN).format(parsed))
     }
 
-    // Load active tasks for selected date
+    // 選択された日付の有効なタスクをロードする
     val todayTasks = remember(tasksState, selectedDateStr, statusOptions, unstartedStatus, inProgressStatus) {
         when (val state = tasksState) {
             is TasksUiState.Success -> {
@@ -102,22 +102,22 @@ fun ScheduleScreen(
         }
     }
 
-    // Filter time blocks for selected date
+    // 選択された日付のタイムブロックをフィルタリングする
     val dayBlocks = remember(timeBlocks, selectedDateStr) {
         timeBlocks.filter { it.date == selectedDateStr }.sortedBy { it.startTime }
     }
 
-    // Dialog state for block creation/editing
+    // ブロックの作成/編集用のダイアログ状態
     var showAddDialog by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<TimeBlock?>(null) }
     var selectedPresetTask by remember { mutableStateOf<TaskModel?>(null) }
     var selectedPresetActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var clickedTimeMinutes by remember { mutableStateOf<Int?>(null) }
 
-    // Floating/Tray tab selection ("tasks" or "life")
+    // フローティング/トレイのタブ選択 ("tasks" または "life")
     var trayTab by remember { mutableStateOf("tasks") }
 
-    // Drag & Drop States
+    // ドラッグ＆ドロップの状態
     var draggedTask by remember { mutableStateOf<TaskModel?>(null) }
     var draggedActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
@@ -126,7 +126,7 @@ fun ScheduleScreen(
     var timetableBounds by remember { mutableStateOf<Rect?>(null) }
     val density = LocalDensity.current
 
-    // Tray expandable state for Bottom Tray UI (Approach C)
+    // ボトムトレイ UI 用のトレイ拡張可能状態 (Approach C)
     var isTrayExpanded by remember { mutableStateOf(false) }
     val trayHeight by animateDpAsState(
         targetValue = if (isTrayExpanded && !isDragging) 380.dp else 72.dp,
@@ -139,7 +139,7 @@ fun ScheduleScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Daily Date Navigation Header
+        // 毎日の日付ナビゲーションヘッダー
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -183,16 +183,16 @@ fun ScheduleScreen(
             }
         }
 
-        // Main Layout: Timetable with Bottom Expandable Tray (Approach C)
+        // メインレイアウト：ボトム拡張可能トレイを備えたタイムテーブル (Approach C)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            // 24-hour visual scrollable schedule column (Takes full width)
+            // 24時間表示のスクロール可能なスケジュール列（全幅）
             val scrollState = rememberScrollState()
             
-            // Auto scroll to 7:00 AM on initial loading to feel cozy
+            // 初期ロード時に午前7時に自動スクロールして、使い心地を良くする
             LaunchedEffect(Unit) {
                 scrollState.scrollTo(420) // 7 * 60 = 420dp
             }
@@ -205,8 +205,8 @@ fun ScheduleScreen(
                         timetableBounds = layoutCoordinates.boundsInWindow()
                     }
             ) {
-                // Background grid lines (1.dp per minute -> total height = 1440.dp)
-                // Added extra height (80.dp) at bottom so timetable isn't obscured by the bottom tray
+                // 背景のグリッド線 (1分あたり 1.dp -> 合計の高さ = 1440.dp)
+                // ボトムトレイでタイムテーブルが隠れないように、下部に余分な高さ (80.dp) を追加
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -218,14 +218,14 @@ fun ScheduleScreen(
                                 .fillMaxWidth()
                                 .height(60.dp)
                         ) {
-                            // Hour line (Solid)
+                            // 時間線（実線）
                             HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
                                 thickness = 1.dp,
                                 modifier = Modifier.align(Alignment.TopStart)
                             )
                             
-                            // 15 Min subdivisions (Fine dashed / transparent lines)
+                            // 15分刻みの補助線（細かい破線/透明な線）
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -257,7 +257,7 @@ fun ScheduleScreen(
                                 )
                             }
                             
-                            // 30 Min division (Medium line)
+                            // 30分刻みの線（中程度の線）
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -295,7 +295,7 @@ fun ScheduleScreen(
                                 )
                             }
 
-                            // Hour Label on left margin (width: 56.dp)
+                            // 左マージンの時間ラベル（幅: 56.dp）
                             Text(
                                 text = String.format(Locale.US, "%02d:00", hour),
                                 fontSize = 11.sp,
@@ -307,11 +307,11 @@ fun ScheduleScreen(
                             )
                         }
                     }
-                    // Spacer at the bottom of the scroll view so content doesn't get hidden behind the 72dp collapsed tray
+                    // スクロールビューの下部にあるスペーサー。コンテンツが 72dp の折りたたまれたトレイの後ろに隠れないようにします。
                     Spacer(modifier = Modifier.height(80.dp))
                 }
 
-                // Vertical timeline borderline separating labels from schedule boxes
+                // ラベルとスケジュールボックスを分ける垂直タイムラインの境界線
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -320,7 +320,7 @@ fun ScheduleScreen(
                         .offset(x = 56.dp)
                 )
 
-                // Render floating schedule block items
+                // フローティングスケジュールブロックアイテムをレンダリングする
                 dayBlocks.forEach { block ->
                     val blockColor = try {
                         Color(block.color.toColorInt())
@@ -372,7 +372,7 @@ fun ScheduleScreen(
                 }
             }
 
-            // Bottom Expandable Tray Panel (Approach C)
+            // ボトム拡張可能トレイパネル (Approach C)
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -386,7 +386,7 @@ fun ScheduleScreen(
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // Header handle row (Always visible, height: 72.dp)
+                    // ヘッダーハンドル行（常に表示、高さ: 72.dp）
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -395,7 +395,7 @@ fun ScheduleScreen(
                             .padding(top = 8.dp, bottom = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Small handle knob visual indicator
+                        // 小さなハンドルノブの視覚的インジケーター
                         Box(
                             modifier = Modifier
                                 .width(36.dp)
@@ -448,7 +448,7 @@ fun ScheduleScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                // Tap indicator arrow
+                                // タップインジケーターの矢印
                                 Icon(
                                     imageVector = if (isTrayExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
                                     contentDescription = if (isTrayExpanded) "折りたたむ" else "展開する",
@@ -458,14 +458,14 @@ fun ScheduleScreen(
                         }
                     }
 
-                    // Content Area (Only displayed or fully interactive when expanded)
+                    // コンテンツエリア（展開時のみ表示、または完全にインタラクティブ）
                     if (isTrayExpanded) {
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                             thickness = 1.dp
                         )
 
-                        // Tray Tabs (Segmented Control style)
+                        // トレイタブ（セグメントコントロールスタイル）
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -538,7 +538,7 @@ fun ScheduleScreen(
                             }
                         }
 
-                        // Tray list contents (Expanded)
+                        // トレイリストのコンテンツ（展開時）
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -683,7 +683,7 @@ fun ScheduleScreen(
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                                     ) {
-                                                        // Accent bar for task category
+                                                        // タスクカテゴリのアクセントバー
                                                         Box(
                                                             modifier = Modifier
                                                                 .width(4.dp)
@@ -764,7 +764,7 @@ fun ScheduleScreen(
                                     }
                                 }
                             } else {
-                                // Life habits preset list
+                                // 生活習慣プリセットリスト
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -861,7 +861,7 @@ fun ScheduleScreen(
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                                     ) {
-                                                        // Habit specific custom color bar
+                                                        // 習慣固有のカスタムカラーバー
                                                         Box(
                                                             modifier = Modifier
                                                                 .width(4.dp)
@@ -911,7 +911,7 @@ fun ScheduleScreen(
                 }
             }
 
-            // 3. Floating Drag Ghost Overlay Card (Approach C refinement)
+            // 3. フローティングドラッグゴーストオーバーレイカード (Approach C の洗練)
             if (isDragging && (draggedTask != null || draggedActivity != null)) {
                 timetableBounds?.let { bounds ->
                     val relativeX = dragStartScreenPos.x + dragOffset.x - bounds.left
@@ -1027,9 +1027,9 @@ fun ScheduleScreen(
         }
     }
 
-    // --- DIALOGS ---
+    // --- ダイアログ ---
 
-    // 1. Add / Edit Schedule Block Dialog
+    // 1. スケジュールブロックの追加/編集ダイアログ
     if (showAddDialog) {
         var blockTitle by remember {
             mutableStateOf(
@@ -1092,7 +1092,7 @@ fun ScheduleScreen(
                         singleLine = true
                     )
 
-                    // Type indicators
+                    // タイプインジケーター
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1109,7 +1109,7 @@ fun ScheduleScreen(
                         )
                     }
 
-                    // Start Time selectors
+                    // 開始時間セレクター
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1117,7 +1117,7 @@ fun ScheduleScreen(
                     ) {
                         Text("開始時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                         
-                        // Hour
+                        // 時
                         Box(modifier = Modifier.weight(1f)) {
                             var expandedHour by remember { mutableStateOf(false) }
                             Button(onClick = { expandedHour = true }) {
@@ -1133,7 +1133,7 @@ fun ScheduleScreen(
                             }
                         }
 
-                        // Minute (15 Min Snap)
+                        // 分 (15分刻み)
                         Box(modifier = Modifier.weight(1f)) {
                             var expandedMin by remember { mutableStateOf(false) }
                             Button(onClick = { expandedMin = true }) {
@@ -1150,7 +1150,7 @@ fun ScheduleScreen(
                         }
                     }
 
-                    // End Time selectors
+                    // 終了時間セレクター
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1158,7 +1158,7 @@ fun ScheduleScreen(
                     ) {
                         Text("終了時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                         
-                        // Hour
+                        // 時
                         Box(modifier = Modifier.weight(1f)) {
                             var expandedHour by remember { mutableStateOf(false) }
                             Button(onClick = { expandedHour = true }) {
@@ -1174,7 +1174,7 @@ fun ScheduleScreen(
                             }
                         }
 
-                        // Minute (15 Min Snap)
+                        // 分 (15分刻み)
                         Box(modifier = Modifier.weight(1f)) {
                             var expandedMin by remember { mutableStateOf(false) }
                             Button(onClick = { expandedMin = true }) {
@@ -1191,7 +1191,7 @@ fun ScheduleScreen(
                         }
                     }
 
-                    // Color indicator picker
+                    // カラーインジケーターピッカー
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1270,7 +1270,7 @@ fun ScheduleScreen(
     }
 }
 
-// Helper to format minutes of day (e.g. 540 -> "09:00")
+// 1日の経過分をフォーマットするためのヘルパー (例: 540 -> "09:00")
 private fun formatMinutes(minutes: Int): String {
     val h = minutes / 60
     val m = minutes % 60

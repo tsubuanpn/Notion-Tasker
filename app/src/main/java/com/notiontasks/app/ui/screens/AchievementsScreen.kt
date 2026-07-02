@@ -134,7 +134,7 @@ fun AchievementsScreen(
                 val startOfMonthStr = remember(startOfMonthCal) { sdf.format(startOfMonthCal.time) }
                 val endOfMonthStr = remember(endOfMonthCal) { sdf.format(endOfMonthCal.time) }
 
-                // 1. Overdue, Carried Over, Week, Month and Warning calculations optimized with remember
+                // 1. 期限切れ、持ち越し、週、月、および警告の計算を remember で最適化
                 val achievementsData = remember(
                     state.tasks, todayStr, completedStatus,
                     startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
@@ -200,7 +200,7 @@ fun AchievementsScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Tab Selector
+                    // タブセレクター
                     val completedTasksCount = state.tasks.count { it.status == completedStatus }
                     Row(
                         modifier = Modifier
@@ -262,13 +262,13 @@ fun AchievementsScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                // 1. Counters Row (Overdue & Carrying over)
+                                // 1. カウンター行 (期限切れ & 持ち越し)
                                 item {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        // Overdue Card
+                                        // 期限切れカード
                                         Card(
                                             modifier = Modifier.weight(1f),
                                             colors = CardDefaults.cardColors(
@@ -305,7 +305,7 @@ fun AchievementsScreen(
                                             }
                                         }
 
-                                        // Carried Over Card
+                                        // 持ち越しカード
                                         Card(
                                             modifier = Modifier.weight(1f),
                                             colors = CardDefaults.cardColors(
@@ -344,7 +344,7 @@ fun AchievementsScreen(
                                     }
                                 }
 
-                                // 2. Week Achievement rate
+                                // 2. 週の達成率
                                 item {
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
@@ -420,7 +420,7 @@ fun AchievementsScreen(
                                     }
                                 }
 
-                                // 3. Month Achievement rate
+                                // 3. 月の達成率
                                 item {
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
@@ -496,7 +496,7 @@ fun AchievementsScreen(
                                     }
                                 }
 
-                                // 4. Attention tasks
+                                // 4. 注意が必要なタスク
                                 item {
                                     Text(
                                         text = "対応推奨タスク (${warningTasks.size}件)",
@@ -569,7 +569,7 @@ fun AchievementsScreen(
                             )
                         }
                         else -> {
-                            // Completed tasks list view sub-page
+                            // 完了したタスクのリスト表示サブページ
                             val completedTasks = state.tasks.filter { it.status == completedStatus }
 
                             if (completedTasks.isEmpty()) {

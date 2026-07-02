@@ -352,7 +352,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Convert date and startTime
+            // 日付と開始時間を変換する
             val dateParts = block.date.split("-")
             if (dateParts.size != 3) return
             val year = dateParts[0].toIntOrNull() ?: return
@@ -374,7 +374,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
             val now = Calendar.getInstance()
             if (calendar.before(now)) {
-                return // already past
+                return // すでに過去の時間です
             }
 
             alarmManager.setAndAllowWhileIdle(

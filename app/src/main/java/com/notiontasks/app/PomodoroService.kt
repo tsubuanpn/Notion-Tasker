@@ -27,7 +27,7 @@ class PomodoroService : Service() {
     private val binder = PomodoroBinder()
     private var countDownTimer: CountDownTimer? = null
     
-    // Timer States
+    // タイマーの状態
     var isRunning = false
         private set
     var isPaused = false
@@ -36,7 +36,7 @@ class PomodoroService : Service() {
         private set
     var durationMs: Long = 25 * 60 * 1000L
         private set
-    var currentMode = "work" // "work", "shortBreak", "longBreak"
+    var currentMode = "work" // "work" (作業), "shortBreak" (短い休憩), "longBreak" (長い休憩)
     var associatedTaskId: String? = null
     var associatedTaskTitle: String? = null
     var associatedTaskCategory: String? = null
@@ -98,7 +98,7 @@ class PomodoroService : Service() {
         timeLeftMs = durationMs
     }
 
-    // Callback to update UI when active
+    // アクティブ時に UI を更新するためのコールバック
     var onTickListener: ((timeLeftMs: Long, formattedTime: String) -> Unit)? = null
     var onFinishedListener: (() -> Unit)? = null
     var onStateChangedListener: ((isRunning: Boolean) -> Unit)? = null
@@ -155,7 +155,7 @@ class PomodoroService : Service() {
                         }
                     }
 
-                    // If an alarm is currently playing from a previous finished timer, stop it when starting a new one
+                    // 前回のタイマー終了時のアラームが再生中の場合、新しいタイマーを開始する際に停止させる
                     try {
                         ringtone?.stop()
                     } catch (_: Exception) { }
@@ -203,7 +203,7 @@ class PomodoroService : Service() {
             focusStartLeftMs = timeLeftMs
         }
         
-        // Android 14+ require immediate startForeground for special use or short service types
+        // Android 14 以降では、特別な用途や短いサービスのタイプに対して即座に startForeground を呼び出す必要があります
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -229,7 +229,7 @@ class PomodoroService : Service() {
                 transitionToNextMode()
                 
                 onFinishedListener?.invoke()
-                // Play alarm sound: prefer user-selected URI stored in pomodoro_prefs
+                // アラーム音を再生：pomodoro_prefs に保存されているユーザー選択の URI を優先する
                 val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
                 val stored = prefs.getString("alarm_uri", "")
                 val alarmUri = if (!stored.isNullOrBlank()) {
@@ -252,10 +252,10 @@ class PomodoroService : Service() {
                     // 再生に失敗しても処理は継続
                 }
 
-                // Show completion notification
+                // 完了通知を表示する
                 showCompletionNotification()
 
-                // Keep service briefly active so ringtone can play; stop when appropriate
+                // 着信音が鳴る間、サービスを短時間アクティブに保ち、適切なタイミングで停止させる
                 stopSelf()
             }
         }.start()
@@ -302,7 +302,7 @@ class PomodoroService : Service() {
         }
     }
 
-    // Public API to stop ringtone playback (for UI button)
+    // 着信音の再生を停止するための公開 API（UI ボタン用）
     fun stopRingtonePlayback() {
         ringtone?.stop()
         ringtone = null
@@ -361,7 +361,7 @@ class PomodoroService : Service() {
             savePomodoroLogs(this, currentLogs)
         }
 
-        // Reset focusStartLeftMs to current timeLeftMs for the next chunk
+        // 次のチャンクのために focusStartLeftMs を現在の timeLeftMs にリセットする
         focusStartLeftMs = timeLeftMs
     }
 
@@ -418,7 +418,7 @@ class PomodoroService : Service() {
             "一般の集中作業中 | 残り $timeStr"
         }
 
-        // Set up intents for action buttons
+        // アクションボタン用のインテントを設定する
         val pauseIntent = Intent(this, PomodoroService::class.java).apply {
             action = if (isRunning) ACTION_PAUSE else ACTION_START_OR_RESUME
         }

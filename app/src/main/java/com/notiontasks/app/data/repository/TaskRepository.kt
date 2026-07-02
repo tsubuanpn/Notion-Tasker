@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.*
 import java.io.IOException
 
-// Extensions for dynamic JSON parsing
+// 動的な JSON 解析用の拡張機能
 fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
@@ -80,10 +80,10 @@ class TaskRepository(
     private val taskDao: TaskDao
 ) {
 
-    // Dynamic mapping keys configured from Settings screen
+    // 設定画面から構成された動的なマッピングキー
     var propTitleName: String = "名前"
     var propStatusName: String = "状態"
-    var propStatusType: String = "status" // "status" or "select"
+    var propStatusType: String = "status" // "status" (ステータス) または "select" (セレクト)
     var propCategoryName: String = "種類"
     var propScheduledDateName: String = "予定日"
     var propDueDateName: String = "締め切り"
@@ -104,7 +104,7 @@ class TaskRepository(
         propDueDateName = dueDate.ifBlank { "締め切り" }
     }
 
-    // Main local flow as single source of truth, converting Entities to Domain Models
+    // 信頼できる唯一の情報源としてのメインのローカルフロー。Entity をドメインモデルに変換します
     val allTasks: Flow<List<TaskModel>> = taskDao.getAllTasksFlow().map { entities ->
         entities.map { entity ->
             TaskModel(
@@ -124,7 +124,7 @@ class TaskRepository(
         val authHeader = "Bearer $token"
         val meta = notionApi.getDatabase(token = authHeader, databaseId = databaseId)
         
-        // Self-Healing: Automatically inspect actual database property types to resolve select vs status mismatches
+        // 自己修復：実際のデータベースプロパティのタイプを自動的に検査し、select と status の不一致を解消します
         val statusProp = meta.properties[propStatusName]
         if (statusProp != null) {
             if (statusProp.type == "select") {
@@ -136,17 +136,17 @@ class TaskRepository(
         return meta
     }
 
-    // Refresh tasks cache from remote Notion DB
+    // リモートの Notion DB からタスクキャッシュを更新する
     suspend fun syncTasks(token: String, databaseId: String) {
         val authHeader = "Bearer $token"
         try {
-            // Retrieve all matching records from raw query Database DTO node
+            // 生のクエリデータベース DTO ノードから一致するすべてのレコードを取得する
             val response = notionApi.queryDatabase(token = authHeader, databaseId = databaseId)
             
             val activeEntities = response.results.mapNotNull { page ->
                 val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
                 
-                // Fallback to select parse if status parsing returns empty
+                // ステータスの解析が空を返す場合、セレクトの解析にフォールバックする
                 val statusValue = page.properties.getStatusText(propStatusName)
                     ?: page.properties.getSelectText(propStatusName)
                     ?: "未着手"
@@ -169,16 +169,16 @@ class TaskRepository(
                 )
             }
 
-            // Sync with local repository database
+            // ローカルリポジトリデータベースと同期する
             taskDao.clearAllTasks()
             taskDao.insertTasks(activeEntities)
         } catch (e: Exception) {
-            // Handle HTTP failures, connectivity breaks in caller
+            // 呼び出し元での HTTP 障害や接続断を処理する
             throw IOException("Network synchronization failed: ${e.message}", e)
         }
     }
 
-    // Direct filters across cached elements
+    // キャッシュされた要素全体の直接フィルター
     @Suppress("unused")
     fun getTasksByStatus(status: String): Flow<List<TaskModel>> {
         return taskDao.getTasksByStatus(status).map { entities ->
@@ -197,7 +197,7 @@ class TaskRepository(
         }
     }
 
-    // Local-filter representation for category screens
+    // カテゴリ画面用のローカルフィルター表現
     @Suppress("unused")
     fun getTasksByCategory(category: String): Flow<List<TaskModel>> {
         return allTasks.map { tasks ->
@@ -205,17 +205,17 @@ class TaskRepository(
         }
     }
 
-    // High performance status transition updates with PATCH requests with direct local updates
+    // 直接的なローカル更新を伴う PATCH リクエストによる高性能なステータス遷移の更新
     suspend fun updateTaskStatus(
         token: String,
         pageId: String,
         newStatus: String
     ) {
-        // Optimistic UI/Local update
+        // 楽観的な UI/ローカル更新
         val statusColor = taskDao.getStatusColorForStatus(newStatus)
         taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
 
-        // Make Remote Patch call
+        // リモートの Patch 呼び出しを実行する
         val authHeader = "Bearer $token"
         
         try {
@@ -230,7 +230,7 @@ class TaskRepository(
             )
             notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
         } catch (e: Exception) {
-            // Self-Healing Safety Net: Fallback and try alternate type if initial update fails
+            // 自己修復セーフティネット：最初の更新が失敗した場合、別のタイプを試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val retryRequest = NotionUpdateRequest(
@@ -243,10 +243,10 @@ class TaskRepository(
                     )
                 )
                 notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
-                // If retry succeeds, seamlessly update the configuration
+                // 再試行が成功した場合は、シームレスに構成を更新します
                 propStatusType = alternateType
             } catch (_: Exception) {
-                // If both fail, surface the failure
+                // 両方が失敗した場合は、エラーを表示します
                 throw IOException("Failed to save remote status change with either select or status type: ${e.message}", e)
             }
         }
@@ -261,7 +261,7 @@ class TaskRepository(
         dueDate: String?,
         scheduledDate: String?
     ) {
-        // Optimistic UI/Local update
+        // 楽観的な UI/ローカル更新
         val currentLocalTask = taskDao.getTaskById(pageId)
         val statusColor = if (currentLocalTask?.status == status) {
             currentLocalTask.statusColor
@@ -285,7 +285,7 @@ class TaskRepository(
         )
         taskDao.insertTasks(listOf(updatedLocalRef))
 
-        // Helper to construct request property payload
+        // リクエストプロパティのペイロードを構築するためのヘルパー
         fun buildPropertiesPayload(sType: String): Map<String, JsonElement> {
             val properties = mutableMapOf<String, JsonElement>()
             
@@ -333,7 +333,7 @@ class TaskRepository(
             return properties
         }
 
-        // Make Remote Patch call with fallback mechanism
+        // フォールバックメカニズムを使用したリモートの Patch 呼び出しの実行
         val authHeader = "Bearer $token"
         try {
             val initialPayload = buildPropertiesPayload(propStatusType)

@@ -125,7 +125,7 @@ fun HomeScreen(
                 val todayCount = homeTasksData.todayCount
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Search Bar
+                    // 検索バー
                     if (isSearchActive) {
                         OutlinedTextField(
                             value = searchQuery,
@@ -156,7 +156,7 @@ fun HomeScreen(
                             shape = RoundedCornerShape(12.dp)
                         )
                     }
-                    // Segmented control row
+                    // セグメントコントロール行
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -168,7 +168,7 @@ fun HomeScreen(
                             .padding(4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // All button
+                        // 「すべて」ボタン
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -188,7 +188,7 @@ fun HomeScreen(
                             )
                         }
 
-                        // Today button
+                        // 「今日」ボタン
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -276,7 +276,7 @@ fun HomeScreen(
                                 }
                             }
                         } else {
-                            // Empty today screen
+                            // 「今日」の空画面
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()

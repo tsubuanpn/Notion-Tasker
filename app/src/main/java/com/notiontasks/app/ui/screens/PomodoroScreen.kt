@@ -59,7 +59,7 @@ fun PomodoroScreen(
     
     var timeLeft by remember { mutableIntStateOf(prefs.getInt("work_duration_min", 25) * 60) }
     var isRunning by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf("work") } // "work", "shortBreak", "longBreak"
+    var mode by remember { mutableStateOf("work") } // "work" (作業), "shortBreak" (短い休憩), "longBreak" (長い休憩)
     var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
     var selectedTaskId by remember { mutableStateOf(initialTaskId) }
@@ -132,7 +132,7 @@ fun PomodoroScreen(
         context.startForegroundService(intent)
     }
 
-    // Sync selected task state to the bound PomodoroService
+    // 選択されたタスクの状態をバインドされた PomodoroService に同期します
     LaunchedEffect(selectedTaskId, activeFocusTask, boundService, isInitialSyncDone) {
         if (!isInitialSyncDone) return@LaunchedEffect
         
@@ -158,7 +158,7 @@ fun PomodoroScreen(
         }
     }
 
-    // Update state based on service
+    // サービスに基づいて状態を更新します
     var isAlarmPlaying by remember { mutableStateOf(false) }
     DisposableEffect(boundService) {
         if (boundService != null) {
@@ -234,7 +234,7 @@ fun PomodoroScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 2. Mode Selector Segmented Controls
+        // 2. モード選択セグメントコントロール
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -289,7 +289,7 @@ fun PomodoroScreen(
             }
         }
 
-        // 3. Timer Display Card
+        // 3. タイマー表示カード
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -307,7 +307,7 @@ fun PomodoroScreen(
                     .padding(vertical = 24.dp, horizontal = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Faint large timer icon in background
+                // 背景に薄く大きなタイマーアイコンを表示
                 Icon(
                     imageVector = Icons.Default.Timer,
                     contentDescription = null,
@@ -324,7 +324,7 @@ fun PomodoroScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Timer digits text
+                    // タイマーの数字テキスト
                     val minutes = timeLeft / 60
                     val seconds = timeLeft % 60
                     val timeStr = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
@@ -338,12 +338,12 @@ fun PomodoroScreen(
                         letterSpacing = (-1).sp
                     )
 
-                    // Play / Pause / Reset Buttons
+                    // 再生 / 一時停止 / リセットボタン
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Reset Button
+                        // リセットボタン
                         IconButton(
                             onClick = {
                                 triggerServiceAction(PomodoroService.ACTION_STOP)
@@ -369,7 +369,7 @@ fun PomodoroScreen(
                             )
                         }
 
-                        // Start/Pause Button
+                        // 開始/一時停止ボタン
                         val modeColor = when (mode) {
                             "work" -> Color(0xFFEF5350)
                             "shortBreak" -> Color(0xFF2E7D32)
@@ -440,7 +440,7 @@ fun PomodoroScreen(
                         }
                     }
 
-                    // Stats Indicator
+                    // 統計インジケーター
                     HorizontalDivider(color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFEEEEEE), thickness = 1.dp, modifier = Modifier.padding(top = 4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -487,7 +487,7 @@ fun PomodoroScreen(
             }
         }
 
-        // 4. Task Association Section
+        // 4. タスクの紐付けセクション
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -511,7 +511,7 @@ fun PomodoroScreen(
                 )
             }
 
-            // Custom Simple Dropdown
+            // カスタムのシンプルなドロップダウン
             var dropdownExpanded by remember { mutableStateOf(false) }
             val selectedTaskTitle = activeFocusTask?.let { "[${it.category}] ${it.title}" } ?: "-- タスクを選択しない (一般作業) --"
 
@@ -590,7 +590,7 @@ fun PomodoroScreen(
             }
         }
 
-        // 5. Focusing Task Panel Card
+        // 5. フォーカス中のタスクパネルカード
         activeFocusTask?.let { task ->
             val badgeBgColor = if (isSystemInDarkTheme()) Color(0xFF3E1F21) else Color(0xFFFFEBEE)
             val badgeTextColor = if (isSystemInDarkTheme()) Color(0xFFFF8A80) else Color(0xFFC62828)

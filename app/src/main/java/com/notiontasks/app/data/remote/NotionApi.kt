@@ -16,14 +16,14 @@ interface NotionApi {
 
     @GET("v1/databases/{database_id}")
     suspend fun getDatabase(
-        @Header("Authorization") token: String, // Bearer <Token>
+        @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
         @Path("database_id") databaseId: String
     ): NotionDatabaseResponse
 
     @POST("v1/databases/{database_id}/query")
     suspend fun queryDatabase(
-        @Header("Authorization") token: String, // Bearer <Token>
+        @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
         @Path("database_id") databaseId: String,
         @Body filter: Map<String, String> = emptyMap()
@@ -31,7 +31,7 @@ interface NotionApi {
 
     @PATCH("v1/pages/{page_id}")
     suspend fun updatePage(
-        @Header("Authorization") token: String, // Bearer <Token>
+        @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
         @Path("page_id") pageId: String,
         @Body request: NotionUpdateRequest
@@ -39,7 +39,7 @@ interface NotionApi {
 
     @POST("v1/pages")
     suspend fun createPage(
-        @Header("Authorization") token: String, // Bearer <Token>
+        @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
         @Body request: NotionCreateRequest
     ): NotionPage

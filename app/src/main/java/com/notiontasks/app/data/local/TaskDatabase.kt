@@ -4,13 +4,13 @@ import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-// TaskEntity represents a row in the local SQLite table for caching
+// TaskEntity は、キャッシュ用のローカル SQLite テーブルの行を表します
 @Entity(tableName = "tasks")
 data class TaskEntity(
     @PrimaryKey val id: String,
     val title: String,
-    val status: String,      // Raw enum string or value
-    val category: String,    // Raw Select option label
+    val status: String,      // 生の列挙型文字列または値
+    val category: String,    // 生の選択オプションラベル
     val dueDate: String?,
     val scheduledDate: String?,
     val statusColor: String? = null,
@@ -29,7 +29,7 @@ data class PomodoroLogEntity(
     val timestamp: Long
 )
 
-// TaskDao handles compile-time SQL verification and queries
+// TaskDao は、コンパイル時の SQL 検証とクエリを処理します
 @Dao
 interface TaskDao {
     @Query("SELECT * FROM tasks")
@@ -78,7 +78,7 @@ interface PomodoroLogDao {
     suspend fun clearAllLogs()
 }
 
-// Room Database representing the SQL data source
+// SQL データソースを表す Room データベース
 @Database(entities = [TaskEntity::class, PomodoroLogEntity::class], version = 3, exportSchema = false)
 abstract class TaskDatabase : RoomDatabase() {
     abstract val taskDao: TaskDao

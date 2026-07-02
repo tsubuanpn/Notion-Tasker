@@ -1,20 +1,25 @@
 package com.notiontasks.app.ui.viewmodel
 
+import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
-import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import com.notiontasks.app.data.repository.TaskRepository
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 
-// Screen operations status states
+// 画面操作のステータス状態
 sealed interface TasksUiState {
     object Idle : TasksUiState
     object Loading : TasksUiState
@@ -29,7 +34,7 @@ class TaskViewModel(
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 
-    // State for Schedule/TimeBlocking
+    // スケジュール/タイムブロッキングの状態
     private val _timeBlocks = MutableStateFlow<List<TimeBlock>>(emptyList())
     val timeBlocks: StateFlow<List<TimeBlock>> = _timeBlocks.asStateFlow()
 
@@ -37,9 +42,42 @@ class TaskViewModel(
     val lifeActivities: StateFlow<List<LifeActivity>> = _lifeActivities.asStateFlow()
 
     private val _initializedDates = MutableStateFlow<Set<String>>(emptySet())
-    val initializedDates: StateFlow<Set<String>> = _initializedDates.asStateFlow()
+
+    // 保存された構成値 (MainActivity の暗号化された動的 SharedPrefs から挿入されます)
+    private val _notionToken = MutableStateFlow("")
+    val notionToken: StateFlow<String> = _notionToken.asStateFlow()
+
+    private val _databaseId = MutableStateFlow("")
+    val databaseId: StateFlow<String> = _databaseId.asStateFlow()
+
+    // ライブ Room 更新を組み合わせた画面レベルの StateFlow
+    val tasksState: StateFlow<TasksUiState> = repository.allTasks
+        .map { list ->
+            if (list.isEmpty()) {
+                TasksUiState.Idle
+            } else {
+                TasksUiState.Success(list)
+            }
+        }
+        .catch { err -> emit(TasksUiState.Error(err.message ?: "Unknown Database Error")) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = TasksUiState.Loading
+        )
+
+    // 個別のカテゴリフィルタフロー
+    private val _selectedCategory = MutableStateFlow("")
+    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+
+    private val _statusOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
+    val statusOptions: StateFlow<List<NotionOptionInfo>> = _statusOptions.asStateFlow()
+
+    private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
+    val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
 
     init {
+        loadCredentialsAndMappings()
         loadLifeActivities()
         loadTimeBlocks()
         loadInitializedDates()
@@ -98,7 +136,7 @@ class TaskViewModel(
     private fun saveLifeActivitiesInternal(list: List<LifeActivity>) {
         try {
             val str = jsonSerializer.encodeToString(list)
-            sharedPrefs.edit().putString("saved_life_activities", str).apply()
+            sharedPrefs.edit { putString("saved_life_activities", str) }
         } catch (_: Exception) {}
     }
 
@@ -125,7 +163,7 @@ class TaskViewModel(
     }
 
     private fun saveInitializedDates(set: Set<String>) {
-        sharedPrefs.edit().putStringSet("initialized_dates", set).apply()
+        sharedPrefs.edit { putStringSet("initialized_dates", set) }
     }
 
     fun autoInitializeDefaultLifeActivities(context: android.content.Context, date: String) {
@@ -134,7 +172,7 @@ class TaskViewModel(
         val currentBlocks = _timeBlocks.value
         val hasAnyLifeOnThisDate = currentBlocks.any { it.date == date && it.type == "life" }
         
-        // If there's already any life activity block on this date, treat as initialized to avoid duplication
+        // この日付に既に生活アクティビティブロックがある場合は、重複を避けるために初期化済みとして扱います
         if (hasAnyLifeOnThisDate) {
             val updated = _initializedDates.value + date
             _initializedDates.value = updated
@@ -190,19 +228,19 @@ class TaskViewModel(
     private fun saveTimeBlocksInternal(list: List<TimeBlock>) {
         try {
             val str = jsonSerializer.encodeToString(list)
-            sharedPrefs.edit().putString("saved_time_blocks", str).apply()
+            sharedPrefs.edit { putString("saved_time_blocks", str) }
         } catch (_: Exception) {}
     }
 
     fun addTimeBlock(context: android.content.Context, block: TimeBlock) {
-        // Cancel existing alarm with the same ID just in case
+        // 念のため、同じ ID の既存のアラームをキャンセルします
         com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
         
         val updated = _timeBlocks.value.filter { it.id != block.id } + block
         _timeBlocks.value = updated
         saveTimeBlocksInternal(updated)
         
-        // Schedule alarm for new block
+        // 新しいブロックのアラームをスケジュールします
         com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
     }
 
@@ -214,55 +252,7 @@ class TaskViewModel(
         saveTimeBlocksInternal(updated)
     }
 
-    fun updateTimeBlockTimes(context: android.content.Context, id: String, startTime: Int, endTime: Int) {
-        val block = _timeBlocks.value.find { it.id == id } ?: return
-        val updatedBlock = block.copy(startTime = startTime, endTime = endTime)
-        
-        com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, id)
-        
-        val updatedList = _timeBlocks.value.map {
-            if (it.id == id) updatedBlock else it
-        }
-        _timeBlocks.value = updatedList
-        saveTimeBlocksInternal(updatedList)
-        
-        com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, updatedBlock)
-    }
-
-    // Config stored values (injected from encrypted dynamic shared preferences in MainActivity)
-    private val _notionToken = MutableStateFlow("")
-    val notionToken: StateFlow<String> = _notionToken.asStateFlow()
-
-    private val _databaseId = MutableStateFlow("")
-    val databaseId: StateFlow<String> = _databaseId.asStateFlow()
-
-    // Screen-level stateflow combining live Room updates
-    val tasksState: StateFlow<TasksUiState> = repository.allTasks
-        .map { list ->
-            if (list.isEmpty()) {
-                TasksUiState.Idle
-            } else {
-                TasksUiState.Success(list)
-            }
-        }
-        .catch { err -> emit(TasksUiState.Error(err.message ?: "Unknown Database Error")) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = TasksUiState.Loading
-        )
-
-    // Separate category filter flow
-    private val _selectedCategory = MutableStateFlow("")
-    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
-
-    private val _statusOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
-    val statusOptions: StateFlow<List<NotionOptionInfo>> = _statusOptions.asStateFlow()
-
-    private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
-    val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
-
-    // Fetch database properties definition
+    // データベースプロパティの定義を取得する
     fun fetchDatabaseProperties(
         token: String,
         dbId: String,
@@ -283,7 +273,29 @@ class TaskViewModel(
         }
     }
 
-    // Activity load hooks
+    fun loadCredentialsAndMappings() {
+        val token = sharedPrefs.getString("notion_token", "") ?: ""
+        val dbId = sharedPrefs.getString("database_id", "") ?: ""
+        val title = sharedPrefs.getString("mapping_prop_title", "")?.ifBlank { "名前" } ?: "名前"
+        val status = sharedPrefs.getString("mapping_prop_status", "")?.ifBlank { "状態" } ?: "状態"
+        val statusType = sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status"
+        val category = sharedPrefs.getString("mapping_prop_category", "")?.ifBlank { "種類" } ?: "種類"
+        val scheduledDate = sharedPrefs.getString("mapping_prop_scheduled_date", "")?.ifBlank { "予定日" } ?: "予定日"
+        val dueDate = sharedPrefs.getString("mapping_prop_due_date", "")?.ifBlank { "締め切り" } ?: "締め切り"
+
+        _notionToken.value = token
+        _databaseId.value = dbId
+        repository.updatePropertyMappings(
+            title = title,
+            status = status,
+            statusType = statusType,
+            category = category,
+            scheduledDate = scheduledDate,
+            dueDate = dueDate
+        )
+    }
+
+    // アクティビティのロードフック
     fun updateCredentials(
         token: String,
         dbId: String,
@@ -306,8 +318,9 @@ class TaskViewModel(
         )
     }
 
-    // Main sync trigger calling back with state updates
+    // 状態更新を伴うメインの同期トリガーコールバック
     fun syncWithNotion() {
+        loadCredentialsAndMappings()
         val token = _notionToken.value
         val dbId = _databaseId.value
 
@@ -324,7 +337,7 @@ class TaskViewModel(
         }
     }
 
-    // Set selected category target
+    // 選択されたカテゴリターゲットを設定する
     fun selectCategory(category: String) {
         _selectedCategory.value = category
     }
@@ -376,8 +389,9 @@ class TaskViewModel(
         return detected
     }
 
-    // Dynamic cycle logic over defined state options
+    // 定義されたステータスオプションに対する動的なサイクルロジック
     fun cycleTaskStatus(task: TaskModel, stateOptions: List<NotionOptionInfo> = emptyList()) {
+        loadCredentialsAndMappings()
         val options = stateOptions.ifEmpty { _statusOptions.value }
         if (options.isEmpty()) return
 
@@ -400,7 +414,7 @@ class TaskViewModel(
                     newStatus = nextOption.name
                 )
             } catch (_: Exception) {
-                // Failback or log
+                // フォールバックまたはログ出力
             }
         }
     }
@@ -415,6 +429,7 @@ class TaskViewModel(
         onSuccess: () -> Unit = {},
         onFailure: (String) -> Unit = {}
     ) {
+        loadCredentialsAndMappings()
         val token = _notionToken.value
         if (token.isBlank()) {
             onFailure("Notionの設定が不十分です（トークンが未入力）。")
@@ -448,6 +463,7 @@ class TaskViewModel(
         onSuccess: () -> Unit = {},
         onFailure: (String) -> Unit = {}
     ) {
+        loadCredentialsAndMappings()
         val token = _notionToken.value
         val dbId = _databaseId.value
         if (token.isBlank() || dbId.isBlank()) {

@@ -122,12 +122,12 @@ fun TaskItemCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Category & Alert Badge Row
+                // カテゴリ & アラートバッジの行
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Category Chip Badge
+                    // カテゴリチップバッジ
                     Box(
                         modifier = Modifier
                             .background(
@@ -144,7 +144,7 @@ fun TaskItemCard(
                         )
                     }
 
-                    // Alert Badges
+                    // アラートバッジ
                     if (isOverdueDue) {
                         Box(
                             modifier = Modifier
@@ -180,7 +180,7 @@ fun TaskItemCard(
                     }
                 }
 
-                // Dynamic Actionable status button
+                // 動的でアクション可能なステータスボタン
                 Box(
                     modifier = Modifier
                         .background(color = statusColors.first, shape = RoundedCornerShape(8.dp))
@@ -196,7 +196,7 @@ fun TaskItemCard(
                 }
             }
 
-            // Task Header
+            // タスクヘッダー
             Text(
                 text = task.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -205,7 +205,7 @@ fun TaskItemCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Date targets footer
+            // 日付目標フッター
             if (task.dueDate != null || task.scheduledDate != null) {
                 HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                 Row(
@@ -332,7 +332,7 @@ fun AddTaskDialog(
                     singleLine = true
                 )
 
-                // Category Selection
+                // カテゴリ選択
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = category,
@@ -481,7 +481,7 @@ fun EditTaskDialog(
                     singleLine = true
                 )
 
-                // Category Selection
+                // カテゴリ選択
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = category,
@@ -511,7 +511,7 @@ fun EditTaskDialog(
                     }
                 }
 
-                // Status Selection
+                // ステータス選択
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = status,

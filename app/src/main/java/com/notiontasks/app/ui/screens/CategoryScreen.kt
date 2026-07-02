@@ -40,7 +40,7 @@ fun CategoryScreen(
         val allTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
         val activeTaskCategories = allTasks.map { it.category.trim() }.distinct().filter { it.isNotBlank() }
         
-        // useful NotionOptionInfo if name matches, otherwise create a temporary one
+        // 名前が一致する場合は有用な NotionOptionInfo、そうでない場合は一時的なものを作成します
         val activeOptions = activeTaskCategories.map { name ->
             categoryOptions.find { it.name == name } ?: NotionOptionInfo(name = name)
         }
@@ -73,14 +73,14 @@ fun CategoryScreen(
 
     val showReorderDialog = remember { mutableStateOf(false) }
 
-    // Sync selectedCategory to ensure it's a valid category
+    // selectedCategory を同期して、有効なカテゴリであることを確認します
     LaunchedEffect(categories, selectedCategory) {
         if (categories.isNotEmpty() && categories.none { it.name == selectedCategory }) {
             viewModel.selectCategory(categories.first().name)
         }
     }
 
-    // Sync pagerState from selectedCategory (e.g. when user clicks a tab)
+    // selectedCategory から pagerState を同期します（ユーザーがタブをクリックしたときなど）
     LaunchedEffect(selectedCategory) {
         val index = categories.indexOfFirst { it.name == selectedCategory }
         if (index >= 0 && pagerState.currentPage != index) {
@@ -88,7 +88,7 @@ fun CategoryScreen(
         }
     }
 
-    // Sync selectedCategory from pagerState (e.g. when user swipe pages)
+    // pagerState から selectedCategory を同期します（ユーザーがページをスワイプしたときなど）
     LaunchedEffect(pagerState.settledPage) {
         val targetCategory = categories.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
         if (selectedCategory != targetCategory.name) {
@@ -188,7 +188,7 @@ fun CategoryScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Tab row representing distinct types along with a sort button
+        // 個別のタイプを表すタブ行と並び替えボタン
         Row(
             modifier = Modifier
                 .fillMaxWidth()

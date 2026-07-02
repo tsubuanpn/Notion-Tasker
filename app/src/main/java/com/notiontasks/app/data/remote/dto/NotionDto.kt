@@ -97,7 +97,7 @@ data class DateValue(
     @SerialName("start") val start: String? = null
 )
 
-// DTOs for Request
+// リクエスト用の DTO
 
 @Serializable
 data class NotionUpdateRequest(

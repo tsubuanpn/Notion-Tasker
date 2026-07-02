@@ -47,7 +47,7 @@ fun CalendarScreen(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
     }
 
-    // Initialize selected date to today if it's currently null
+    // 現在 null の場合は、選択された日付を今日に初期化します
     LaunchedEffect(Unit) {
         if (selectedCalendarDate.value == null) {
             selectedCalendarDate.value = todayStr
@@ -114,7 +114,7 @@ fun CalendarScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Month Navigation Header
+                    // 月のナビゲーションヘッダー
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -150,7 +150,7 @@ fun CalendarScreen(
                         }
                     }
 
-                    // Days of week row
+                    // 曜日の行
                     Row(modifier = Modifier.fillMaxWidth()) {
                         val daysOfWeek = listOf("日", "月", "火", "水", "木", "金", "土")
                         daysOfWeek.forEach { day ->
@@ -165,7 +165,7 @@ fun CalendarScreen(
                         }
                     }
 
-                    // Calendar Grid Layout
+                    // カレンダーのグリッドレイアウト
                     val daysList = remember(focusYear, focusMonth, todayStr) {
                         val calendarHelper = java.util.Calendar.getInstance().apply {
                             set(java.util.Calendar.YEAR, focusYear)
@@ -174,7 +174,7 @@ fun CalendarScreen(
                         }
                         val firstDayDayOfWeek = calendarHelper.get(java.util.Calendar.DAY_OF_WEEK) // 1 = Sunday, 2 = Monday, ...
                         val totalDaysInMonth = calendarHelper.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
-                        val startOffset = firstDayDayOfWeek - 1 // Sunday starts, so offset is simple
+                        val startOffset = firstDayDayOfWeek - 1 // 日曜開始なので、オフセットは単純です
 
                         val list = mutableListOf<CalendarDay?>()
                         val totalDaysToDisplay = startOffset + totalDaysInMonth
@@ -220,7 +220,7 @@ fun CalendarScreen(
                                             val dayNumber = day.dayNumber
                                             val col = day.colIndex
 
-                                            // Get tasks for this date (Only scheduled tasks)
+                                            // この日付のタスクを取得します（予定されたタスクのみ）
                                             val cellTasks = scheduledTasksByDate[dateStr] ?: emptyList()
 
                                             Column(
@@ -256,18 +256,18 @@ fun CalendarScreen(
                                                     else MaterialTheme.colorScheme.onSurface
                                                 )
 
-                                                // Draw dots below date number
+                                                // 日付の下にドットを描画します
                                                 Row(
                                                     horizontalArrangement = Arrangement.Center,
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     cellTasks.take(3).forEach { task ->
-                                                        // Determine dot color
+                                                        // ドットの色を決定します
                                                         val dotColor = if (task.status == completedStatus) {
-                                                            // Completed is gray-ish
+                                                            // 完了したものはグレーがかっています
                                                             if (isSystemDark) Color(0xFF616161) else Color(0xFFD6D6D6)
                                                         } else if (task.categoryColor != null) {
-                                                            // Use category color
+                                                            // カテゴリの色を使用します
                                                             getNotionCategoryColorRaw(task.categoryColor, isSystemDark)
                                                         } else if (task.status == inProgressStatus) {
                                                             Color(0xFF29B6F6)
@@ -294,7 +294,7 @@ fun CalendarScreen(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    // Selected Tasks List Header
+                    // 選択されたタスクのリストヘッダー
                     val splitSelectedDate = selectedDate.split("-")
                     val displaySelectedDate = if (splitSelectedDate.size == 3) {
                         "${splitSelectedDate[1]}月${splitSelectedDate[2]}日"
@@ -316,7 +316,7 @@ fun CalendarScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
 
-                        // Compact Segmented Capsule Toggle Buttons
+                        // コンパクトなセグメントカプセルの切り替えボタン
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
@@ -394,7 +394,7 @@ fun CalendarScreen(
     }
 }
 
-// Simple color helper for getting base colors of dots
+// ドットの基本色を取得するためのシンプルなカラーヘルパー
 @Suppress("UNUSED_PARAMETER")
 private fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
     return when (colorName) {

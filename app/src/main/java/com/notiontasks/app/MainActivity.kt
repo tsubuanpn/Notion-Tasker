@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize Crypto SharedPreferences for security guidelines
+        // セキュリティガイドラインに従って暗号化された SharedPreferences を初期化する
         val mainKey = MasterKey.Builder(applicationContext, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // API Setup
+        // API のセットアップ
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
@@ -137,7 +137,7 @@ class MainActivity : ComponentActivity() {
         val database = TaskDatabase.getInstance(applicationContext)
         val repository = TaskRepository(notionApi, database.taskDao)
 
-        // MVVM Factory
+        // MVVM ファクトリ
         viewModel = ViewModelProvider(this, object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(TaskViewModel::class.java)) {
@@ -148,16 +148,14 @@ class MainActivity : ComponentActivity() {
             }
         })[TaskViewModel::class.java]
 
-        // Load configured credentials
-        val savedToken = sharedPreferences.getString("notion_token", "") ?: ""
-        val savedDbId = sharedPreferences.getString("database_id", "") ?: ""
-        viewModel.updateCredentials(savedToken, savedDbId)
+        // 設定された認証情報およびプロパティマッピングを読み込む
+        viewModel.loadCredentialsAndMappings()
 
-        // Initialize channel and set up alarms
+        // チャンネルを初期化し、アラームを設定する
         TaskNotificationReceiver.createNotificationChannel(this)
         TaskNotificationReceiver.rescheduleAlarms(this)
 
-        // Prompt for notification permission on first launch (or after update)
+        // 初回起動時（またはアップデート後）に通知権限を求める
         val hasRequestedLaunch = sharedPreferences.getBoolean("has_req_notif_launch_v2", false)
         if (!hasRequestedLaunch) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -195,7 +193,7 @@ class MainActivity : ComponentActivity() {
             val categoryOptions by viewModel.categoryOptions.collectAsState()
             val statusOptions by viewModel.statusOptions.collectAsState()
 
-            // Sync property mappings on initialization or when updated
+            // 初期化時または更新時にプロパティマッピングを同期する
             LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propCategory.value, propScheduled.value, propDue.value) {
                 val currentToken = sharedPreferences.getString("notion_token", "") ?: ""
                 val currentDbId = sharedPreferences.getString("database_id", "") ?: ""
@@ -256,7 +254,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.updateCategoryOptions(newOrder)
                     },
                     onSaveCredentials = { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
-                        // Automatically stringify Options to SharedPrefs
+                        // オプションを自動的に文字列化して SharedPrefs に保存する
                         val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
                         val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
 
@@ -309,12 +307,12 @@ class MainActivity : ComponentActivity() {
                         eveningEnabled.value = eEnabled
                         themeMode.value = theme
 
-                        // Reschedule alarms at new times
+                        // 新しい時間でアラームを再スケジュールする
                         TaskNotificationReceiver.rescheduleAlarms(this)
 
                         Toast.makeText(this, "設定を保存しました", Toast.LENGTH_SHORT).show()
 
-                        // Request permission if not already granted
+                        // まだ許可されていない場合は権限をリクエストする
                         checkAndRequestNotificationPermission()
                     }
                 )
@@ -396,7 +394,7 @@ fun MainAppScreen(
         }
     }
 
-    // Automatic synchronizer trigger on launch if token is already defined
+    // トークンが既に定義されている場合、起動時に自動同期をトリガーする
     LaunchedEffect(notionToken, databaseId) {
         if (notionToken.isNotBlank() && databaseId.isNotBlank()) {
             viewModel.syncWithNotion()

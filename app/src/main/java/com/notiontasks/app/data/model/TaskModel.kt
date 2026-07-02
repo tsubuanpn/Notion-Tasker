@@ -8,10 +8,10 @@ import kotlinx.serialization.InternalSerializationApi
 data class TaskModel(
     val id: String,
     val title: String,
-    val status: String, // Dynamic string representing task status
-    val category: String, // Dynamic string representing task category
-    val dueDate: String?, // Format: YYYY-MM-DD
-    val scheduledDate: String?, // Format: YYYY-MM-DD
+    val status: String, // タスクのステータスを表す動的な文字列
+    val category: String, // タスクのカテゴリを表す動的な文字列
+    val dueDate: String?, // 形式: YYYY-MM-DD
+    val scheduledDate: String?, // 形式: YYYY-MM-DD
     val statusColor: String? = null,
     val categoryColor: String? = null
 )

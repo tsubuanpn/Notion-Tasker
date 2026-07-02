@@ -167,7 +167,7 @@ fun SettingsScreen(
         }
     }
 
-    // --- UI Layout ---
+    // --- UI レイアウト ---
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -244,8 +244,7 @@ fun SettingsScreen(
                 is SettingsSubPage.Alarm -> AlarmSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
                 is SettingsSubPage.Pomodoro -> PomodoroSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
                 is SettingsSubPage.LifeActivitySettings -> LifeActivitySettingsSection(
-                    viewModel = viewModel,
-                    onBack = { currentSubPage = SettingsSubPage.Main }
+                    viewModel = viewModel
                 )
                 is SettingsSubPage.Tabs -> TabsSettingsSection(
                     catEnabled = initialCategoryTabEnabled,
@@ -669,8 +668,7 @@ fun TabSettingRow(title: String, subtitle: String, icon: androidx.compose.ui.gra
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LifeActivitySettingsSection(
-    viewModel: TaskViewModel,
-    onBack: () -> Unit
+    viewModel: TaskViewModel
 ) {
     val lifeActivities by viewModel.lifeActivities.collectAsState()
     
@@ -837,7 +835,7 @@ fun LifeActivitySettingsSection(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Dialog for Add/Edit
+        // 追加/編集用のダイアログ
         if (showDialog) {
             AlertDialog(
                 onDismissRequest = { showDialog = false },
