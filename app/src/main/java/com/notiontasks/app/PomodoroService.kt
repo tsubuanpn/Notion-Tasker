@@ -226,6 +226,7 @@ class PomodoroService : Service() {
                 
                 commitFocusSession(isTemporary = false)
                 
+                val completedMode = currentMode
                 transitionToNextMode()
                 
                 onFinishedListener?.invoke()
@@ -253,7 +254,7 @@ class PomodoroService : Service() {
                 }
 
                 // 完了通知を表示する
-                showCompletionNotification()
+                showCompletionNotification(completedMode)
 
                 // 着信音が鳴る間、サービスを短時間アクティブに保ち、適切なタイミングで停止させる
                 stopSelf()
@@ -452,15 +453,15 @@ class PomodoroService : Service() {
         return builder.build()
     }
 
-    private fun showCompletionNotification() {
+    private fun showCompletionNotification(completedMode: String) {
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         
-        val title = when (currentMode) {
+        val title = when (completedMode) {
             "work" -> "🎉 集中完了！"
             else -> "☕ 休憩時間終了！"
         }
         
-        val message = when (currentMode) {
+        val message = when (completedMode) {
             "work" -> "素晴らしいですね！ ここでリフレッシュ休憩をとりましょう。"
             else -> "次のフォーカスを始めましょう！素晴らしい一日のために。"
         }
