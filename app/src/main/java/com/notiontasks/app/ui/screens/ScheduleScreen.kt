@@ -114,6 +114,24 @@ fun ScheduleScreen(
     var selectedPresetActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var clickedTimeMinutes by remember { mutableStateOf<Int?>(null) }
 
+    // 有効（未着手・進行中）なタスク一覧を取得
+    val activeTasks = remember(tasksState, unstartedStatus, inProgressStatus, editingBlock) {
+        val allTasks = when (val state = tasksState) {
+            is TasksUiState.Success -> state.tasks
+            else -> emptyList()
+        }
+        val baseList = allTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }.toMutableList()
+        
+        // 編集中のタイムブロックがあり、紐付けられているタスクが baseList にない場合、追加して選択可能にする
+        val currentAssociatedId = editingBlock?.associatedId
+        if (currentAssociatedId != null && baseList.none { it.id == currentAssociatedId }) {
+            allTasks.find { it.id == currentAssociatedId }?.let {
+                baseList.add(it)
+            }
+        }
+        baseList
+    }
+
     // フローティング/トレイのタブ選択 ("tasks" または "life")
     var trayTab by remember { mutableStateOf("tasks") }
 
@@ -165,12 +183,44 @@ fun ScheduleScreen(
                     Icon(Icons.Default.ChevronLeft, "前日")
                 }
 
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                val parsedDateForPicker = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
+                val dateCalendar = Calendar.getInstance().apply { time = parsedDateForPicker }
+
+                Row(
+                    modifier = Modifier
+                        .clickable {
+                            android.app.DatePickerDialog(
+                                context,
+                                { _, year, month, dayOfMonth ->
+                                    val newCal = Calendar.getInstance().apply {
+                                        set(Calendar.YEAR, year)
+                                        set(Calendar.MONTH, month)
+                                        set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                                    }
+                                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
+                                },
+                                dateCalendar.get(Calendar.YEAR),
+                                dateCalendar.get(Calendar.MONTH),
+                                dateCalendar.get(Calendar.DAY_OF_MONTH)
+                            ).show()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = "日付選択",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
 
                 IconButton(onClick = {
                     val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
@@ -233,6 +283,7 @@ fun ScheduleScreen(
                                     .align(Alignment.TopStart)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60
+                                        editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
                                         showAddDialog = true
@@ -245,6 +296,7 @@ fun ScheduleScreen(
                                     .offset(y = 15.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 15
+                                        editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
                                         showAddDialog = true
@@ -265,6 +317,7 @@ fun ScheduleScreen(
                                     .offset(y = 30.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 30
+                                        editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
                                         showAddDialog = true
@@ -283,6 +336,7 @@ fun ScheduleScreen(
                                     .offset(y = 45.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 45
+                                        editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
                                         showAddDialog = true
@@ -1072,7 +1126,10 @@ fun ScheduleScreen(
         var endMin by remember { mutableIntStateOf(((defaultStart + defaultDuration) % 60 / 15) * 15) }
 
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
+            onDismissRequest = {
+                showAddDialog = false
+                editingBlock = null
+            },
             title = {
                 Text(
                     text = if (editingBlock != null) "予定を変更" else "予定を登録",
@@ -1084,28 +1141,144 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    OutlinedTextField(
-                        value = blockTitle,
-                        onValueChange = { blockTitle = it },
-                        label = { Text("予定名 (必須)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
                     // タイプインジケーター
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        ElevatedFilterChip(
-                            selected = blockType == "task",
-                            onClick = { blockType = "task" },
-                            label = { Text("タスク") }
+                        Text(
+                            text = "予定の種類:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        ElevatedFilterChip(
-                            selected = blockType == "life",
-                            onClick = { blockType = "life" },
-                            label = { Text("生活・習慣") }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            ElevatedFilterChip(
+                                selected = blockType == "task",
+                                onClick = { blockType = "task" },
+                                label = { Text("タスク") }
+                            )
+                            ElevatedFilterChip(
+                                selected = blockType == "life",
+                                onClick = { blockType = "life" },
+                                label = { Text("生活・習慣") }
+                            )
+                        }
+                    }
+
+                    if (blockType == "task") {
+                        // タスク選択用のセレクトボックス
+                        var dropdownExpanded by remember { mutableStateOf(false) }
+                        val selectedTask = activeTasks.find { it.id == associatedId }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "紐付けるタスクを選択 (必須):",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedCard(
+                                    onClick = { dropdownExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = selectedTask?.title ?: "タスクを選択してください",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (selectedTask != null) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (selectedTask != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                
+                                DropdownMenu(
+                                    expanded = dropdownExpanded,
+                                    onDismissRequest = { dropdownExpanded = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.9f)
+                                        .heightIn(max = 280.dp)
+                                ) {
+                                    if (activeTasks.isEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text("有効なタスクがありません") },
+                                            onClick = { dropdownExpanded = false },
+                                            enabled = false
+                                        )
+                                    } else {
+                                        activeTasks.forEach { task ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Column {
+                                                        Text(
+                                                            text = task.title,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = task.category,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                            Text(
+                                                                text = "• ${task.status}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                onClick = {
+                                                    associatedId = task.id
+                                                    blockTitle = task.title
+                                                    val colorHex = notionColorToHex(task.categoryColor)
+                                                    if (colorHex != null) {
+                                                        blockColor = colorHex
+                                                    }
+                                                    dropdownExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // 予定名の通常入力（生活・習慣などの場合）
+                        OutlinedTextField(
+                            value = blockTitle,
+                            onValueChange = { blockTitle = it },
+                            label = { Text("予定名 (必須)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
                         )
                     }
 
@@ -1113,40 +1286,39 @@ fun ScheduleScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("開始時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                         
-                        // 時
-                        Box(modifier = Modifier.weight(1f)) {
-                            var expandedHour by remember { mutableStateOf(false) }
-                            Button(onClick = { expandedHour = true }) {
-                                Text(String.format(Locale.US, "%02d時", startHour))
-                            }
-                            DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
-                                for (h in 0..23) {
-                                    DropdownMenuItem(text = { Text("${h}時") }, onClick = {
-                                        startHour = h
-                                        expandedHour = false
-                                    })
-                                }
-                            }
-                        }
-
-                        // 分 (15分刻み)
-                        Box(modifier = Modifier.weight(1f)) {
-                            var expandedMin by remember { mutableStateOf(false) }
-                            Button(onClick = { expandedMin = true }) {
-                                Text(String.format(Locale.US, "%02d分", startMin))
-                            }
-                            DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
-                                listOf(0, 15, 30, 45).forEach { m ->
-                                    DropdownMenuItem(text = { Text("${m}分") }, onClick = {
-                                        startMin = m
-                                        expandedMin = false
-                                    })
-                                }
-                            }
+                        Button(
+                            onClick = {
+                                android.app.TimePickerDialog(
+                                    context,
+                                    { _, hour, minute ->
+                                        startHour = hour
+                                        startMin = (minute / 5) * 5
+                                        // 終了時間が開始時間以前にならないよう調整
+                                        val startTot = startHour * 60 + startMin
+                                        val endTot = endHour * 60 + endMin
+                                        if (endTot <= startTot) {
+                                            val newEnd = startTot + 60
+                                            endHour = (newEnd / 60) % 24
+                                            endMin = newEnd % 60
+                                        }
+                                    },
+                                    startHour,
+                                    startMin,
+                                    true
+                                ).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        ) {
+                            Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(String.format(Locale.US, "%02d:%02d", startHour, startMin))
                         }
                     }
 
@@ -1154,39 +1326,60 @@ fun ScheduleScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("終了時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                         
-                        // 時
-                        Box(modifier = Modifier.weight(1f)) {
-                            var expandedHour by remember { mutableStateOf(false) }
-                            Button(onClick = { expandedHour = true }) {
-                                Text(String.format(Locale.US, "%02d時", endHour))
-                            }
-                            DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
-                                for (h in 0..24) {
-                                    DropdownMenuItem(text = { Text("${h}時") }, onClick = {
-                                        endHour = h
-                                        expandedHour = false
-                                    })
-                                }
-                            }
+                        Button(
+                            onClick = {
+                                android.app.TimePickerDialog(
+                                    context,
+                                    { _, hour, minute ->
+                                        endHour = hour
+                                        endMin = (minute / 5) * 5
+                                    },
+                                    endHour,
+                                    endMin,
+                                    true
+                                ).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        ) {
+                            Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(String.format(Locale.US, "%02d:%02d", endHour, endMin))
                         }
+                    }
 
-                        // 分 (15分刻み)
-                        Box(modifier = Modifier.weight(1f)) {
-                            var expandedMin by remember { mutableStateOf(false) }
-                            Button(onClick = { expandedMin = true }) {
-                                Text(String.format(Locale.US, "%02d分", endMin))
-                            }
-                            DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
-                                listOf(0, 15, 30, 45).forEach { m ->
-                                    DropdownMenuItem(text = { Text("${m}分") }, onClick = {
-                                        endMin = m
-                                        expandedMin = false
-                                    })
-                                }
+                    // 所要時間のクイック設定
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "所要時間のクイック設定:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val durations = listOf(15, 30, 60, 90, 120)
+                            durations.forEach { duration ->
+                                SuggestionChip(
+                                    onClick = {
+                                        val startTot = startHour * 60 + startMin
+                                        val endTot = startTot + duration
+                                        endHour = (endTot / 60) % 24
+                                        endMin = endTot % 60
+                                    },
+                                    label = { Text("${duration}分") }
+                                )
                             }
                         }
                     }
@@ -1239,9 +1432,10 @@ fun ScheduleScreen(
                         )
 
                         viewModel.addTimeBlock(context, block)
+                        editingBlock = null
                         showAddDialog = false
                     },
-                    enabled = blockTitle.isNotBlank()
+                    enabled = blockTitle.isNotBlank() && (blockType != "task" || associatedId.isNotBlank())
                 ) {
                     Text("保存")
                 }
@@ -1254,6 +1448,7 @@ fun ScheduleScreen(
                         TextButton(
                             onClick = {
                                 viewModel.deleteTimeBlock(context, editingBlock!!.id)
+                                editingBlock = null
                                 showAddDialog = false
                             },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -1261,7 +1456,10 @@ fun ScheduleScreen(
                             Text("削除")
                         }
                     }
-                    TextButton(onClick = { showAddDialog = false }) {
+                    TextButton(onClick = {
+                        editingBlock = null
+                        showAddDialog = false
+                    }) {
                         Text("キャンセル")
                     }
                 }
