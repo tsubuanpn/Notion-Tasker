@@ -102,6 +102,7 @@ class PomodoroService : Service() {
     var onTickListener: ((timeLeftMs: Long, formattedTime: String) -> Unit)? = null
     var onFinishedListener: (() -> Unit)? = null
     var onStateChangedListener: ((isRunning: Boolean) -> Unit)? = null
+    var onSessionTransitionListener: ((mode: String, timeLeftMs: Long) -> Unit)? = null
     private var ringtone: Ringtone? = null
     var isRingtonePlaying: Boolean = false
         private set
@@ -156,14 +157,7 @@ class PomodoroService : Service() {
                     }
 
                     // 前回のタイマー終了時のアラームが再生中の場合、新しいタイマーを開始する際に停止させる
-                    try {
-                        ringtone?.stop()
-                    } catch (_: Exception) { }
-                    ringtone = null
-                    if (isRingtonePlaying) {
-                        isRingtonePlaying = false
-                        onRingtoneStateChangedListener?.invoke(false)
-                    }
+                    stopRingtonePlayback()
 
                     startTimer()
                 }
@@ -173,6 +167,20 @@ class PomodoroService : Service() {
                 ACTION_STOP -> {
                     stopTimer()
                     stopSelf()
+                }
+                ACTION_SKIP -> {
+                    skipToNext()
+                }
+                ACTION_STOP_ALARM -> {
+                    stopRingtonePlayback()
+                    if (!isRunning && !isPaused) {
+                        stopSelf()
+                    }
+                }
+                ACTION_START_NEXT -> {
+                    stopRingtonePlayback()
+                    onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
+                    startTimer()
                 }
             }
         }
@@ -249,15 +257,15 @@ class PomodoroService : Service() {
                     ringtone?.play()
                     isRingtonePlaying = true
                     onRingtoneStateChangedListener?.invoke(true)
+
+
                 } catch (_: Exception) {
                     // 再生に失敗しても処理は継続
                 }
 
-                // 完了通知を表示する
+                // 常駐通知と完了通知を表示する（常駐通知はアラーム鳴動中のレイアウトに更新）
+                updateNotification("")
                 showCompletionNotification(completedMode)
-
-                // 着信音が鳴る間、サービスを短時間アクティブに保ち、適切なタイミングで停止させる
-                stopSelf()
             }
         }.start()
     }
@@ -270,13 +278,9 @@ class PomodoroService : Service() {
         isRunning = false
         isPaused = true
         onStateChangedListener?.invoke(false)
-        // 停止時に再生中のアラームがあれば止める
-        ringtone?.stop()
-        ringtone = null
-        if (isRingtonePlaying) {
-            isRingtonePlaying = false
-            onRingtoneStateChangedListener?.invoke(false)
-        }
+        
+        stopRingtonePlayback()
+        
         updateNotification("${formatTime(timeLeftMs)} (一時停止中)")
     }
 
@@ -288,13 +292,9 @@ class PomodoroService : Service() {
         isPaused = false
         timeLeftMs = durationMs
         onStateChangedListener?.invoke(false)
-        // 停止時に再生中のアラームがあれば止める
-        ringtone?.stop()
-        ringtone = null
-        if (isRingtonePlaying) {
-            isRingtonePlaying = false
-            onRingtoneStateChangedListener?.invoke(false)
-        }
+        
+        stopRingtonePlayback()
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -305,11 +305,44 @@ class PomodoroService : Service() {
 
     // 着信音の再生を停止するための公開 API（UI ボタン用）
     fun stopRingtonePlayback() {
-        ringtone?.stop()
+        try {
+            ringtone?.stop()
+        } catch (_: Exception) {}
         ringtone = null
         if (isRingtonePlaying) {
             isRingtonePlaying = false
             onRingtoneStateChangedListener?.invoke(false)
+            updateNotification(formatTime(timeLeftMs))
+        }
+    }
+
+    private fun skipToNext() {
+        val wasRunning = isRunning
+        if (wasRunning) {
+            commitFocusSession(isTemporary = false)
+            countDownTimer?.cancel()
+            countDownTimer = null
+            isRunning = false
+        }
+        
+        isPaused = false
+        stopRingtonePlayback()
+        
+        // 次のモードへ移行
+        transitionToNextMode()
+        
+        // リスナー経由でUI側へ通知
+        onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
+        onFinishedListener?.invoke()
+        onStateChangedListener?.invoke(wasRunning)
+        
+        if (wasRunning) {
+            // タイマーが動いていた場合は、次のフェーズを自動的に開始する
+            startTimer()
+        } else {
+            // 動いていなかった場合は、次のフェーズの時間に更新して通知のみ更新
+            val timeStr = formatTime(timeLeftMs)
+            updateNotification(timeStr)
         }
     }
 
@@ -406,6 +439,46 @@ class PomodoroService : Service() {
     }
 
     private fun createNotification(timeStr: String): Notification {
+        if (isRingtonePlaying) {
+            val title = when (currentMode) {
+                "work" -> "【作業セッション開始可能】"
+                else -> "【休憩セッション開始可能】"
+            }
+            val contentText = "アラーム鳴動中... 次のセッションを開始しますか？"
+            
+            val stopAlarmIntent = Intent(this, PomodoroService::class.java).apply {
+                action = ACTION_STOP_ALARM
+            }
+            val pendingStopAlarmIntent = PendingIntent.getService(
+                this, 4, stopAlarmIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val startNextIntent = Intent(this, PomodoroService::class.java).apply {
+                action = ACTION_START_NEXT
+            }
+            val pendingStartNextIntent = PendingIntent.getService(
+                this, 5, startNextIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val mainActivityIntent = Intent(this, MainActivity::class.java)
+            val pendingMainActivityIntent = PendingIntent.getActivity(
+                this, 0, mainActivityIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val nextActionText = if (currentMode == "work") "作業を開始" else "休憩を開始"
+
+            return NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(contentText)
+                .setSmallIcon(android.R.drawable.star_on)
+                .setContentIntent(pendingMainActivityIntent)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .addAction(android.R.drawable.ic_lock_power_off, "アラーム停止", pendingStopAlarmIntent)
+                .addAction(android.R.drawable.ic_media_play, nextActionText, pendingStartNextIntent)
+                .build()
+        }
+
         val title = when (currentMode) {
             "work" -> "【集中セッション中】"
             "shortBreak" -> "【短い休憩中】"
@@ -434,20 +507,30 @@ class PomodoroService : Service() {
             this, 2, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val skipIntent = Intent(this, PomodoroService::class.java).apply {
+            action = ACTION_SKIP
+        }
+        val pendingSkipIntent = PendingIntent.getService(
+            this, 3, skipIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val mainActivityIntent = Intent(this, MainActivity::class.java)
         val pendingMainActivityIntent = PendingIntent.getActivity(
             this, 0, mainActivityIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val playPauseActionText = if (isRunning) "一時停止" else "再開"
+        val playPauseIcon = if (isRunning) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingMainActivityIntent)
-            .setOngoing(isRunning)
+            .setOngoing(isRunning || isPaused)
             .setOnlyAlertOnce(true)
-            .addAction(android.R.drawable.ic_media_pause, playPauseActionText, pendingPauseIntent)
+            .addAction(playPauseIcon, playPauseActionText, pendingPauseIntent)
+            .addAction(android.R.drawable.ic_media_next, "スキップ", pendingSkipIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "終了", pendingStopIntent)
 
         return builder.build()
@@ -471,15 +554,39 @@ class PomodoroService : Service() {
             this, 3, mainActivityIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        // アクション1: アラーム停止
+        val stopAlarmIntent = Intent(this, PomodoroService::class.java).apply {
+            action = ACTION_STOP_ALARM
+        }
+        val pendingStopAlarmIntent = PendingIntent.getService(
+            this, 4, stopAlarmIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // アクション2: 次のフェーズを開始
+        val startNextIntent = Intent(this, PomodoroService::class.java).apply {
+            action = ACTION_START_NEXT
+        }
+        val pendingStartNextIntent = PendingIntent.getService(
+            this, 5, startNextIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val nextActionText = if (currentMode == "work") "作業を開始" else "休憩を開始"
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
             .setSmallIcon(android.R.drawable.star_on)
             .setContentIntent(pendingMainActivityIntent)
             .setAutoCancel(true)
-            .build()
 
-        notificationManager.notify(COMPLETION_NOTIFICATION_ID, notification)
+        // アラーム再生中であれば、アラーム停止ボタンを追加
+        if (isRingtonePlaying) {
+            builder.addAction(android.R.drawable.ic_lock_power_off, "アラーム停止", pendingStopAlarmIntent)
+        }
+        
+        builder.addAction(android.R.drawable.ic_media_play, nextActionText, pendingStartNextIntent)
+
+        notificationManager.notify(COMPLETION_NOTIFICATION_ID, builder.build())
     }
 
     private fun createNotificationChannel() {
@@ -502,7 +609,9 @@ class PomodoroService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         countDownTimer?.cancel()
-        ringtone?.stop()
+        try {
+            ringtone?.stop()
+        } catch (_: Exception) {}
         ringtone = null
         if (isRingtonePlaying) {
             isRingtonePlaying = false
@@ -518,6 +627,9 @@ class PomodoroService : Service() {
         const val ACTION_START_OR_RESUME = "com.notiontasks.app.ACTION_START_OR_RESUME"
         const val ACTION_PAUSE = "com.notiontasks.app.ACTION_PAUSE"
         const val ACTION_STOP = "com.notiontasks.app.ACTION_STOP"
+        const val ACTION_SKIP = "com.notiontasks.app.ACTION_SKIP"
+        const val ACTION_STOP_ALARM = "com.notiontasks.app.ACTION_STOP_ALARM"
+        const val ACTION_START_NEXT = "com.notiontasks.app.ACTION_START_NEXT"
 
         const val EXTRA_TASK_TITLE = "extra_task_title"
         const val EXTRA_TASK_ID = "extra_task_id"

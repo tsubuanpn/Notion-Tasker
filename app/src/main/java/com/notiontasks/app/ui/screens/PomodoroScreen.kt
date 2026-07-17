@@ -210,12 +210,18 @@ fun PomodoroScreen(
             boundService.onRingtoneStateChangedListener = { playing ->
                 isAlarmPlaying = playing
             }
+            boundService.onSessionTransitionListener = { nextMode, ms ->
+                mode = nextMode
+                timeLeft = (ms / 1000).toInt()
+                pomodoroCompletedCount = boundService.getCompletedCountToday()
+            }
         }
         onDispose {
             boundService?.onTickListener = null
             boundService?.onFinishedListener = null
             boundService?.onStateChangedListener = null
             boundService?.onRingtoneStateChangedListener = null
+            boundService?.onSessionTransitionListener = null
             isInitialSyncDone = false
         }
     }
