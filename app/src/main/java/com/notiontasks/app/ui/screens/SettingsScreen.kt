@@ -670,6 +670,7 @@ fun TabSettingRow(title: String, subtitle: String, icon: androidx.compose.ui.gra
 fun LifeActivitySettingsSection(
     viewModel: TaskViewModel
 ) {
+    val context = LocalContext.current
     val lifeActivities by viewModel.lifeActivities.collectAsState()
     
     var showDialog by remember { mutableStateOf(false) }
@@ -765,11 +766,11 @@ fun LifeActivitySettingsSection(
                                     
                                     val startTot = act.defaultStartTime ?: 480
                                     defaultStartHour = startTot / 60
-                                    defaultStartMin = (startTot % 60 / 15) * 15
+                                    defaultStartMin = startTot % 60
                                     
                                     val endTot = act.defaultEndTime ?: (startTot + act.durationMinutes)
                                     defaultEndHour = endTot / 60
-                                    defaultEndMin = (endTot % 60 / 15) * 15
+                                    defaultEndMin = endTot % 60
                                     
                                     showDialog = true
                                 }
@@ -912,38 +913,39 @@ fun LifeActivitySettingsSection(
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("開始時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                                 
-                                Box(modifier = Modifier.weight(1f)) {
-                                    var expandedHour by remember { mutableStateOf(false) }
-                                    Button(onClick = { expandedHour = true }) {
-                                        Text(String.format(java.util.Locale.US, "%02d時", defaultStartHour))
-                                    }
-                                    DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
-                                        for (h in 0..23) {
-                                            DropdownMenuItem(text = { Text("${h}時") }, onClick = {
-                                                defaultStartHour = h
-                                                expandedHour = false
-                                            })
-                                        }
-                                    }
-                                }
-
-                                Box(modifier = Modifier.weight(1f)) {
-                                    var expandedMin by remember { mutableStateOf(false) }
-                                    Button(onClick = { expandedMin = true }) {
-                                        Text(String.format(java.util.Locale.US, "%02d分", defaultStartMin))
-                                    }
-                                    DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
-                                        listOf(0, 15, 30, 45).forEach { m ->
-                                            DropdownMenuItem(text = { Text("${m}分") }, onClick = {
-                                                defaultStartMin = m
-                                                expandedMin = false
-                                            })
-                                        }
-                                    }
+                                Button(
+                                    onClick = {
+                                        android.app.TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                defaultStartHour = hour
+                                                defaultStartMin = minute
+                                                // 終了時間が開始時間以前にならないよう調整
+                                                val startTot = defaultStartHour * 60 + defaultStartMin
+                                                val endTot = defaultEndHour * 60 + defaultEndMin
+                                                if (endTot <= startTot) {
+                                                    val newEnd = startTot + 60
+                                                    defaultEndHour = (newEnd / 60) % 24
+                                                    defaultEndMin = newEnd % 60
+                                                }
+                                            },
+                                            defaultStartHour,
+                                            defaultStartMin,
+                                            true
+                                        ).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                ) {
+                                    Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(String.format(java.util.Locale.US, "%02d:%02d", defaultStartHour, defaultStartMin))
                                 }
                             }
 
@@ -951,38 +953,31 @@ fun LifeActivitySettingsSection(
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("終了時間:", fontWeight = FontWeight.Bold, modifier = Modifier.width(72.dp))
                                 
-                                Box(modifier = Modifier.weight(1f)) {
-                                    var expandedHour by remember { mutableStateOf(false) }
-                                    Button(onClick = { expandedHour = true }) {
-                                        Text(String.format(java.util.Locale.US, "%02d時", defaultEndHour))
-                                    }
-                                    DropdownMenu(expanded = expandedHour, onDismissRequest = { expandedHour = false }) {
-                                        for (h in 0..24) {
-                                            DropdownMenuItem(text = { Text("${h}時") }, onClick = {
-                                                defaultEndHour = h
-                                                expandedHour = false
-                                            })
-                                        }
-                                    }
-                                }
-
-                                Box(modifier = Modifier.weight(1f)) {
-                                    var expandedMin by remember { mutableStateOf(false) }
-                                    Button(onClick = { expandedMin = true }) {
-                                        Text(String.format(java.util.Locale.US, "%02d分", defaultEndMin))
-                                    }
-                                    DropdownMenu(expanded = expandedMin, onDismissRequest = { expandedMin = false }) {
-                                        listOf(0, 15, 30, 45).forEach { m ->
-                                            DropdownMenuItem(text = { Text("${m}分") }, onClick = {
-                                                defaultEndMin = m
-                                                expandedMin = false
-                                            })
-                                        }
-                                    }
+                                Button(
+                                    onClick = {
+                                        android.app.TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                defaultEndHour = hour
+                                                defaultEndMin = minute
+                                            },
+                                            defaultEndHour,
+                                            defaultEndMin,
+                                            true
+                                        ).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                ) {
+                                    Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(String.format(java.util.Locale.US, "%02d:%02d", defaultEndHour, defaultEndMin))
                                 }
                             }
                         }

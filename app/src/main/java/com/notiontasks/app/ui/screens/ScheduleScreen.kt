@@ -1121,9 +1121,9 @@ fun ScheduleScreen(
         val defaultDuration = selectedPresetActivity?.durationMinutes ?: (editingBlock?.let { it.endTime - it.startTime } ?: 60)
         
         var startHour by remember { mutableIntStateOf(defaultStart / 60) }
-        var startMin by remember { mutableIntStateOf((defaultStart % 60 / 15) * 15) }
+        var startMin by remember { mutableIntStateOf(defaultStart % 60) }
         var endHour by remember { mutableIntStateOf((defaultStart + defaultDuration) / 60) }
-        var endMin by remember { mutableIntStateOf(((defaultStart + defaultDuration) % 60 / 15) * 15) }
+        var endMin by remember { mutableIntStateOf((defaultStart + defaultDuration) % 60) }
 
         AlertDialog(
             onDismissRequest = {
@@ -1296,7 +1296,7 @@ fun ScheduleScreen(
                                     context,
                                     { _, hour, minute ->
                                         startHour = hour
-                                        startMin = (minute / 5) * 5
+                                        startMin = minute
                                         // 終了時間が開始時間以前にならないよう調整
                                         val startTot = startHour * 60 + startMin
                                         val endTot = endHour * 60 + endMin
@@ -1336,7 +1336,7 @@ fun ScheduleScreen(
                                     context,
                                     { _, hour, minute ->
                                         endHour = hour
-                                        endMin = (minute / 5) * 5
+                                        endMin = minute
                                     },
                                     endHour,
                                     endMin,

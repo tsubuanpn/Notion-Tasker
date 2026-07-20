@@ -15,7 +15,7 @@ android {
         //noinspection EditedTargetSdkVersion
         targetSdk = 37
         versionCode = 19
-        versionName = "1.3.2-dev.6"
+        versionName = "1.3.2-dev.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
