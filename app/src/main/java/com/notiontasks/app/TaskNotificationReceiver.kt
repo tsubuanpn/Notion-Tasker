@@ -12,20 +12,20 @@ import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.notiontasks.app.data.local.TaskDatabase
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import com.notiontasks.app.data.model.TimeBlock
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class TaskNotificationReceiver : BroadcastReceiver() {
 
@@ -47,45 +47,49 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 val database = TaskDatabase.getInstance(context.applicationContext)
                 val allTasks = database.taskDao.getAllTasksFlow().first()
                 
-                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
                 val completedStatus = getStatusOptions(context).getOrNull(2)?.name ?: "完了"
                 
-                if (type == "MORNING") {
-                    val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
-                    if (todayTasks.isNotEmpty()) {
-                        showNotification(
+                when (type) {
+                    "MORNING" -> {
+                        val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
+                        if (todayTasks.isNotEmpty()) {
+                            showNotification(
+                                context = context,
+                                notifId = 2001,
+                                title = "【朝の確認】本日のタスクが${todayTasks.size}件あります。",
+                                tasksList = todayTasks.map { it.title },
+                            )
+                        }
+                        rescheduleAlarmForType(context, "MORNING")
+                    }
+                    "EVENING" -> {
+                        val unfinishedTasks = allTasks.filter {
+                            (it.scheduledDate == todayStr) && (it.status != completedStatus)
+                        }
+                        if (unfinishedTasks.isNotEmpty()) {
+                            showNotification(
+                                context = context,
+                                notifId = 2002,
+                                title = "【夜の確認】本日のタスクが${unfinishedTasks.size}件残っています。",
+                                tasksList = unfinishedTasks.map { it.title },
+                            )
+                        }
+                        rescheduleAlarmForType(context, "EVENING")
+                    }
+                    "BLOCK_START" -> {
+                        val blockTitle = intent.getStringExtra("BLOCK_TITLE") ?: "時間割のアラート"
+                        val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
+                        val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
+                        val associatedId = intent.getStringExtra("ASSOCIATED_ID")
+                        showBlockNotification(
                             context = context,
-                            notifId = 2001,
-                            title = "【朝の確認】本日のタスクが${todayTasks.size}件あります。",
-                            tasksList = todayTasks.map { it.title }
+                            notifId = 3000 + blockId.hashCode(),
+                            title = blockTitle,
+                            blockType = blockType,
+                            associatedId = associatedId,
                         )
                     }
-                    rescheduleAlarmForType(context, "MORNING")
-                } else if (type == "EVENING") {
-                    val unfinishedTasks = allTasks.filter { 
-                        (it.scheduledDate == todayStr) && (it.status != completedStatus)
-                    }
-                    if (unfinishedTasks.isNotEmpty()) {
-                        showNotification(
-                            context = context,
-                            notifId = 2002,
-                            title = "【夜の確認】本日のタスクが${unfinishedTasks.size}件残っています。",
-                            tasksList = unfinishedTasks.map { it.title }
-                        )
-                    }
-                    rescheduleAlarmForType(context, "EVENING")
-                } else if (type == "BLOCK_START") {
-                    val blockTitle = intent.getStringExtra("BLOCK_TITLE") ?: "時間割のアラート"
-                    val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
-                    val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
-                    val associatedId = intent.getStringExtra("ASSOCIATED_ID")
-                    showBlockNotification(
-                        context = context,
-                        notifId = 3000 + blockId.hashCode(),
-                        title = blockTitle,
-                        blockType = blockType,
-                        associatedId = associatedId
-                    )
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -104,7 +108,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     context,
-                    android.Manifest.permission.POST_NOTIFICATIONS
+                    android.Manifest.permission.POST_NOTIFICATIONS,
                 ) != android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
                 return
@@ -143,12 +147,12 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         notifId: Int,
         title: String,
         blockType: String,
-        associatedId: String?
+        associatedId: String?,
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     context,
-                    android.Manifest.permission.POST_NOTIFICATIONS
+                    android.Manifest.permission.POST_NOTIFICATIONS,
                 ) != android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
                 return
@@ -157,7 +161,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            if (blockType == "task" && !associatedId.isNullOrBlank()) {
+            if ((blockType == "task") && (!associatedId.isNullOrBlank())) {
                 putExtra("DESTINATION", "pomodoro")
                 putExtra("FOCUS_TASK_ID", associatedId)
             }
@@ -198,32 +202,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         }
 
         fun getSecurePreferences(context: Context): SharedPreferences {
-            val mainKey = MasterKey.Builder(context.applicationContext, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            return try {
-                EncryptedSharedPreferences.create(
-                    context.applicationContext,
-                    "notion_tasks_secure_prefs",
-                    mainKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-                try {
-                    context.applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
-                } catch (ex: Exception) {
-                    ex.printStackTrace()
-                }
-                EncryptedSharedPreferences.create(
-                    context.applicationContext,
-                    "notion_tasks_secure_prefs",
-                    mainKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            }
+            return SecurityUtils.getSecurePreferences(context)
         }
 
         fun getStatusOptions(context: Context): List<NotionOptionInfo> {
@@ -286,7 +265,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 context,
                 requestCode,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             alarmManager.cancel(pendingIntent)
         }
@@ -315,21 +294,16 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             val hour = parts[0].toIntOrNull() ?: return
             val minute = parts[1].toIntOrNull() ?: return
 
-            val calendar = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, hour)
-                set(Calendar.MINUTE, minute)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
+            var scheduledTime = LocalDateTime.of(LocalDate.now(), LocalTime.of(hour, minute))
+            if (scheduledTime.isBefore(LocalDateTime.now())) {
+                scheduledTime = scheduledTime.plusDays(1)
             }
 
-            val now = Calendar.getInstance()
-            if (calendar.before(now)) {
-                calendar.add(Calendar.DATE, 1)
-            }
+            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
+                millis,
                 pendingIntent
             )
         }
@@ -353,33 +327,22 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             )
 
             // 日付と開始時間を変換する
-            val dateParts = block.date.split("-")
-            if (dateParts.size != 3) return
-            val year = dateParts[0].toIntOrNull() ?: return
-            val month = dateParts[1].toIntOrNull() ?: return
-            val day = dateParts[2].toIntOrNull() ?: return
+            val date = try { LocalDate.parse(block.date) } catch (_: Exception) { return }
 
             val hour = block.startTime / 60
             val minute = block.startTime % 60
 
-            val calendar = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month - 1)
-                set(Calendar.DAY_OF_MONTH, day)
-                set(Calendar.HOUR_OF_DAY, hour)
-                set(Calendar.MINUTE, minute)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
+            val scheduledTime = LocalDateTime.of(date, LocalTime.of(hour, minute))
 
-            val now = Calendar.getInstance()
-            if (calendar.before(now)) {
+            if (scheduledTime.isBefore(LocalDateTime.now())) {
                 return // すでに過去の時間です
             }
 
+            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
+                millis,
                 pendingIntent
             )
         }
