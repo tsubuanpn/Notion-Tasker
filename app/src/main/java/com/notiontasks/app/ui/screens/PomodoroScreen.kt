@@ -418,7 +418,7 @@ fun PomodoroScreen(
                             )
                         }
 
-                        // Alarm Stop Button (表示条件: アラーム再生中でタイマーは停止)
+                        // アラーム停止ボタン (表示条件: アラーム再生中でタイマーは停止)
                         if (!isRunning && isAlarmPlaying) {
                             IconButton(
                                 onClick = {

@@ -180,7 +180,7 @@ fun TaskItemCard(
                     }
                 }
 
-                // 動的でアクション可能なステータスボタン
+                // アクション可能な動的ステータスボタン
                 Box(
                     modifier = Modifier
                         .background(color = statusColors.first, shape = RoundedCornerShape(8.dp))
@@ -196,7 +196,7 @@ fun TaskItemCard(
                 }
             }
 
-            // タスクヘッダー
+            // タスク名（タイトル）
             Text(
                 text = task.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -205,7 +205,7 @@ fun TaskItemCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // 日付目標フッター
+            // 期日/予定日のフッター
             if (task.dueDate != null || task.scheduledDate != null) {
                 HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                 Row(

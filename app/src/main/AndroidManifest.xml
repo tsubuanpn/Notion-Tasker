@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Notion API uses internet connection -->
+    <!-- Notion API はインターネット接続を使用します -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -37,7 +37,7 @@
             android:exported="false"
             android:foregroundServiceType="specialUse"
             tools:ignore="MissingForegroundServiceType">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Pomodoro Timer for task execution tracking" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="タスク実行追跡のためのポモドーロタイマー" />
         </service>
 
         <activity

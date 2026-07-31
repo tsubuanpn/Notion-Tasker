@@ -8,9 +8,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),      // Material Blue
-    secondary = Color(0xFFA5D6A7),    // Green Accent
-    tertiary = Color(0xFFFFCC80),     // Orange / Yellow
+    primary = Color(0xFF90CAF9),      // マテリアルブルー
+    secondary = Color(0xFFA5D6A7),    // グリーンアクセント
+    tertiary = Color(0xFFFFCC80),     // オレンジ / イエロー
     background = Color(0xFF121212),
     surface = Color(0xFF1E1E1E),
     onPrimary = Color(0xFF0D47A1),
@@ -20,9 +20,9 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF1E88E5),     // Blue
-    secondary = Color(0xFF43A047),   // Green
-    tertiary = Color(0xFFFB8C00),    // Orange
+    primary = Color(0xFF1E88E5),     // ブルー
+    secondary = Color(0xFF43A047),   // グリーン
+    tertiary = Color(0xFFFB8C00),    // オレンジ
     background = Color(0xFFF5F5F5),
     surface = Color(0xFFFFFFFF),
     onPrimary = Color(0xFFFFFFFF),
@@ -34,7 +34,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun NotionTaskerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
+    // ダイナミックカラーは Android 12 以降で利用可能です
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
