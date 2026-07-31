@@ -20,7 +20,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.BorderStroke
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.components.getNotionCategoryColors
@@ -60,17 +60,16 @@ fun ScheduleScreen(
     val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1)?.name ?: "進行中" }
 
     // 日付セレクターの状態
-    val calendar = remember { Calendar.getInstance() }
     var selectedDateStr by remember {
-        mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time))
+        mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
     }
 
     LaunchedEffect(selectedDateStr) {
         viewModel.autoInitializeDefaultLifeActivities(context, selectedDateStr)
     }
-    var displayName by remember(selectedDateStr) {
+    val displayName = remember(selectedDateStr) {
         val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-        mutableStateOf(SimpleDateFormat("yyyy年MM月dd日 (E)", Locale.JAPAN).format(parsed))
+        SimpleDateFormat("yyyy年MM月dd日 (E)", Locale.JAPAN).format(parsed)
     }
 
     // 選択された日付の有効なタスクをロードする
@@ -144,6 +143,15 @@ fun ScheduleScreen(
     var timetableBounds by remember { mutableStateOf<Rect?>(null) }
     val density = LocalDensity.current
 
+    // タイムブロック自体のドラッグ（移動）用状態
+    var draggingBlockId by remember { mutableStateOf<String?>(null) }
+    var dragBlockDeltaYPx by remember { mutableFloatStateOf(0f) }
+    var dragBlockStartMinutes by remember { mutableIntStateOf(0) }
+    var dragBlockDuration by remember { mutableIntStateOf(0) }
+
+    val hourHeightDp = 80.dp
+    val hourHeightPx = with(density) { hourHeightDp.toPx() }
+
     // ボトムトレイ UI 用のトレイ拡張可能状態 (Approach C)
     var isTrayExpanded by remember { mutableStateOf(false) }
     val trayHeight by animateDpAsState(
@@ -176,9 +184,11 @@ fun ScheduleScreen(
             ) {
                 IconButton(onClick = {
                     val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                    calendar.time = parsed
-                    calendar.add(Calendar.DATE, -1)
-                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time)
+                    val cal = Calendar.getInstance().apply { 
+                        time = parsed
+                        add(Calendar.DATE, -1)
+                    }
+                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
                 }) {
                     Icon(Icons.Default.ChevronLeft, "前日")
                 }
@@ -224,9 +234,11 @@ fun ScheduleScreen(
 
                 IconButton(onClick = {
                     val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                    calendar.time = parsed
-                    calendar.add(Calendar.DATE, 1)
-                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calendar.time)
+                    val cal = Calendar.getInstance().apply { 
+                        time = parsed
+                        add(Calendar.DATE, 1)
+                    }
+                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
                 }) {
                     Icon(Icons.Default.ChevronRight, "翌日")
                 }
@@ -244,7 +256,7 @@ fun ScheduleScreen(
             
             // 初期ロード時に午前7時に自動スクロールして、使い心地を良くする
             LaunchedEffect(Unit) {
-                scrollState.scrollTo(420) // 7 * 60 = 420dp
+                scrollState.scrollTo(with(density) { (7 * 80).dp.roundToPx() })
             }
 
             Box(
@@ -255,31 +267,33 @@ fun ScheduleScreen(
                         timetableBounds = layoutCoordinates.boundsInWindow()
                     }
             ) {
-                // 背景のグリッド線 (1分あたり 1.dp -> 合計の高さ = 1440.dp)
-                // ボトムトレイでタイムテーブルが隠れないように、下部に余分な高さ (80.dp) を追加
+                // 背景のグリッド線 (1時間あたり 80.dp -> 24時間 = 1920.dp)
+                // ボトムトレイでタイムテーブルが隠れないように、下部に余分な高さ (120.dp) を追加
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(1520.dp)
+                        .height(2040.dp)
                 ) {
                     for (hour in 0..23) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(60.dp)
+                                .height(hourHeightDp)
                         ) {
                             // 時間線（実線）
                             HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
                                 thickness = 1.dp,
-                                modifier = Modifier.align(Alignment.TopStart)
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = 56.dp)
                             )
                             
-                            // 15分刻みの補助線（細かい破線/透明な線）
+                            // 15分刻みの補助線
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(15.dp)
+                                    .height(20.dp)
                                     .align(Alignment.TopStart)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60
@@ -292,8 +306,8 @@ fun ScheduleScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(15.dp)
-                                    .offset(y = 15.dp)
+                                    .height(20.dp)
+                                    .offset(y = 20.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 15
                                         editingBlock = null
@@ -305,7 +319,9 @@ fun ScheduleScreen(
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                                     thickness = 0.5.dp,
-                                    modifier = Modifier.align(Alignment.TopStart)
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(start = 56.dp)
                                 )
                             }
                             
@@ -313,8 +329,8 @@ fun ScheduleScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(15.dp)
-                                    .offset(y = 30.dp)
+                                    .height(20.dp)
+                                    .offset(y = 40.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 30
                                         editingBlock = null
@@ -326,14 +342,16 @@ fun ScheduleScreen(
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                                     thickness = 0.75.dp,
-                                    modifier = Modifier.align(Alignment.TopStart)
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(start = 56.dp)
                                 )
                             }
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(15.dp)
-                                    .offset(y = 45.dp)
+                                    .height(20.dp)
+                                    .offset(y = 60.dp)
                                     .clickable {
                                         clickedTimeMinutes = hour * 60 + 45
                                         editingBlock = null
@@ -345,24 +363,27 @@ fun ScheduleScreen(
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                                     thickness = 0.5.dp,
-                                    modifier = Modifier.align(Alignment.TopStart)
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(start = 56.dp)
                                 )
                             }
 
-                            // 左マージンの時間ラベル（幅: 56.dp）
+                            // 左マージンの時間ラベル（幅: 56.dp, グリッド実線と完全に位置を同期）
                             Text(
                                 text = String.format(Locale.US, "%02d:00", hour),
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                                 modifier = Modifier
-                                    .padding(start = 8.dp, top = 2.dp)
+                                    .offset(y = (-8).dp)
+                                    .padding(start = 8.dp)
                                     .width(48.dp)
                             )
                         }
                     }
-                    // スクロールビューの下部にあるスペーサー。コンテンツが 72dp の折りたたまれたトレイの後ろに隠れないようにします。
-                    Spacer(modifier = Modifier.height(80.dp))
+                    // スクロールビューの下部にあるスペーサー
+                    Spacer(modifier = Modifier.height(120.dp))
                 }
 
                 // ラベルとスケジュールボックスを分ける垂直タイムラインの境界線
@@ -376,50 +397,156 @@ fun ScheduleScreen(
 
                 // フローティングスケジュールブロックアイテムをレンダリングする
                 dayBlocks.forEach { block ->
-                    val blockColor = try {
-                        Color(block.color.toColorInt())
-                    } catch (_: Exception) {
-                        MaterialTheme.colorScheme.primaryContainer
+                    val isSystemDark = isSystemInDarkTheme()
+                    val blockColors = remember(block.color, isSystemDark) {
+                        getColorPairFromHex(block.color, isSystemDark)
                     }
+                    val bgColor = blockColors.first
+                    val accentColor = blockColors.second
+
+                    val isThisBlockDragging = (draggingBlockId == block.id)
+                    val durationMinutes = block.endTime - block.startTime
+
+                    val displayStartMinutes = if (isThisBlockDragging) {
+                        val deltaMinutes = ((dragBlockDeltaYPx / hourHeightPx) * 60).toInt()
+                        val rawMinutes = dragBlockStartMinutes + deltaMinutes
+                        val snapped = ((rawMinutes + 7) / 15) * 15
+                        snapped.coerceIn(0, 1440 - dragBlockDuration)
+                    } else {
+                        block.startTime
+                    }
+
+                    val displayEndMinutes = if (isThisBlockDragging) {
+                        displayStartMinutes + dragBlockDuration
+                    } else {
+                        block.endTime
+                    }
+
+                    val topDp = 80.dp * (displayStartMinutes / 60f)
+                    val blockHeightDp = 80.dp * ((displayEndMinutes - displayStartMinutes) / 60f)
 
                     Card(
                         modifier = Modifier
-                            .padding(start = 64.dp, end = 8.dp)
-                            .offset(y = block.startTime.dp)
-                            .height((block.endTime - block.startTime).dp)
+                            .padding(start = 64.dp, end = 12.dp)
+                            .offset(y = topDp)
+                            .height(blockHeightDp)
                             .fillMaxWidth()
+                            .pointerInput(block) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { _ ->
+                                        draggingBlockId = block.id
+                                        dragBlockStartMinutes = block.startTime
+                                        dragBlockDuration = block.endTime - block.startTime
+                                        dragBlockDeltaYPx = 0f
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragBlockDeltaYPx += dragAmount.y
+                                    },
+                                    onDragEnd = {
+                                        draggingBlockId?.let { _ ->
+                                            val deltaMinutes = ((dragBlockDeltaYPx / hourHeightPx) * 60).toInt()
+                                            val rawMinutes = dragBlockStartMinutes + deltaMinutes
+                                            var newStart = ((rawMinutes + 7) / 15) * 15
+                                            newStart = newStart.coerceIn(0, 1440 - dragBlockDuration)
+                                            val newEnd = newStart + dragBlockDuration
+
+                                            if (newStart != block.startTime || newEnd != block.endTime) {
+                                                val updated = block.copy(startTime = newStart, endTime = newEnd)
+                                                viewModel.addTimeBlock(context, updated)
+                                            }
+                                        }
+                                        draggingBlockId = null
+                                    },
+                                    onDragCancel = {
+                                        draggingBlockId = null
+                                    }
+                                )
+                            }
                             .clickable {
-                                editingBlock = block
-                                clickedTimeMinutes = block.startTime
-                                selectedPresetTask = null
-                                selectedPresetActivity = null
-                                showAddDialog = true
+                                if (draggingBlockId == null) {
+                                    editingBlock = block
+                                    clickedTimeMinutes = block.startTime
+                                    selectedPresetTask = null
+                                    selectedPresetActivity = null
+                                    showAddDialog = true
+                                }
                             },
                         colors = CardDefaults.cardColors(
-                            containerColor = blockColor.copy(alpha = 0.85f),
-                            contentColor = if (blockColor.luminance() > 0.5f) Color.Black else Color.White
+                            containerColor = bgColor.copy(alpha = 0.95f),
+                            contentColor = MaterialTheme.colorScheme.onSurface
                         ),
                         shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, blockColor)
+                        elevation = CardDefaults.cardElevation(if (isThisBlockDragging) 8.dp else 0.dp),
+                        border = if (isThisBlockDragging) {
+                            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                        } else {
+                            BorderStroke(1.dp, accentColor.copy(alpha = 0.3f))
+                        }
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        Row(
+                            modifier = Modifier.fillMaxSize()
+                                .padding(start = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text(
-                                text = block.title,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                            // アクセントバー (リストのスタイルに合わせて動的な高さ、角丸)
+                            Box(
+                                modifier = Modifier
+                                    .padding(vertical = if (durationMinutes < 30) 4.dp else 8.dp)
+                                    .width(4.dp)
+                                    .fillMaxHeight()
+                                    .background(
+                                        color = accentColor,
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
                             )
-                            if (block.endTime - block.startTime >= 30) {
-                                Text(
-                                    text = "${formatMinutes(block.startTime)}〜${formatMinutes(block.endTime)}",
-                                    fontSize = 10.sp,
-                                    color = if (blockColor.luminance() > 0.5f) Color.DarkGray else Color.LightGray
-                                )
+                            
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 2.dp, bottom = 2.dp, end = 10.dp),
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = block.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+
+                                    if (isThisBlockDragging) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "${formatMinutes(displayStartMinutes)}〜${formatMinutes(displayEndMinutes)}",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (!isThisBlockDragging && durationMinutes >= 20) {
+                                    Text(
+                                        text = "${formatMinutes(displayStartMinutes)}〜${formatMinutes(displayEndMinutes)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -641,7 +768,16 @@ fun ScheduleScreen(
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         todayTasks.forEach { task ->
-                                            var cardScreenPos by remember { mutableStateOf(Offset.Zero) }
+                                            val isSystemDark = isSystemInDarkTheme()
+                                            val categoryColors = remember(task.categoryColor, isSystemDark) {
+                                                if (task.categoryColor != null) {
+                                                    getNotionCategoryColors(task.categoryColor, isSystemDark)
+                                                } else {
+                                                    getNotionCategoryColors("default", isSystemDark)
+                                                }
+                                            }
+                                            var cardScreenPos by remember(task.id) { mutableStateOf(Offset.Zero) }
+
                                             Card(
                                                 modifier = Modifier
                                                     .onGloballyPositioned { layoutCoordinates ->
@@ -649,7 +785,7 @@ fun ScheduleScreen(
                                                             cardScreenPos = layoutCoordinates.positionInWindow()
                                                         }
                                                     }
-                                                    .pointerInput(task) {
+                                                    .pointerInput(task.id) {
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = { _ ->
                                                                 draggedTask = task
@@ -672,8 +808,8 @@ fun ScheduleScreen(
                                                                         val relativeYPx = dropY - bounds.top
                                                                         val totalYPx = relativeYPx + scrollState.value
                                                                         val totalYDp = with(density) { totalYPx.toDp().value }
-                                                                        var minutes = totalYDp.toInt()
-                                                                        minutes = (minutes / 15) * 15
+                                                                        var minutes = ((totalYDp / 80f) * 60).toInt()
+                                                                        minutes = ((minutes + 7) / 15) * 15
                                                                         if (minutes < 0) minutes = 0
                                                                         if (minutes > 1425) minutes = 1425
                                                                         
@@ -702,116 +838,90 @@ fun ScheduleScreen(
                                                         showAddDialog = true
                                                     },
                                                 colors = CardDefaults.cardColors(
-                                                    containerColor = if (task.categoryColor != null) {
-                                                        getNotionCategoryColors(task.categoryColor, isSystemInDarkTheme()).first
-                                                    } else {
-                                                        getNotionCategoryColors("default", isSystemInDarkTheme()).first
-                                                    }
+                                                    containerColor = categoryColors.first
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
-                                                border = androidx.compose.foundation.BorderStroke(
+                                                border = BorderStroke(
                                                     1.dp,
-                                                    if (task.categoryColor != null) {
-                                                        getNotionCategoryColors(task.categoryColor, isSystemInDarkTheme()).second.copy(alpha = 0.2f)
-                                                    } else {
-                                                        getNotionCategoryColors("default", isSystemInDarkTheme()).second.copy(alpha = 0.2f)
-                                                    }
+                                                    categoryColors.second.copy(alpha = 0.3f)
                                                 ),
-                                                elevation = CardDefaults.cardElevation(2.dp)
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                                             ) {
-                                                val isSystemDark = isSystemInDarkTheme()
-                                                val categoryColors = if (task.categoryColor != null) {
-                                                    getNotionCategoryColors(task.categoryColor, isSystemDark)
-                                                } else {
-                                                    getNotionCategoryColors("default", isSystemDark)
-                                                }
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
+                                                        .height(IntrinsicSize.Min)
                                                         .padding(12.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                                 ) {
-                                                    Row(
-                                                        modifier = Modifier.weight(1f),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                    ) {
-                                                        // タスクカテゴリのアクセントバー
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .width(4.dp)
-                                                                .height(36.dp)
-                                                                .background(
-                                                                    color = categoryColors.second,
-                                                                    shape = RoundedCornerShape(2.dp)
-                                                                )
-                                                        )
+                                                    // タスクカテゴリのアクセントバー (Dynamic height)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .padding(vertical = 4.dp)
+                                                            .width(4.dp)
+                                                            .fillMaxHeight()
+                                                            .background(
+                                                                color = categoryColors.second,
+                                                                shape = RoundedCornerShape(2.dp)
+                                                            )
+                                                    )
 
-                                                        Column(
-                                                            modifier = Modifier.weight(1f)
+                                                    Column(
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text(
+                                                            text = task.title,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                         ) {
                                                             Text(
-                                                                text = task.title,
-                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                maxLines = 1,
-                                                                overflow = TextOverflow.Ellipsis,
-                                                                color = MaterialTheme.colorScheme.onSurface
+                                                                text = task.category,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = categoryColors.second,
+                                                                fontWeight = FontWeight.Medium
                                                             )
-                                                            Spacer(modifier = Modifier.height(2.dp))
-                                                            Row(
-                                                                verticalAlignment = Alignment.CenterVertically,
-                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = task.category,
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    color = categoryColors.second,
-                                                                    fontWeight = FontWeight.Medium
-                                                                )
 
-                                                                val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
-                                                                val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
+                                                            val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
+                                                            val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
 
-                                                                if (isOverdueDue) {
-                                                                    Box(
-                                                                        modifier = Modifier
-                                                                            .background(
-                                                                                color = Color(0xFFFFEBEE),
-                                                                                shape = RoundedCornerShape(4.dp)
-                                                                            )
-                                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                                    ) {
-                                                                        Text(
-                                                                            text = "⚠️ 期限切れ",
-                                                                            style = MaterialTheme.typography.labelSmall,
-                                                                            color = Color(0xFFC62828),
-                                                                            fontWeight = FontWeight.Bold
-                                                                        )
-                                                                    }
-                                                                } else if (isOverdueScheduled) {
-                                                                    Box(
-                                                                        modifier = Modifier
-                                                                            .background(
-                                                                                color = Color(0xFFFFF3E0),
-                                                                                shape = RoundedCornerShape(4.dp)
-                                                                            )
-                                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                                    ) {
-                                                                        Text(
-                                                                            text = "⚠️ 持ち越し",
-                                                                            style = MaterialTheme.typography.labelSmall,
-                                                                            color = Color(0xFFE65100),
-                                                                            fontWeight = FontWeight.Bold
-                                                                        )
-                                                                    }
+                                                            if (isOverdueDue) {
+                                                                Surface(
+                                                                    color = if (isSystemDark) Color(0x33F44336) else Color(0xFFFFEBEE),
+                                                                    shape = RoundedCornerShape(4.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = "⚠️ 期限切れ",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = if (isSystemDark) Color(0xFFEF9A9A) else Color(0xFFC62828),
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    )
+                                                                }
+                                                            } else if (isOverdueScheduled) {
+                                                                Surface(
+                                                                    color = if (isSystemDark) Color(0x33FF9800) else Color(0xFFFFF3E0),
+                                                                    shape = RoundedCornerShape(4.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = "⚠️ 持ち越し",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = if (isSystemDark) Color(0xFFFFCC80) else Color(0xFFE65100),
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    )
                                                                 }
                                                             }
                                                         }
                                                     }
-
-
                                                 }
                                             }
                                         }
@@ -831,12 +941,13 @@ fun ScheduleScreen(
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         lifeActivities.forEach { activity ->
-                                            var cardScreenPos by remember { mutableStateOf(Offset.Zero) }
-                                            val colorParsed = try {
-                                                Color(activity.color.toColorInt())
-                                            } catch (_: Exception) {
-                                                MaterialTheme.colorScheme.secondaryContainer
+                                            val isSystemDark = isSystemInDarkTheme()
+                                            var cardScreenPos by remember(activity.id) { mutableStateOf(Offset.Zero) }
+                                            val activityColors = remember(activity.color, isSystemDark) {
+                                                getColorPairFromHex(activity.color, isSystemDark)
                                             }
+                                            val bgColor = activityColors.first
+                                            val accentColor = activityColors.second
 
                                             Card(
                                                 modifier = Modifier
@@ -845,7 +956,7 @@ fun ScheduleScreen(
                                                             cardScreenPos = layoutCoordinates.positionInWindow()
                                                         }
                                                     }
-                                                    .pointerInput(activity) {
+                                                    .pointerInput(activity.id) {
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = { _ ->
                                                                 draggedActivity = activity
@@ -868,8 +979,8 @@ fun ScheduleScreen(
                                                                         val relativeYPx = dropY - bounds.top
                                                                         val totalYPx = relativeYPx + scrollState.value
                                                                         val totalYDp = with(density) { totalYPx.toDp().value }
-                                                                        var minutes = totalYDp.toInt()
-                                                                        minutes = (minutes / 15) * 15
+                                                                        var minutes = ((totalYDp / 80f) * 60).toInt()
+                                                                        minutes = ((minutes + 7) / 15) * 15
                                                                         if (minutes < 0) minutes = 0
                                                                         if (minutes > 1425) minutes = 1425
                                                                         
@@ -898,62 +1009,57 @@ fun ScheduleScreen(
                                                         showAddDialog = true
                                                     },
                                                 colors = CardDefaults.cardColors(
-                                                    containerColor = colorParsed.copy(alpha = 0.08f)
+                                                    containerColor = bgColor
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, colorParsed.copy(alpha = 0.2f))
+                                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.3f)),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                                             ) {
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
+                                                        .height(IntrinsicSize.Min)
                                                         .padding(12.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Row(
-                                                        modifier = Modifier.weight(1f),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                    ) {
-                                                        // 習慣固有のカスタムカラーバー
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .width(4.dp)
-                                                                .height(36.dp)
-                                                                .background(
-                                                                    color = colorParsed,
-                                                                    shape = RoundedCornerShape(2.dp)
-                                                                )
-                                                        )
-
-                                                        Column {
-                                                            Text(
-                                                                text = activity.name,
-                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                color = MaterialTheme.colorScheme.onSurface
+                                                    // 習慣固有のカスタムカラーバー (Dynamic height)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .padding(vertical = 4.dp)
+                                                            .width(4.dp)
+                                                            .fillMaxHeight()
+                                                            .background(
+                                                                color = accentColor,
+                                                                shape = RoundedCornerShape(2.dp)
                                                             )
-                                                            Spacer(modifier = Modifier.height(2.dp))
-                                                            Row(
-                                                                verticalAlignment = Alignment.CenterVertically,
-                                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Default.AccessTime,
-                                                                    contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                                    modifier = Modifier.size(12.dp)
-                                                                )
-                                                                Text(
-                                                                    text = "${activity.durationMinutes}分",
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                                                )
-                                                            }
+                                                    )
+
+                                                    Column {
+                                                        Text(
+                                                            text = activity.name,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.AccessTime,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                            Text(
+                                                                text = "${activity.durationMinutes}分",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                            )
                                                         }
                                                     }
-
-
                                                 }
                                             }
                                         }
@@ -994,18 +1100,21 @@ fun ScheduleScreen(
                                     containerColor = categoryColors.first
                                 ),
                                 shape = RoundedCornerShape(12.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, categoryColors.second.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, categoryColors.second.copy(alpha = 0.3f)),
                                 elevation = CardDefaults.cardElevation(8.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp),
+                                    modifier = Modifier
+                                        .height(IntrinsicSize.Min)
+                                        .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
+                                            .padding(vertical = 4.dp)
                                             .width(4.dp)
-                                            .height(24.dp)
+                                            .fillMaxHeight()
                                             .background(
                                                 color = categoryColors.second,
                                                 shape = RoundedCornerShape(2.dp)
@@ -1030,30 +1139,35 @@ fun ScheduleScreen(
                                 }
                             }
                         } else if (draggedActivity != null) {
-                            val colorParsed = try {
-                                Color(draggedActivity!!.color.toColorInt())
-                            } catch (_: Exception) {
-                                MaterialTheme.colorScheme.secondaryContainer
+                            val isSystemDark = isSystemInDarkTheme()
+                            val activityColors = remember(draggedActivity!!.color, isSystemDark) {
+                                getColorPairFromHex(draggedActivity!!.color, isSystemDark)
                             }
+                            val bgColor = activityColors.first
+                            val accentColor = activityColors.second
+
                             Card(
                                 colors = CardDefaults.cardColors(
-                                    containerColor = colorParsed.copy(alpha = 0.15f)
+                                    containerColor = bgColor
                                 ),
                                 shape = RoundedCornerShape(12.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, colorParsed.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, accentColor.copy(alpha = 0.3f)),
                                 elevation = CardDefaults.cardElevation(8.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp),
+                                    modifier = Modifier
+                                        .height(IntrinsicSize.Min)
+                                        .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
+                                            .padding(vertical = 4.dp)
                                             .width(4.dp)
-                                            .height(24.dp)
+                                            .fillMaxHeight()
                                             .background(
-                                                color = colorParsed,
+                                                color = accentColor,
                                                 shape = RoundedCornerShape(2.dp)
                                             )
                                     )
@@ -1116,7 +1230,7 @@ fun ScheduleScreen(
             )
         }
 
-        // Clamp times to 15 minute snaps
+        // 時間を 15 分刻みにスナップ（固定）
         val defaultStart = clickedTimeMinutes ?: editingBlock?.startTime ?: 480 // 8:00
         val defaultDuration = selectedPresetActivity?.durationMinutes ?: (editingBlock?.let { it.endTime - it.startTime } ?: 60)
         
@@ -1391,7 +1505,7 @@ fun ScheduleScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("カラー:")
-                        val colors = listOf("#EF5350", "#FF9800", "#4CAF50", "#2196F3", "#9C27B0", "#00BCD4", "#E91E63", "#78909C")
+                        val colors = listOf("#EF5350", "#FF9800", "#4CAF50", "#2196F3", "#9C27B0", "#E91E63", "#78909C")
                         colors.forEach { c ->
                             Box(
                                 modifier = Modifier
@@ -1473,6 +1587,28 @@ private fun formatMinutes(minutes: Int): String {
     val h = minutes / 60
     val m = minutes % 60
     return String.format(Locale.US, "%02d:%02d", h, m)
+}
+
+private fun getColorPairFromHex(hex: String, isDark: Boolean): Pair<Color, Color> {
+    val colorName = when (hex.uppercase()) {
+        "#9E9E9E", "#78909C" -> "gray"
+        "#8D6E63" -> "brown"
+        "#FF9800" -> "orange"
+        "#FFCA28", "#FFEB3B" -> "yellow"
+        "#4CAF50" -> "green"
+        "#2196F3" -> "blue"
+        "#9C27B0" -> "purple"
+        "#E91E63" -> "pink"
+        "#EF5350", "#F44336" -> "red"
+        else -> null
+    }
+    return if (colorName != null) {
+        getNotionCategoryColors(colorName, isDark)
+    } else {
+        val baseColor = try { Color(hex.toColorInt()) } catch (_: Exception) { Color(0xFF78909C) }
+        if (isDark) Pair(baseColor.copy(alpha = 0.2f), baseColor) 
+        else Pair(baseColor.copy(alpha = 0.08f), baseColor)
+    }
 }
 
 private fun notionColorToHex(colorName: String?): String? {
