@@ -945,7 +945,7 @@ fun PomodoroStatsSubPage(
                                                 if (hrs > 0f) {
                                                     val pct = hrs / maxDailyHours
                                                     val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor ?: categoryColorMap[cat]
-                                                    val color = getCategoryChartColorInCompose(cat, colorName)
+                                                    val color = getCategoryChartColorInCompose(colorName)
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
@@ -1058,7 +1058,7 @@ fun PomodoroStatsSubPage(
                             ) {
                                 dateLogs.sortedByDescending { log -> log.timestamp }.forEach { log ->
                                     val colorName = log.categoryColor ?: categoryColorMap[log.category]
-                                    val catColor = getCategoryChartColorInCompose(log.category, colorName)
+                                    val catColor = getCategoryChartColorInCompose(colorName)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1149,7 +1149,7 @@ fun PomodoroStatsSubPage(
                                     sortedCats.forEach { cat ->
                                         val sweepAngle = (cat.minutes.toFloat() / totalReportMins) * 360f
                                         val colorName = cat.color ?: categoryColorMap[cat.category]
-                                        val color = getCategoryChartColorInCompose(cat.category, colorName)
+                                        val color = getCategoryChartColorInCompose(colorName)
                                         drawArc(
                                             color = color,
                                             startAngle = startAngle,
@@ -1189,7 +1189,7 @@ fun PomodoroStatsSubPage(
                                 ) {
                                     rowItems.forEach { sc ->
                                         val colorName = sc.color ?: categoryColorMap[sc.category]
-                                        val color = getCategoryChartColorInCompose(sc.category, colorName)
+                                        val color = getCategoryChartColorInCompose(colorName)
                                         Row(
                                             modifier = Modifier.weight(1f),
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -331,8 +331,8 @@ fun NotionSettingsSection(
     isLoading: Boolean, onFetch: () -> Unit, onSave: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        OutlinedTextField(value = token, onValueChange = onTokenChange, label = { Text("Notion Integration Token") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = dbId, onValueChange = onDbIdChange, label = { Text("Database ID") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = token, onValueChange = onTokenChange, label = { Text("Notion インテグレーション トークン") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = dbId, onValueChange = onDbIdChange, label = { Text("データベース ID") }, modifier = Modifier.fillMaxWidth())
         
         Button(onClick = onFetch, enabled = token.isNotBlank() && dbId.isNotBlank() && !isLoading, modifier = Modifier.fillMaxWidth()) {
             if (isLoading) {
@@ -869,14 +869,14 @@ fun LifeActivitySettingsSection(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
 
-                        // Color options
+                        // カラーオプション
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("カラー:")
-                            val colors = listOf("#EF5350", "#FF9800", "#4CAF50", "#2196F3", "#9C27B0", "#00BCD4", "#E91E63", "#78909C")
+                            val colors = listOf("#EF5350", "#FF9800", "#4CAF50", "#2196F3", "#9C27B0", "#E91E63", "#78909C")
                             colors.forEach { c ->
                                 Box(
                                     modifier = Modifier
@@ -892,7 +892,7 @@ fun LifeActivitySettingsSection(
                             }
                         }
 
-                        // Switch for Auto scheduling
+                        // 自動スケジュールの切り替えスイッチ
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -909,7 +909,7 @@ fun LifeActivitySettingsSection(
                         }
 
                         if (hasDefaultTime) {
-                            // Start Time
+                            // 開始時間
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -949,7 +949,7 @@ fun LifeActivitySettingsSection(
                                 }
                             }
 
-                            // End Time
+                            // 終了時間
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,

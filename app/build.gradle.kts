@@ -15,7 +15,7 @@ android {
         //noinspection EditedTargetSdkVersion
         targetSdk = 37
         versionCode = 19
-        versionName = "1.3.2-dev.7"
+        versionName = "1.3.2-dev.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -48,7 +48,7 @@ android {
 }
 
 dependencies {
-    // Core & Lifecycle
+    // コア & ライフサイクル
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
@@ -63,21 +63,21 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
-    // Retrofit & Kotlin Serialization
+    // Retrofit & Kotlin シリアライゼーション
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("com.squareup.okhttp3:logging-interceptor:5.4.0")
 
-    // Room Database
+    // Room データベース
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
 
-    // EncryptedSharedPreferences
+    // 暗号化された SharedPreferences (EncryptedSharedPreferences)
     implementation("androidx.security:security-crypto:1.1.0")
 
-    // Testing
+    // テスト
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
@@ -87,15 +87,15 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-// Ensure the unitTestClasses and androidTestClasses tasks exist, which is required by some CI/build execution frameworks for Android projects.
+// Android プロジェクトの一部の CI/ビルド実行フレームワークで必要とされる、unitTestClasses および androidTestClasses タスクが存在することを確認します。
 tasks.register("unitTestClasses") {
-    description = "Assembles compilation outputs for unit tests across all variants"
+    description = "すべてのバリアントでユニットテストのコンパイル出力をアセンブルします"
     group = "verification"
     dependsOn(tasks.matching { it.name.endsWith("UnitTestSources") || it.name.contains("UnitTestKotlin") })
 }
 
 tasks.register("androidTestClasses") {
-    description = "Assembles compilation outputs for android tests across all variants"
+    description = "すべてのバリアントで Android テストのコンパイル出力をアセンブルします"
     group = "verification"
     dependsOn(tasks.matching { it.name.contains("AndroidTest") || it.name.contains("AndroidTestKotlin") })
 }

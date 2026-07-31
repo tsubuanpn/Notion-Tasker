@@ -33,8 +33,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.core.content.edit
 import androidx.navigation.compose.rememberNavController
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.notiontasks.app.data.local.TaskDatabase
 import com.notiontasks.app.data.model.TaskModel
@@ -53,6 +51,7 @@ import com.notiontasks.app.ui.screens.ScheduleScreen
 import com.notiontasks.app.ui.screens.SettingsScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
+import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -91,32 +90,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // セキュリティガイドラインに従って暗号化された SharedPreferences を初期化する
-        val mainKey = MasterKey.Builder(applicationContext, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        val sharedPreferences = try {
-            EncryptedSharedPreferences.create(
-                applicationContext,
-                "notion_tasks_secure_prefs",
-                mainKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-            try {
-                applicationContext.deleteSharedPreferences("notion_tasks_secure_prefs")
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-            }
-            EncryptedSharedPreferences.create(
-                applicationContext,
-                "notion_tasks_secure_prefs",
-                mainKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        }
+        val sharedPreferences = SecurityUtils.getSecurePreferences(this)
 
         // API のセットアップ
         val logging = HttpLoggingInterceptor().apply {
@@ -135,7 +109,7 @@ class MainActivity : ComponentActivity() {
 
         val notionApi = retrofit.create(NotionApi::class.java)
         val database = TaskDatabase.getInstance(applicationContext)
-        val repository = TaskRepository(notionApi, database.taskDao)
+        val repository = TaskRepository(notionApi, database.taskDao, database.pomodoroLogDao)
 
         // MVVM ファクトリ
         viewModel = ViewModelProvider(this, object : ViewModelProvider.Factory {

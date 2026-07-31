@@ -1,7 +1,10 @@
 package com.notiontasks.app.data.repository
 
+import com.notiontasks.app.data.local.PomodoroLogDao
+import com.notiontasks.app.data.local.PomodoroLogEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
+import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.NotionUpdateRequest
@@ -14,8 +17,10 @@ import com.notiontasks.app.data.remote.dto.StatusValue
 import com.notiontasks.app.data.remote.dto.SelectValue
 import com.notiontasks.app.data.remote.dto.DateValue
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.IOException
 
@@ -77,7 +82,8 @@ fun Map<String, JsonElement>.getSelectColor(propertyName: String): String? {
 
 class TaskRepository(
     private val notionApi: NotionApi,
-    private val taskDao: TaskDao
+    private val taskDao: TaskDao,
+    private val pomodoroLogDao: PomodoroLogDao,
 ) {
 
     // 設定画面から構成された動的なマッピングキー
@@ -94,7 +100,7 @@ class TaskRepository(
         statusType: String,
         category: String,
         scheduledDate: String,
-        dueDate: String
+        dueDate: String,
     ) {
         propTitleName = title.ifBlank { "名前" }
         propStatusName = status.ifBlank { "状態" }
@@ -104,7 +110,7 @@ class TaskRepository(
         propDueDateName = dueDate.ifBlank { "締め切り" }
     }
 
-    // 信頼できる唯一の情報源としてのメインのローカルフロー。Entity をドメインモデルに変換します
+    // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
     val allTasks: Flow<List<TaskModel>> = taskDao.getAllTasksFlow().map { entities ->
         entities.map { entity ->
             TaskModel(
@@ -115,7 +121,7 @@ class TaskRepository(
                 dueDate = entity.dueDate,
                 scheduledDate = entity.scheduledDate,
                 statusColor = entity.statusColor,
-                categoryColor = entity.categoryColor
+                categoryColor = entity.categoryColor,
             )
         }
     }
@@ -124,9 +130,8 @@ class TaskRepository(
         val authHeader = "Bearer $token"
         val meta = notionApi.getDatabase(token = authHeader, databaseId = databaseId)
         
-        // 自己修復：実際のデータベースプロパティのタイプを自動的に検査し、select と status の不一致を解消します
-        val statusProp = meta.properties[propStatusName]
-        if (statusProp != null) {
+        // 自己修復：実際のデータベースプロパティの型を自動的に検査し、select と status の不一致を解消します
+        meta.properties[propStatusName]?.let { statusProp ->
             if (statusProp.type == "select") {
                 propStatusType = "select"
             } else if (statusProp.type == "status") {
@@ -136,7 +141,7 @@ class TaskRepository(
         return meta
     }
 
-    // リモートの Notion DB からタスクキャッシュを更新する
+    // リモートの Notion DB からタスクのキャッシュを更新する
     suspend fun syncTasks(token: String, databaseId: String) {
         val authHeader = "Bearer $token"
         try {
@@ -165,20 +170,20 @@ class TaskRepository(
                     dueDate = page.properties.getDateValue(propDueDateName),
                     scheduledDate = page.properties.getDateValue(propScheduledDateName),
                     statusColor = statusColorVal,
-                    categoryColor = categoryColorVal
+                    categoryColor = categoryColorVal,
                 )
             }
 
-            // ローカルリポジトリデータベースと同期する
+            // ローカルリポジトリのデータベースと同期する
             taskDao.clearAllTasks()
             taskDao.insertTasks(activeEntities)
         } catch (e: Exception) {
-            // 呼び出し元での HTTP 障害や接続断を処理する
+            // 呼び出し元で HTTP 障害や接続断を処理する
             throw IOException("Network synchronization failed: ${e.message}", e)
         }
     }
 
-    // キャッシュされた要素全体の直接フィルター
+    // キャッシュされた要素全体に対する直接的なフィルタリング
     @Suppress("unused")
     fun getTasksByStatus(status: String): Flow<List<TaskModel>> {
         return taskDao.getTasksByStatus(status).map { entities ->
@@ -191,13 +196,13 @@ class TaskRepository(
                     dueDate = entity.dueDate,
                     scheduledDate = entity.scheduledDate,
                     statusColor = entity.statusColor,
-                    categoryColor = entity.categoryColor
+                    categoryColor = entity.categoryColor,
                 )
             }
         }
     }
 
-    // カテゴリ画面用のローカルフィルター表現
+    // カテゴリ画面用のローカルフィルターの実装
     @Suppress("unused")
     fun getTasksByCategory(category: String): Flow<List<TaskModel>> {
         return allTasks.map { tasks ->
@@ -209,9 +214,9 @@ class TaskRepository(
     suspend fun updateTaskStatus(
         token: String,
         pageId: String,
-        newStatus: String
+        newStatus: String,
     ) {
-        // 楽観的な UI/ローカル更新
+        // 楽観的な UI/ローカルの更新
         val statusColor = taskDao.getStatusColorForStatus(newStatus)
         taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
 
@@ -222,31 +227,37 @@ class TaskRepository(
             val request = NotionUpdateRequest(
                 properties = mapOf(
                     propStatusName to buildJsonObject {
-                        put(propStatusType, buildJsonObject {
-                            put("name", newStatus)
-                        })
-                    }
+                        put(
+                            propStatusType,
+                            buildJsonObject {
+                                put("name", newStatus)
+                            },
+                        )
+                    },
                 )
             )
             notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
         } catch (e: Exception) {
-            // 自己修復セーフティネット：最初の更新が失敗した場合、別のタイプを試してフォールバックする
+            // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val retryRequest = NotionUpdateRequest(
-                    properties = mapOf(
-                        propStatusName to buildJsonObject {
-                            put(alternateType, buildJsonObject {
+                properties = mapOf(
+                    propStatusName to buildJsonObject {
+                        put(
+                            alternateType,
+                            buildJsonObject {
                                 put("name", newStatus)
-                            })
-                        }
-                    )
-                )
+                            },
+                        )
+                    },
+                ),
+            )
                 notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
-                // 再試行が成功した場合は、シームレスに構成を更新します
+                // 再試行が成功した場合は、構成をシームレスに更新します
                 propStatusType = alternateType
             } catch (_: Exception) {
-                // 両方が失敗した場合は、エラーを表示します
+                // 両方が失敗した場合は、エラーをスローします
                 throw IOException("Failed to save remote status change with either select or status type: ${e.message}", e)
             }
         }
@@ -261,7 +272,7 @@ class TaskRepository(
         dueDate: String?,
         scheduledDate: String?
     ) {
-        // 楽観的な UI/ローカル更新
+        // 楽観的な UI/ローカルの更新
         val currentLocalTask = taskDao.getTaskById(pageId)
         val statusColor = if (currentLocalTask?.status == status) {
             currentLocalTask.statusColor
@@ -281,7 +292,7 @@ class TaskRepository(
             dueDate = dueDate,
             scheduledDate = scheduledDate,
             statusColor = statusColor,
-            categoryColor = categoryColor
+            categoryColor = categoryColor,
         )
         taskDao.insertTasks(listOf(updatedLocalRef))
 
@@ -290,34 +301,51 @@ class TaskRepository(
             val properties = mutableMapOf<String, JsonElement>()
             
             properties[propTitleName] = buildJsonObject {
-                put("title", buildJsonArray {
-                    add(buildJsonObject {
-                        put("text", buildJsonObject {
-                            put("content", title)
-                        })
-                    })
-                })
+                put(
+                    "title",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "text",
+                                    buildJsonObject {
+                                        put("content", title)
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
             }
             
             properties[propStatusName] = buildJsonObject {
-                put(sType, buildJsonObject {
-                    put("name", status)
-                })
+                put(
+                    sType,
+                    buildJsonObject {
+                        put("name", status)
+                    },
+                )
             }
             
             properties[propCategoryName] = buildJsonObject {
-                put("select", buildJsonObject {
-                    put("name", category)
-                })
+                put(
+                    "select",
+                    buildJsonObject {
+                        put("name", category)
+                    },
+                )
             }
             
             properties[propDueDateName] = buildJsonObject {
                 if (dueDate.isNullOrBlank()) {
                     put("date", JsonNull)
                 } else {
-                    put("date", buildJsonObject {
-                        put("start", dueDate)
-                    })
+                    put(
+                        "date",
+                        buildJsonObject {
+                            put("start", dueDate)
+                        },
+                    )
                 }
             }
             
@@ -325,9 +353,12 @@ class TaskRepository(
                 if (scheduledDate.isNullOrBlank()) {
                     put("date", JsonNull)
                 } else {
-                    put("date", buildJsonObject {
-                        put("start", scheduledDate)
-                    })
+                    put(
+                        "date",
+                        buildJsonObject {
+                            put("start", scheduledDate)
+                        },
+                    )
                 }
             }
             return properties
@@ -335,18 +366,17 @@ class TaskRepository(
 
         // フォールバックメカニズムを使用したリモートの Patch 呼び出しの実行
         val authHeader = "Bearer $token"
-        try {
-            val initialPayload = buildPropertiesPayload(propStatusType)
-            notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = initialPayload))
-        } catch (e: Exception) {
+        val payload = try {
+            buildPropertiesPayload(propStatusType)
+        } catch (_: Exception) {
             val alternateType = if (propStatusType == "select") "status" else "select"
-            try {
-                val fallbackPayload = buildPropertiesPayload(alternateType)
-                notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = fallbackPayload))
-                propStatusType = alternateType
-            } catch (_: Exception) {
-                throw IOException("Failed to save remote task change: ${e.message}", e)
-            }
+            propStatusType = alternateType
+            buildPropertiesPayload(alternateType)
+        }
+        try {
+            notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = payload))
+        } catch (e: Exception) {
+            throw IOException("Failed to save remote task change: ${e.message}", e)
         }
     }
 
@@ -418,4 +448,49 @@ class TaskRepository(
             }
         }
     }
+
+    // --- Pomodoro Log Methods ---
+
+    @Suppress("unused")
+    val allPomodoroLogs: Flow<List<PomodoroLog>> = pomodoroLogDao.getAllLogsFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    @Suppress("unused")
+    suspend fun loadPomodoroLogs(): List<PomodoroLog> = withContext(Dispatchers.IO) {
+        pomodoroLogDao.getAllLogs().map { it.toDomainModel() }
+    }
+
+    @Suppress("unused")
+    suspend fun savePomodoroLogs(logs: List<PomodoroLog>) = withContext(Dispatchers.IO) {
+        pomodoroLogDao.clearAllLogs()
+        pomodoroLogDao.insertLogs(logs.map { it.toEntity() })
+    }
+
+    @Suppress("unused")
+    suspend fun savePomodoroLog(log: PomodoroLog) = withContext(Dispatchers.IO) {
+        pomodoroLogDao.insertLog(log.toEntity())
+    }
+
+    private fun PomodoroLogEntity.toDomainModel() = PomodoroLog(
+        id = id,
+        taskId = taskId,
+        taskTitle = taskTitle,
+        category = category,
+        categoryColor = categoryColor,
+        date = date,
+        minutes = minutes,
+        timestamp = timestamp
+    )
+
+    private fun PomodoroLog.toEntity() = PomodoroLogEntity(
+        id = id,
+        taskId = taskId,
+        taskTitle = taskTitle,
+        category = category,
+        categoryColor = categoryColor,
+        date = date,
+        minutes = minutes,
+        timestamp = timestamp
+    )
 }

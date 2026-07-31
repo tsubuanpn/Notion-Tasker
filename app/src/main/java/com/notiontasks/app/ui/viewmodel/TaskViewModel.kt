@@ -29,7 +29,7 @@ sealed interface TasksUiState {
 
 class TaskViewModel(
     private val repository: TaskRepository,
-    private val sharedPrefs: android.content.SharedPreferences
+    private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
@@ -63,7 +63,7 @@ class TaskViewModel(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = TasksUiState.Loading
+            initialValue = TasksUiState.Loading,
         )
 
     // 個別のカテゴリフィルタフロー
@@ -123,8 +123,8 @@ class TaskViewModel(
                 LifeActivity("la_meal", "食事", 60, "#FF9800", defaultStartTime = 720, defaultEndTime = 780), // 12:00 - 13:00
                 LifeActivity("la_rest", "休憩", 30, "#4CAF50"),
                 LifeActivity("la_transit", "移動", 30, "#2196F3"),
-                LifeActivity("la_bath", "お風呂", 30, "#00BCD4", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
-                LifeActivity("la_exercise", "運動", 60, "#E91E63")
+                LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
+                LifeActivity("la_exercise", "運動", 60, "#E91E63"),
             )
             _lifeActivities.value = defaults
             saveLifeActivitiesInternal(defaults)
@@ -170,7 +170,7 @@ class TaskViewModel(
         if (_initializedDates.value.contains(date)) return
         
         val currentBlocks = _timeBlocks.value
-        val hasAnyLifeOnThisDate = currentBlocks.any { it.date == date && it.type == "life" }
+        val hasAnyLifeOnThisDate = currentBlocks.any { (it.date == date) && (it.type == "life") }
         
         // この日付に既に生活アクティビティブロックがある場合は、重複を避けるために初期化済みとして扱います
         if (hasAnyLifeOnThisDate) {
@@ -181,7 +181,7 @@ class TaskViewModel(
         }
 
         val defaultsToInsert = _lifeActivities.value.filter {
-            it.defaultStartTime != null && it.defaultEndTime != null
+            (it.defaultStartTime != null) && (it.defaultEndTime != null)
         }
 
         if (defaultsToInsert.isEmpty()) {
@@ -257,7 +257,7 @@ class TaskViewModel(
         token: String,
         dbId: String,
         onSuccess: (NotionDatabaseResponse) -> Unit,
-        onFailure: (String) -> Unit
+        onFailure: (String) -> Unit,
     ) {
         viewModelScope.launch {
             try {
@@ -331,8 +331,8 @@ class TaskViewModel(
         viewModelScope.launch {
             try {
                 repository.syncTasks(token, dbId)
-            } catch (_: Exception) {
-                // Failures logged
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -369,19 +369,19 @@ class TaskViewModel(
                     detected["status"] = pName
                     detected["statusType"] = "status"
                 }
-                pVal.select != null && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
+                (pVal.select != null) && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
                     if (!detected.containsKey("status")) {
                         detected["status"] = pName
                         detected["statusType"] = "select"
                     }
                 }
-                pVal.select != null && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category")) -> {
+                (pVal.select != null) && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category")) -> {
                     detected["category"] = pName
                 }
-                pVal.date != null && (pName.contains("予定") || pName.lowercase().contains("scheduled")) -> {
+                (pVal.date != null) && (pName.contains("予定") || pName.lowercase().contains("scheduled")) -> {
                     detected["scheduled"] = pName
                 }
-                pVal.date != null && (pName.contains("締切") || pName.contains("期限") || pName.lowercase().contains("due")) -> {
+                (pVal.date != null) && (pName.contains("締切") || pName.contains("期限") || pName.lowercase().contains("due")) -> {
                     detected["due"] = pName
                 }
             }
@@ -445,7 +445,7 @@ class TaskViewModel(
                     status = status,
                     category = category.trim(),
                     dueDate = if (dueDate.isNullOrBlank()) null else dueDate,
-                    scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate
+                    scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                 )
                 onSuccess()
             } catch (e: Exception) {

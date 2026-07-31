@@ -21,11 +21,19 @@ import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.loadPomodoroLogs
 import com.notiontasks.app.data.savePomodoroLogs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 class PomodoroService : Service() {
 
     private val binder = PomodoroBinder()
     private var countDownTimer: CountDownTimer? = null
+    private val serviceJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     
     // タイマーの状態
     var isRunning = false
@@ -64,14 +72,14 @@ class PomodoroService : Service() {
 
     fun getCompletedCountToday(): Int {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         return if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
 
     private fun transitionToNextMode() {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         var pomodoroCompletedCount = if (savedCompletedCountDate == todayStr) {
@@ -194,11 +202,13 @@ class PomodoroService : Service() {
             currentSessionId = System.currentTimeMillis().toString()
         } else {
             currentSessionId?.let { sessionId ->
-                val targetId = "pomo_paused_$sessionId"
-                val currentLogs = loadPomodoroLogs(this).toMutableList()
-                val removed = currentLogs.removeAll { it.id == targetId }
-                if (removed) {
-                    savePomodoroLogs(this, currentLogs)
+                serviceScope.launch {
+                    val targetId = "pomo_paused_$sessionId"
+                    val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
+                    val removed = currentLogs.removeAll { it.id == targetId }
+                    if (removed) {
+                        savePomodoroLogs(this@PomodoroService, currentLogs)
+                    }
                 }
             }
         }
@@ -356,8 +366,7 @@ class PomodoroService : Service() {
         val elapsedMins = ceil(elapsedSeconds / 60.0).toInt()
 
         if (elapsedMins > 0) {
-            val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-            val todayStr = sdfIso.format(java.util.Date())
+            val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
             val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
             val categoryVal = associatedTaskCategory ?: "一般作業"
@@ -384,15 +393,17 @@ class PomodoroService : Service() {
                 timestamp = System.currentTimeMillis()
             )
 
-            val currentLogs = loadPomodoroLogs(this).toMutableList()
-            
-            // 本登録するときに、既に同じセッションの一時的なログがあればそれを削除して新しく追加する
-            if (!isTemporary && currentSessionId != null) {
-                currentLogs.removeAll { it.id == "pomo_paused_$currentSessionId" }
-            }
+            serviceScope.launch {
+                val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
+                
+                // 本登録するときに、既に同じセッションの一時的なログがあればそれを削除して新しく追加する
+                if (!isTemporary && currentSessionId != null) {
+                    currentLogs.removeAll { it.id == "pomo_paused_$currentSessionId" }
+                }
 
-            currentLogs.add(newLog)
-            savePomodoroLogs(this, currentLogs)
+                currentLogs.add(newLog)
+                savePomodoroLogs(this@PomodoroService, currentLogs)
+            }
         }
 
         // 次のチャンクのために focusStartLeftMs を現在の timeLeftMs にリセットする
@@ -402,13 +413,15 @@ class PomodoroService : Service() {
     private fun promoteTemporarySession() {
         val sessionId = currentSessionId ?: return
         val targetId = "pomo_paused_$sessionId"
-        val currentLogs = loadPomodoroLogs(this).toMutableList()
-        val tempLogIndex = currentLogs.indexOfFirst { it.id == targetId }
-        if (tempLogIndex != -1) {
-            val tempLog = currentLogs[tempLogIndex]
-            val promotedLog = tempLog.copy(id = "pomo_${System.currentTimeMillis()}")
-            currentLogs[tempLogIndex] = promotedLog
-            savePomodoroLogs(this, currentLogs)
+        serviceScope.launch {
+            val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
+            val tempLogIndex = currentLogs.indexOfFirst { it.id == targetId }
+            if (tempLogIndex != -1) {
+                val tempLog = currentLogs[tempLogIndex]
+                val promotedLog = tempLog.copy(id = "pomo_${System.currentTimeMillis()}")
+                currentLogs[tempLogIndex] = promotedLog
+                savePomodoroLogs(this@PomodoroService, currentLogs)
+            }
         }
         currentSessionId = null
     }
@@ -608,6 +621,7 @@ class PomodoroService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceJob.cancel()
         countDownTimer?.cancel()
         try {
             ringtone?.stop()
