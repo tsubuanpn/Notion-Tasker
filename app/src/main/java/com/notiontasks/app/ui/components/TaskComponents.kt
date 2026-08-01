@@ -25,20 +25,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.ui.theme.*
 import java.util.Calendar
 
 fun getNotionCategoryColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
     return when (colorName) {
-        "gray" -> if (isDark) Pair(Color(0x339E9E9E), Color(0xFFE0E0E0)) else Pair(Color(0xFFF5F5F5), Color(0xFF616161))
-        "brown" -> if (isDark) Pair(Color(0x268D6E63), Color(0xFFD7CCC8)) else Pair(Color(0xFFEFEBE9), Color(0xFF4E342E))
-        "orange" -> if (isDark) Pair(Color(0x26FF9800), Color(0xFFFFCC80)) else Pair(Color(0xFFFFF3E0), Color(0xFFE65100))
-        "yellow" -> if (isDark) Pair(Color(0x26FFEB3B), Color(0xFFFFF59D)) else Pair(Color(0xFFFFFDE7), Color(0xFFF57F17))
-        "green" -> if (isDark) Pair(Color(0x264CAF50), Color(0xFFA5D6A7)) else Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
-        "blue" -> if (isDark) Pair(Color(0x262196F3), Color(0xFF90CAF9)) else Pair(Color(0xFFE3F2FD), Color(0xFF0D47A1))
-        "purple" -> if (isDark) Pair(Color(0x269C27B0), Color(0xFFE1BEE7)) else Pair(Color(0xFFF3E5F5), Color(0xFF4A148C))
-        "pink" -> if (isDark) Pair(Color(0x26E91E63), Color(0xFFF8BBD0)) else Pair(Color(0xFFFCE4EC), Color(0xFF880E4F))
-        "red" -> if (isDark) Pair(Color(0x26F44336), Color(0xFFEF9A9A)) else Pair(Color(0xFFFFEBEE), Color(0xFFB71C1C))
-        else -> if (isDark) Pair(Color(0x2678909C), Color(0xFFECEFF1)) else Pair(Color(0xFFECEFF1), Color(0xFF37474F))
+        "gray" -> if (isDark) Pair(Color(0xFF2C2C2E), Color(0xFFEBEBF5)) else Pair(Color(0xFFF2F2F7), Color(0xFF8E8E93))
+        "brown" -> if (isDark) Pair(Color(0xFF3C3028), Color(0xFFD2B48C)) else Pair(Color(0xFFEFEBE9), Color(0xFF5D4037))
+        "orange" -> if (isDark) Pair(Color(0xFF4D2B00), Color(0xFFFFB347)) else Pair(Color(0xFFFFF3E0), Color(0xFFE65100))
+        "yellow" -> if (isDark) Pair(Color(0xFF4D4400), Color(0xFFFDFD96)) else Pair(Color(0xFFFFFDE7), Color(0xFFF57F17))
+        "green" -> if (isDark) Pair(Color(0xFF003D1B), Color(0xFF77DD77)) else Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
+        "blue" -> if (isDark) Pair(Color(0xFF002D4D), Color(0xFF89CFF0)) else Pair(Color(0xFFE3F2FD), Color(0xFF0D47A1))
+        "purple" -> if (isDark) Pair(Color(0xFF2D004D), Color(0xFFB39EB5)) else Pair(Color(0xFFF3E5F5), Color(0xFF6A1B9A))
+        "pink" -> if (isDark) Pair(Color(0xFF4D002D), Color(0xFFFFB7C5)) else Pair(Color(0xFFFCE4EC), Color(0xFFAD1457))
+        "red" -> if (isDark) Pair(Color(0xFF4D0000), Color(0xFFFF6961)) else Pair(Color(0xFFFFEBEE), Color(0xFFC62828))
+        else -> if (isDark) Pair(Color(0xFF3A3A3C), Color(0xFFD1D1D6)) else Pair(Color(0xFFF2F2F7), Color(0xFF636366))
     }
 }
 
@@ -67,39 +68,28 @@ fun TaskItemCard(
     val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
     val isOverdueScheduled = !isCompleted && task.scheduledDate != null && task.scheduledDate < todayStr
 
-    val isSystemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
     val cardBorder = if (isCompleted) {
-        val color = if (isSystemDark) Color(0xFF0D3D2A) else Color(0xFFBBF7D0)
-        androidx.compose.foundation.BorderStroke(1.dp, color)
+        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     } else if (isInProgress) {
-        val color = if (isSystemDark) Color(0xFF0D4D7A) else Color(0xFFBAE6FD)
-        androidx.compose.foundation.BorderStroke(1.dp, color)
+        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
     } else {
-        val color = if (isSystemDark) Color(0xFF3F3F46) else Color(0xFFCCCCCC)
-        androidx.compose.foundation.BorderStroke(1.dp, color)
+        androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     }
 
-    val cardBgColor = if (isCompleted) {
-        if (isSystemDark) Color(0xFF0F261D) else Color(0xFFF0FDF4)
-    } else if (isInProgress) {
-        if (isSystemDark) Color(0xFF0D2533) else Color(0xFFF0F9FF)
-    } else {
-        if (isSystemDark) Color(0xFF18181B) else Color.White
+    val cardBgColor = when {
+        isCompleted -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        isInProgress -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)
+        else -> MaterialTheme.colorScheme.surface
     }
 
-    val categoryColors = if (task.categoryColor != null) {
-        getNotionCategoryColors(task.categoryColor, isSystemDark)
-    } else {
-        getNotionCategoryColors("default", isSystemDark)
-    }
+    val categoryColors = getNotionCategoryColors(task.categoryColor, isSystemDark)
 
     val statusColors = if (isUnstarted) {
-        if (isSystemDark) Pair(Color(0xFF27272A), Color(0xFFD4D4D8)) else Pair(Color(0xFFF4F4F5), Color(0xFF3F3F46))
-    } else if (task.statusColor != null) {
-        getNotionStatusColors(task.statusColor, isSystemDark)
+        if (isSystemDark) Pair(Color(0xFF2C2C2E), Color(0xFFEBEBF5)) else Pair(Color(0xFFF2F2F7), Color(0xFF8E8E93))
     } else {
-        getNotionStatusColors("default", isSystemDark)
+        getNotionStatusColors(task.statusColor, isSystemDark)
     }
 
     Card(
@@ -146,35 +136,29 @@ fun TaskItemCard(
 
                     // アラートバッジ
                     if (isOverdueDue) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = Color(0xFFFFEBEE),
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
                                 text = "⚠️ 期限切れ",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFC62828),
-                                fontWeight = FontWeight.Bold
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     } else if (isOverdueScheduled) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = Color(0xFFFFF3E0),
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        Surface(
+                            color = if (isSystemDark) WarningOrangeContainerDark else WarningOrangeContainerLight,
+                            shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
                                 text = "⚠️ 持ち越し",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFE65100),
-                                fontWeight = FontWeight.Bold
+                                color = if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -207,7 +191,7 @@ fun TaskItemCard(
 
             // 期日/予定日のフッター
             if (task.dueDate != null || task.scheduledDate != null) {
-                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -218,7 +202,7 @@ fun TaskItemCard(
                         Text(
                             text = if (isDueOver) "⚠️ 締切: ${task.dueDate}" else "締切: ${task.dueDate}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isDueOver) Color(0xFFC62828) else Color.Red.copy(alpha = 0.8f),
+                            color = if (isDueOver) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                             fontWeight = if (isDueOver) FontWeight.Bold else FontWeight.Normal
                         )
                     } else {
@@ -230,7 +214,11 @@ fun TaskItemCard(
                         Text(
                             text = if (isSchedOver) "持ち越し: ${task.scheduledDate}" else "予定: ${task.scheduledDate}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isSchedOver) Color(0xFFE65100) else Color.Gray,
+                            color = if (isSchedOver) {
+                                if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            },
                             fontWeight = if (isSchedOver) FontWeight.Bold else FontWeight.Normal
                         )
                     }
@@ -255,7 +243,7 @@ fun EmptyStateView(
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 24.sp,
             modifier = Modifier.padding(bottom = 24.dp)
         )

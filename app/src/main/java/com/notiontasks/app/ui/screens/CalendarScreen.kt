@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.TaskItemCard
+import com.notiontasks.app.ui.components.getNotionCategoryColors
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
@@ -59,7 +60,6 @@ fun CalendarScreen(
     val isSystemDark = remember(backgroundColor) {
         backgroundColor.luminance() < 0.5f
     }
-    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
     val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     Surface(
@@ -154,13 +154,18 @@ fun CalendarScreen(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         val daysOfWeek = listOf("日", "月", "火", "水", "木", "金", "土")
                         daysOfWeek.forEach { day ->
+                            val textColor = when (day) {
+                                "日" -> MaterialTheme.colorScheme.error
+                                "土" -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                             Text(
                                 text = day,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (day == "日") Color.Red else (if (day == "土") Color.Blue else MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = textColor
                             )
                         }
                     }
@@ -249,14 +254,16 @@ fun CalendarScreen(
                                                     text = dayNumber.toString(),
                                                     style = MaterialTheme.typography.bodySmall,
                                                     fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                                    else if (isToday) MaterialTheme.colorScheme.primary
-                                                    else if (col == 0) Color.Red
-                                                    else if (col == 6) Color.Blue
-                                                    else MaterialTheme.colorScheme.onSurface
+                                                    color = when {
+                                                        isSelected -> MaterialTheme.colorScheme.onPrimary
+                                                        isToday -> MaterialTheme.colorScheme.primary
+                                                        col == 0 -> MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                                        col == 6 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                        else -> MaterialTheme.colorScheme.onSurface
+                                                    }
                                                 )
 
-                                                // 日付の下にドットを描画します
+                                                // 日付の下にドットを描描します
                                                 Row(
                                                     horizontalArrangement = Arrangement.Center,
                                                     verticalAlignment = Alignment.CenterVertically
@@ -264,15 +271,9 @@ fun CalendarScreen(
                                                     cellTasks.take(3).forEach { task ->
                                                         // ドットの色を決定します
                                                         val dotColor = if (task.status == completedStatus) {
-                                                            // 完了したものはグレーがかっています
-                                                            if (isSystemDark) Color(0xFF616161) else Color(0xFFD6D6D6)
-                                                        } else if (task.categoryColor != null) {
-                                                            // カテゴリの色を使用します
-                                                            getNotionCategoryColorRaw(task.categoryColor, isSystemDark)
-                                                        } else if (task.status == inProgressStatus) {
-                                                            Color(0xFF29B6F6)
+                                                            MaterialTheme.colorScheme.outlineVariant
                                                         } else {
-                                                            Color(0xFF78909C)
+                                                            getNotionCategoryColors(task.categoryColor, isSystemDark).second
                                                         }
 
                                                         Box(
@@ -391,22 +392,5 @@ fun CalendarScreen(
                 }
             }
         }
-    }
-}
-
-// ドットの基本色を取得するためのシンプルなカラーヘルパー
-@Suppress("UNUSED_PARAMETER")
-private fun getNotionCategoryColorRaw(colorName: String?, isDark: Boolean): Color {
-    return when (colorName) {
-        "gray" -> Color(0xFF9E9E9E)
-        "brown" -> Color(0xFF8D6E63)
-        "orange" -> Color(0xFFFF9800)
-        "yellow" -> Color(0xFFFFCA28)
-        "green" -> Color(0xFF66BB6A)
-        "blue" -> Color(0xFF42A5F5)
-        "purple" -> Color(0xFFAB47BC)
-        "pink" -> Color(0xFFEC407A)
-        "red" -> Color(0xFFEF5350)
-        else -> Color(0xFF78909C)
     }
 }

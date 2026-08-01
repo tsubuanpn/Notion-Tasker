@@ -5,20 +5,49 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -27,12 +56,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.PomodoroLog
-import com.notiontasks.app.data.model.TaskModel
-import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.getCategoryChartColorInCompose
 import com.notiontasks.app.data.loadPomodoroLogsAsync
+import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
+import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import java.util.Calendar
@@ -205,12 +235,12 @@ fun AchievementsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF1F1F1),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .border(
                                 width = 1.dp,
-                                color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFE0E0E0),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .padding(2.dp),
@@ -227,7 +257,7 @@ fun AchievementsScreen(
                                     .weight(1f)
                                     .background(
                                         color = if (isSelected) {
-                                            if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White
+                                            MaterialTheme.colorScheme.surface
                                         } else {
                                             Color.Transparent
                                         },
@@ -244,11 +274,11 @@ fun AchievementsScreen(
                                     color = if (isSelected) {
                                         when (page) {
                                             "main" -> MaterialTheme.colorScheme.primary
-                                            "stats" -> Color(0xFF0288D1)
-                                            else -> Color(0xFF2E7D32)
+                                            "stats" -> MaterialTheme.colorScheme.secondary
+                                            else -> MaterialTheme.colorScheme.tertiary
                                         }
                                     } else {
-                                        if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color(0xFF616161)
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                     }
                                 )
                             }
@@ -308,7 +338,7 @@ fun AchievementsScreen(
                                         Card(
                                             modifier = Modifier.weight(1f),
                                             colors = CardDefaults.cardColors(
-                                                containerColor = Color(0xFFFFF8E1).copy(alpha = 0.4f)
+                                                containerColor = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeContainerDark else WarningOrangeContainerLight
                                             ),
                                             shape = RoundedCornerShape(12.dp)
                                         ) {
@@ -322,20 +352,20 @@ fun AchievementsScreen(
                                                     text = "⏳ 持ち越しタスク",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFD84315),
+                                                    color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight,
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
                                                     text = "$carriedOverCount 件",
                                                     style = MaterialTheme.typography.titleLarge,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    color = Color(0xFFD84315)
+                                                    color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
                                                 )
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
                                                     text = "予定日超過",
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeOnContainerDark.copy(alpha = 0.7f) else WarningOrangeOnContainerLight.copy(alpha = 0.7f),
                                                     fontSize = 10.sp
                                                 )
                                             }
@@ -586,7 +616,7 @@ fun AchievementsScreen(
                                         Icon(
                                             imageVector = Icons.Default.CheckCircle,
                                             contentDescription = "なし",
-                                            tint = Color.Gray,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                             modifier = Modifier.size(48.dp)
                                         )
                                         Text(
@@ -606,7 +636,7 @@ fun AchievementsScreen(
                                             text = "完了済み (${completedTasks.size}件)",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF2E7D32),
+                                            color = MaterialTheme.colorScheme.tertiary,
                                             modifier = Modifier.padding(bottom = 4.dp)
                                         )
                                     }
@@ -747,7 +777,7 @@ fun PomodoroStatsSubPage(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF1F1F1)
+                                MaterialTheme.colorScheme.surfaceVariant
                             )
                             .padding(vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -930,7 +960,7 @@ fun PomodoroStatsSubPage(
                                             .width(16.dp)
                                             .height(90.dp)
                                             .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                                            .background(if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFF5F5F5)),
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
                                         Column(
@@ -1061,7 +1091,7 @@ fun PomodoroStatsSubPage(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .background(
-                                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFFAFAFA),
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                                 shape = RoundedCornerShape(6.dp)
                                             )
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -1137,6 +1167,7 @@ fun PomodoroStatsSubPage(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val emptyChartColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.size(80.dp)
@@ -1159,7 +1190,7 @@ fun PomodoroStatsSubPage(
                                     }
                                 } else {
                                     drawArc(
-                                        color = Color.LightGray,
+                                        color = emptyChartColor,
                                         startAngle = 0f,
                                         sweepAngle = 360f,
                                         useCenter = false,

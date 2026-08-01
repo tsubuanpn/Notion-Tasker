@@ -5,7 +5,6 @@ import androidx.core.graphics.toColorInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -40,6 +40,7 @@ import androidx.compose.foundation.BorderStroke
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.components.getNotionCategoryColors
+import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -397,7 +398,7 @@ fun ScheduleScreen(
 
                 // フローティングスケジュールブロックアイテムをレンダリングする
                 dayBlocks.forEach { block ->
-                    val isSystemDark = isSystemInDarkTheme()
+                    val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                     val blockColors = remember(block.color, isSystemDark) {
                         getColorPairFromHex(block.color, isSystemDark)
                     }
@@ -768,7 +769,7 @@ fun ScheduleScreen(
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         todayTasks.forEach { task ->
-                                            val isSystemDark = isSystemInDarkTheme()
+                                            val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                                             val categoryColors = remember(task.categoryColor, isSystemDark) {
                                                 if (task.categoryColor != null) {
                                                     getNotionCategoryColors(task.categoryColor, isSystemDark)
@@ -895,26 +896,26 @@ fun ScheduleScreen(
 
                                                             if (isOverdueDue) {
                                                                 Surface(
-                                                                    color = if (isSystemDark) Color(0x33F44336) else Color(0xFFFFEBEE),
+                                                                    color = MaterialTheme.colorScheme.errorContainer,
                                                                     shape = RoundedCornerShape(4.dp)
                                                                 ) {
                                                                     Text(
                                                                         text = "⚠️ 期限切れ",
                                                                         style = MaterialTheme.typography.labelSmall,
-                                                                        color = if (isSystemDark) Color(0xFFEF9A9A) else Color(0xFFC62828),
+                                                                        color = MaterialTheme.colorScheme.onErrorContainer,
                                                                         fontWeight = FontWeight.Bold,
                                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                                     )
                                                                 }
                                                             } else if (isOverdueScheduled) {
                                                                 Surface(
-                                                                    color = if (isSystemDark) Color(0x33FF9800) else Color(0xFFFFF3E0),
+                                                                    color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeContainerDark else WarningOrangeContainerLight,
                                                                     shape = RoundedCornerShape(4.dp)
                                                                 ) {
                                                                     Text(
                                                                         text = "⚠️ 持ち越し",
                                                                         style = MaterialTheme.typography.labelSmall,
-                                                                        color = if (isSystemDark) Color(0xFFFFCC80) else Color(0xFFE65100),
+                                                                        color = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight,
                                                                         fontWeight = FontWeight.Bold,
                                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                                     )
@@ -941,7 +942,7 @@ fun ScheduleScreen(
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         lifeActivities.forEach { activity ->
-                                            val isSystemDark = isSystemInDarkTheme()
+                                            val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                                             var cardScreenPos by remember(activity.id) { mutableStateOf(Offset.Zero) }
                                             val activityColors = remember(activity.color, isSystemDark) {
                                                 getColorPairFromHex(activity.color, isSystemDark)
@@ -1089,7 +1090,7 @@ fun ScheduleScreen(
                             .width(240.dp)
                     ) {
                         if (draggedTask != null) {
-                            val isSystemDark = isSystemInDarkTheme()
+                            val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                             val categoryColors = if (draggedTask!!.categoryColor != null) {
                                 getNotionCategoryColors(draggedTask!!.categoryColor, isSystemDark)
                             } else {
@@ -1139,7 +1140,7 @@ fun ScheduleScreen(
                                 }
                             }
                         } else if (draggedActivity != null) {
-                            val isSystemDark = isSystemInDarkTheme()
+                            val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                             val activityColors = remember(draggedActivity!!.color, isSystemDark) {
                                 getColorPairFromHex(draggedActivity!!.color, isSystemDark)
                             }
@@ -1607,7 +1608,7 @@ private fun getColorPairFromHex(hex: String, isDark: Boolean): Pair<Color, Color
     } else {
         val baseColor = try { Color(hex.toColorInt()) } catch (_: Exception) { Color(0xFF78909C) }
         if (isDark) Pair(baseColor.copy(alpha = 0.2f), baseColor) 
-        else Pair(baseColor.copy(alpha = 0.08f), baseColor)
+        else Pair(baseColor.copy(alpha = 0.12f), baseColor)
     }
 }
 

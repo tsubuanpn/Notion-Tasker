@@ -3,21 +3,53 @@ package com.notiontasks.app.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
@@ -242,21 +275,21 @@ fun PomodoroScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    color = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF1F1F1),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(12.dp)
                 )
                 .border(
                     width = 1.dp,
-                    color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFE0E0E0),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(12.dp)
                 )
                 .padding(2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             listOf(
-                Triple("work", "集中", Color(0xFFEF5350)),
-                Triple("shortBreak", "休憩", Color(0xFF2E7D32)),
-                Triple("longBreak", "長い休憩", Color(0xFF1976D2))
+                Triple("work", "集中", MaterialTheme.colorScheme.primary),
+                Triple("shortBreak", "休憩", MaterialTheme.colorScheme.secondary),
+                Triple("longBreak", "長い休憩", MaterialTheme.colorScheme.tertiary)
             ).forEach { (m, label, activeColor) ->
                 val isSelected = mode == m
                 Box(
@@ -264,7 +297,7 @@ fun PomodoroScreen(
                         .weight(1f)
                         .background(
                             color = if (isSelected) {
-                                if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White
+                                MaterialTheme.colorScheme.surface
                             } else {
                                 Color.Transparent
                             },
@@ -285,7 +318,7 @@ fun PomodoroScreen(
                         color = if (isSelected) {
                             activeColor
                         } else {
-                            if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color(0xFF616161)
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 }
@@ -299,9 +332,9 @@ fun PomodoroScreen(
                 .padding(vertical = 4.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isSystemInDarkTheme()) Color(0xFF141414) else Color.White
+                containerColor = MaterialTheme.colorScheme.surface
             ),
-            border = BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Box(
@@ -311,14 +344,16 @@ fun PomodoroScreen(
                 contentAlignment = Alignment.Center
             ) {
                 // 背景に薄く大きなタイマーアイコンを表示
+                val modeColor = when (mode) {
+                    "work" -> MaterialTheme.colorScheme.primary
+                    "shortBreak" -> MaterialTheme.colorScheme.secondary
+                    else -> MaterialTheme.colorScheme.tertiary
+                }
+
                 Icon(
                     imageVector = Icons.Default.Timer,
                     contentDescription = null,
-                    tint = (when (mode) {
-                        "work" -> Color(0xFFEF5350)
-                        "shortBreak" -> Color(0xFF2E7D32)
-                        else -> Color(0xFF1976D2)
-                    }).copy(alpha = 0.03f),
+                    tint = modeColor.copy(alpha = 0.05f),
                     modifier = Modifier.size(160.dp)
                 )
 
@@ -337,7 +372,7 @@ fun PomodoroScreen(
                         fontSize = 54.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        color = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121),
+                        color = MaterialTheme.colorScheme.onSurface,
                         letterSpacing = (-1).sp
                     )
 
@@ -356,27 +391,20 @@ fun PomodoroScreen(
                             modifier = Modifier
                                 .size(44.dp)
                                 .background(
-                                    color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White,
+                                    color = MaterialTheme.colorScheme.surface,
                                     shape = RoundedCornerShape(50)
                                 )
                                 .border(
-                                    BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF424242) else Color(0xFFE0E0E0)),
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                     shape = RoundedCornerShape(50)
                                 )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "リセット",
-                                tint = if (isSystemInDarkTheme()) Color.White else Color.Gray,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
-                        }
-
-                        // 開始/一時停止ボタン
-                        val modeColor = when (mode) {
-                            "work" -> Color(0xFFEF5350)
-                            "shortBreak" -> Color(0xFF2E7D32)
-                            else -> Color(0xFF1976D2)
                         }
                         
                         IconButton(
@@ -410,7 +438,7 @@ fun PomodoroScreen(
                             Icon(
                                 imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isRunning) "一時停止" else "開始",
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(28.dp)
                             )
                         }
@@ -425,18 +453,18 @@ fun PomodoroScreen(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .background(
-                                        color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color.White,
+                                        color = MaterialTheme.colorScheme.surface,
                                         shape = RoundedCornerShape(50)
                                     )
                                     .border(
-                                        BorderStroke(1.dp, if (isSystemInDarkTheme()) Color(0xFF424242) else Color(0xFFE0E0E0)),
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                         shape = RoundedCornerShape(50)
                                     )
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.NotificationsOff,
                                     contentDescription = "アラーム停止",
-                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Gray,
+                                    tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -444,7 +472,7 @@ fun PomodoroScreen(
                     }
 
                     // 統計インジケーター
-                    HorizontalDivider(color = if (isSystemInDarkTheme()) Color(0xFF2C2C2C) else Color(0xFFEEEEEE), thickness = 1.dp, modifier = Modifier.padding(top = 4.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 1.dp, modifier = Modifier.padding(top = 4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -452,14 +480,14 @@ fun PomodoroScreen(
                         Text(
                             text = "今日の完了数:",
                             fontSize = 10.sp,
-                            color = if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "${pomodoroCompletedCount}回",
                             fontSize = 12.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = Color(0xFFEF5350),
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.ExtraBold
                         )
                         if (pomodoroCompletedCount > 0) {
@@ -472,7 +500,7 @@ fun PomodoroScreen(
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
-                                            .background(Color(0xFFEF5350), shape = RoundedCornerShape(50))
+                                            .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50))
                                     )
                                 }
                                 if (pomodoroCompletedCount > 8) {
@@ -480,7 +508,7 @@ fun PomodoroScreen(
                                         text = "+",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isSystemInDarkTheme()) Color.White else Color.Gray
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -503,14 +531,14 @@ fun PomodoroScreen(
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = null,
-                    tint = Color(0xFFEF5350),
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     text = "集中するタスクを紐付ける",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.ExtraBold,
-                    color = if (isSystemInDarkTheme()) Color.White else Color(0xFF424242)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -595,20 +623,15 @@ fun PomodoroScreen(
 
         // 5. フォーカス中のタスクパネルカード
         activeFocusTask?.let { task ->
-            val badgeBgColor = if (isSystemInDarkTheme()) Color(0xFF3E1F21) else Color(0xFFFFEBEE)
-            val badgeTextColor = if (isSystemInDarkTheme()) Color(0xFFFF8A80) else Color(0xFFC62828)
-            val panelBgColor = Color(0xFFEF5350).copy(alpha = 0.05f)
-            val panelBorderColor = Color(0xFFEF5350).copy(alpha = 0.15f)
-
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = panelBgColor
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
                 ),
-                border = BorderStroke(1.dp, panelBorderColor)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
                 Row(
                     modifier = Modifier
@@ -621,33 +644,30 @@ fun PomodoroScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .background(badgeBgColor, shape = RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
                                 text = "現在フォーカス中",
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = badgeTextColor
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                         Text(
                             text = task.title,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121)
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "分類: ${task.category}  •  状態: ${task.status}",
                             fontSize = 9.sp,
-                            color = if (isSystemInDarkTheme()) Color(0xFF9E9E9E) else Color.Gray
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
-                    val buttonBgColor = if (isSystemInDarkTheme()) Color(0xFF1B5E20) else Color(0xFFE8F5E9)
-                    val buttonIconTint = if (isSystemInDarkTheme()) Color(0xFFA5D6A7) else Color(0xFF2E7D32)
 
                     IconButton(
                         onClick = {
@@ -663,9 +683,13 @@ fun PomodoroScreen(
                             Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier
-                            .background(buttonBgColor, shape = RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(50))
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = "完了", tint = buttonIconTint)
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "完了",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
             }

@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +40,7 @@ import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.ui.theme.AppThemePalettes
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 
 /**
@@ -68,6 +70,8 @@ fun SettingsScreen(
     initialMorningEnabled: Boolean,
     initialEveningEnabled: Boolean,
     initialThemeMode: String,
+    initialThemeColor: String,
+    initialDynamicColorEnabled: Boolean,
     initialPropTitle: String,
     initialPropStatus: String,
     initialPropStatusType: String,
@@ -98,6 +102,8 @@ fun SettingsScreen(
         mDue: String,
         mCatOptions: List<NotionOptionInfo>,
         mStatOptions: List<NotionOptionInfo>,
+        themeColor: String,
+        dynamicColor: Boolean,
     ) -> Unit,
 ) {
     // --- 内部状態 ---
@@ -108,6 +114,8 @@ fun SettingsScreen(
     var morningEnabled by remember { mutableStateOf(initialMorningEnabled) }
     var eveningEnabled by remember { mutableStateOf(initialEveningEnabled) }
     var themeMode by remember { mutableStateOf(initialThemeMode) }
+    var themeColor by remember { mutableStateOf(initialThemeColor) }
+    var dynamicColorEnabled by remember { mutableStateOf(initialDynamicColorEnabled) }
 
     var propTitle by remember { mutableStateOf(initialPropTitle) }
     var propStatus by remember { mutableStateOf(initialPropStatus) }
@@ -161,7 +169,7 @@ fun SettingsScreen(
             onSave(
                 token, dbId, morningTime, eveningTime, morningEnabled, eveningEnabled, themeMode,
                 propTitle, propStatus, propStatusType, propCategory, propScheduled, propDue,
-                catOptions, statOptions
+                catOptions, statOptions, themeColor, dynamicColorEnabled
             )
             Toast.makeText(context, "設定を保存しました", Toast.LENGTH_SHORT).show()
             currentSubPage = SettingsSubPage.Main
@@ -240,6 +248,10 @@ fun SettingsScreen(
                 is SettingsSubPage.Theme -> ThemeSettingsSection(
                     themeMode = themeMode,
                     onThemeChange = { themeMode = it },
+                    themeColor = themeColor,
+                    onThemeColorChange = { themeColor = it },
+                    dynamicColorEnabled = dynamicColorEnabled,
+                    onDynamicColorToggle = { dynamicColorEnabled = it },
                     onSave = handleSave
                 )
                 is SettingsSubPage.Alarm -> AlarmSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
@@ -486,26 +498,170 @@ fun NotificationCard(title: String, subtitle: String, icon: androidx.compose.ui.
 }
 
 @Composable
-fun ThemeSettingsSection(themeMode: String, onThemeChange: (String) -> Unit, onSave: () -> Unit) {
-    val modes = listOf(Triple("system", "システム設定", Icons.Default.Layers), Triple("light", "ライトモード", Icons.Default.WbSunny), Triple("dark", "ダークモード", Icons.Default.NightsStay))
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        modes.forEach { (key, label, icon) ->
-            val selected = themeMode == key
-            Row(
-                Modifier.fillMaxWidth().background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(12.dp))
-                    .border(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                    .clickable { onThemeChange(key) }.padding(16.dp),
-                Arrangement.SpaceBetween, Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+fun ThemeSettingsSection(
+    themeMode: String,
+    onThemeChange: (String) -> Unit,
+    themeColor: String,
+    onThemeColorChange: (String) -> Unit,
+    dynamicColorEnabled: Boolean,
+    onDynamicColorToggle: (Boolean) -> Unit,
+    onSave: () -> Unit
+) {
+    val modes = listOf(
+        Triple("system", "システム設定", Icons.Default.Layers),
+        Triple("light", "ライトモード", Icons.Default.WbSunny),
+        Triple("dark", "ダークモード", Icons.Default.NightsStay)
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // --- モード選択 ---
+        Text(
+            "表示モード",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            modes.forEach { (key, label, icon) ->
+                val selected = themeMode == key
+                Surface(
+                    onClick = { onThemeChange(key) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        Arrangement.SpaceBetween,
+                        Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        RadioButton(
+                            selected = selected,
+                            onClick = { onThemeChange(key) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
                 }
-                RadioButton(selected = selected, onClick = { onThemeChange(key) })
             }
         }
+
         Spacer(Modifier.height(8.dp))
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("テーマ設定を保存", fontWeight = FontWeight.Bold) }
+
+        // --- カラー選択 ---
+        Text(
+            "テーマカラー",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Dynamic Color Toggle (Android 12+)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("ダイナミックカラー", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                            Text("壁紙の色に基づいた配色を使用します", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = dynamicColorEnabled, onCheckedChange = onDynamicColorToggle)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+
+                // Color Palette Grid
+                val isColorSelectionEnabled = !dynamicColorEnabled || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S
+                
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = if (isColorSelectionEnabled) "プリセットを選択" else "ダイナミックカラーが優先されています",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isColorSelectionEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    
+                    val chunkedPalettes = AppThemePalettes.chunked(4)
+                    chunkedPalettes.forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            rowItems.forEach { palette ->
+                                val isSelected = themeColor == palette.name && isColorSelectionEnabled
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSelected) palette.seed.copy(alpha = 0.15f) else Color.Transparent)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) palette.seed else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable(enabled = isColorSelectionEnabled) { onThemeColorChange(palette.name) }
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(palette.seed, RoundedCornerShape(50))
+                                            .clip(RoundedCornerShape(50)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSelected) {
+                                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                }
+                            }
+                            // Fill empty slots if last row is incomplete
+                            if (rowItems.size < 4) {
+                                repeat(4 - rowItems.size) { Spacer(Modifier.size(56.dp).weight(1f)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("設定を保存して適用", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -572,9 +728,9 @@ fun PomodoroSettingsSection(onBack: () -> Unit) {
     var lBreak by remember { mutableIntStateOf(prefs.getInt("long_break_duration_min", 15)) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        DurationSettingRow("集中時間", work, { work = it }, "分", Color(0xFFEF5350))
-        DurationSettingRow("短い休憩", sBreak, { sBreak = it }, "分", Color(0xFF2E7D32))
-        DurationSettingRow("長い休憩", lBreak, { lBreak = it }, "分", Color(0xFF1976D2))
+        DurationSettingRow("集中時間", work, { work = it }, "分", MaterialTheme.colorScheme.primary)
+        DurationSettingRow("短い休憩", sBreak, { sBreak = it }, "分", MaterialTheme.colorScheme.secondary)
+        DurationSettingRow("長い休憩", lBreak, { lBreak = it }, "分", MaterialTheme.colorScheme.tertiary)
         
         Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = { work = 25; sBreak = 5; lBreak = 15 }, Modifier.weight(1f)) { Text("デフォルト") }
@@ -742,7 +898,7 @@ fun LifeActivitySettingsSection(
                     Text(
                         "プリセットがありません",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally)
                     )
                 } else {

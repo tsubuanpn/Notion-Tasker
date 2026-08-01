@@ -249,7 +249,7 @@ fun CategoryScreen(
                     Text(
                         text = "${pageCategory?.name ?: ""} のタスクはありません",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
             } else {
@@ -287,7 +287,7 @@ fun CategoryScreen(
                                 text = unstartedStatus,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Gray,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
                         }

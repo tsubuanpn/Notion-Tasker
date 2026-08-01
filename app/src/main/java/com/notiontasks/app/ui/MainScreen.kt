@@ -41,6 +41,8 @@ fun MainAppScreen(
     initialMorningEnabled: Boolean,
     initialEveningEnabled: Boolean,
     initialThemeMode: String,
+    initialThemeColor: String,
+    initialDynamicColorEnabled: Boolean,
     initialPropTitle: String,
     initialPropStatus: String,
     initialPropStatusType: String,
@@ -72,6 +74,8 @@ fun MainAppScreen(
         mDue: String,
         mCatOptions: List<NotionOptionInfo>,
         mStatOptions: List<NotionOptionInfo>,
+        themeColor: String,
+        dynamicColor: Boolean,
     ) -> Unit,
 ) {
     val navController = rememberNavController()
@@ -249,6 +253,13 @@ fun MainAppScreen(
                                 )
                             },
                             selected = currentRoute == screen.route,
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            ),
                             onClick = {
                                 if (currentRoute != screen.route) {
                                     navController.navigate(screen.route) {
@@ -338,6 +349,8 @@ fun MainAppScreen(
                     initialMorningEnabled = initialMorningEnabled,
                     initialEveningEnabled = initialEveningEnabled,
                     initialThemeMode = initialThemeMode,
+                    initialThemeColor = initialThemeColor,
+                    initialDynamicColorEnabled = initialDynamicColorEnabled,
                     initialPropTitle = initialPropTitle,
                     initialPropStatus = initialPropStatus,
                     initialPropStatusType = initialPropStatusType,

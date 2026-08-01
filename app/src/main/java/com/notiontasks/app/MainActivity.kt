@@ -126,6 +126,8 @@ class MainActivity : ComponentActivity() {
             val morningEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("morning_notif_enabled", true)) }
             val eveningEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("evening_notif_enabled", true)) }
             val themeMode = remember { mutableStateOf(sharedPreferences.getString("theme_mode", "system") ?: "system") }
+            val themeColorName = remember { mutableStateOf(sharedPreferences.getString("theme_color_name", "blue") ?: "blue") }
+            val dynamicColorEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("dynamic_color_enabled", true)) }
 
             val categoryTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_category_enabled", true)) }
             val calendarTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_calendar_enabled", true)) }
@@ -165,7 +167,11 @@ class MainActivity : ComponentActivity() {
                 else -> isSystemInDarkTheme()
             }
 
-            NotionTaskerTheme(darkTheme = darkTheme) {
+            NotionTaskerTheme(
+                darkTheme = darkTheme,
+                themeColorName = themeColorName.value,
+                dynamicColor = dynamicColorEnabled.value
+            ) {
                 MainAppScreen(
                     viewModel = viewModel,
                     initialMorningTime = morningTime.value,
@@ -173,6 +179,8 @@ class MainActivity : ComponentActivity() {
                     initialMorningEnabled = morningEnabled.value,
                     initialEveningEnabled = eveningEnabled.value,
                     initialThemeMode = themeMode.value,
+                    initialThemeColor = themeColorName.value,
+                    initialDynamicColorEnabled = dynamicColorEnabled.value,
                     initialPropTitle = propTitle.value,
                     initialPropStatus = propStatus.value,
                     initialPropStatusType = propStatusType.value,
@@ -203,7 +211,7 @@ class MainActivity : ComponentActivity() {
                         }
                         viewModel.updateCategoryOptions(newOrder)
                     }
-                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions ->
+                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
@@ -216,6 +224,8 @@ class MainActivity : ComponentActivity() {
                         putBoolean("morning_notif_enabled", mEnabled)
                         putBoolean("evening_notif_enabled", eEnabled)
                         putString("theme_mode", theme)
+                        putString("theme_color_name", themeColor)
+                        putBoolean("dynamic_color_enabled", dynamicColor)
                         putString("mapping_prop_title", mTitle)
                         putString("mapping_prop_status", mStatus)
                         putString("mapping_prop_status_type", mStatusType)
@@ -256,6 +266,8 @@ class MainActivity : ComponentActivity() {
                     morningEnabled.value = mEnabled
                     eveningEnabled.value = eEnabled
                     themeMode.value = theme
+                    themeColorName.value = themeColor
+                    dynamicColorEnabled.value = dynamicColor
 
                     // 新しい時間でアラームを再スケジュールする
                     TaskNotificationReceiver.rescheduleAlarms(this@MainActivity)

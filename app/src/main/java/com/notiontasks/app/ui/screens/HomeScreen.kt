@@ -248,7 +248,7 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "検索結果なし",
-                                    tint = Color.Gray,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -261,7 +261,7 @@ fun HomeScreen(
                                 Text(
                                     text = "「$searchQuery」に一致するタスクはありません。別のキーワードをお試しください。",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     textAlign = TextAlign.Center
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
@@ -287,7 +287,7 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = "完了",
-                                    tint = Color(0xFF10B981),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -300,7 +300,7 @@ fun HomeScreen(
                                 Text(
                                     text = "今日予定されている、または締め切りの未完了タスクはありません。",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     textAlign = TextAlign.Center
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
@@ -349,7 +349,7 @@ fun HomeScreen(
                                         text = unstartedStatus,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
                                 }
