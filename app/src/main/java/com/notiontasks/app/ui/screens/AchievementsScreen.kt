@@ -47,7 +47,7 @@ private data class AchievementsData(
     val monthTasks: List<TaskModel>,
     val completedMonthCount: Int,
     val monthRate: Int,
-    val warningTasks: List<TaskModel>
+    val warningTasks: List<TaskModel>,
 )
 
 @Composable
@@ -55,14 +55,14 @@ fun AchievementsScreen(
     viewModel: TaskViewModel,
     statusOptions: List<NotionOptionInfo>,
     categoryOptions: List<NotionOptionInfo>,
-    onEditTask: (TaskModel) -> Unit
+    onEditTask: (TaskModel) -> Unit,
 ) {
     val uiState by viewModel.tasksState.collectAsState()
     var subPage by remember { mutableStateOf("main") }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = MaterialTheme.colorScheme.background,
     ) {
         when (val state = uiState) {
             is TasksUiState.Loading -> {
@@ -78,8 +78,7 @@ fun AchievementsScreen(
             is TasksUiState.Idle -> {
                 EmptyStateView(
                     message = "タスクデータがありません。同期して実績を確認してください。",
-                    onRefresh = { viewModel.syncWithNotion() }
-                )
+                ) { viewModel.syncWithNotion() }
             }
             is TasksUiState.Success -> {
                 val todayStr = remember {
@@ -139,14 +138,14 @@ fun AchievementsScreen(
                     state.tasks, todayStr, completedStatus,
                     startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
                 ) {
-                    val overdueCountVal = state.tasks.count { it.status != completedStatus && it.dueDate != null && it.dueDate < todayStr }
-                    val carriedOverCountVal = state.tasks.count { it.status != completedStatus && it.scheduledDate != null && it.scheduledDate < todayStr }
+                    val overdueCountVal = state.tasks.count { (it.status != completedStatus) && (it.dueDate != null) && (it.dueDate < todayStr) }
+                    val carriedOverCountVal = state.tasks.count { (it.status != completedStatus) && (it.scheduledDate != null) && (it.scheduledDate < todayStr) }
 
                     val weekTasksVal = state.tasks.filter {
                         val sched = it.scheduledDate
                         val due = it.dueDate
-                        (sched != null && sched >= startOfWeekStr && sched <= endOfWeekStr) ||
-                        (due != null && due >= startOfWeekStr && due <= endOfWeekStr)
+                        ((sched != null) && (sched >= startOfWeekStr) && (sched <= endOfWeekStr)) ||
+                        ((due != null) && (due >= startOfWeekStr) && (due <= endOfWeekStr))
                     }
                     val completedWeekCountVal = weekTasksVal.count { it.status == completedStatus }
                     val weekRateVal = if (weekTasksVal.isNotEmpty()) (completedWeekCountVal * 100) / weekTasksVal.size else 0
@@ -154,22 +153,22 @@ fun AchievementsScreen(
                     val monthTasksVal = state.tasks.filter {
                         val sched = it.scheduledDate
                         val due = it.dueDate
-                        (sched != null && sched >= startOfMonthStr && sched <= endOfMonthStr) ||
-                        (due != null && due >= startOfMonthStr && due <= endOfMonthStr)
+                        ((sched != null) && (sched >= startOfMonthStr) && (sched <= endOfMonthStr)) ||
+                        ((due != null) && (due >= startOfMonthStr) && (due <= endOfMonthStr))
                     }
                     val completedMonthCountVal = monthTasksVal.count { it.status == completedStatus }
                     val monthRateVal = if (monthTasksVal.isNotEmpty()) (completedMonthCountVal * 100) / monthTasksVal.size else 0
 
-                    val warningTasksVal = state.tasks.filter {
-                        it.status != completedStatus && (
-                            (it.dueDate != null && it.dueDate < todayStr) ||
-                            (it.scheduledDate != null && it.scheduledDate < todayStr)
+                    val warningTasksVal = state.tasks.asSequence().filter {
+                        (it.status != completedStatus) && (
+                            ((it.dueDate != null) && (it.dueDate < todayStr)) ||
+                            ((it.scheduledDate != null) && (it.scheduledDate < todayStr))
                         )
                     }.sortedWith(
                         compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                             .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                             .thenBy { it.id }
-                    )
+                    ).toList()
 
                     AchievementsData(
                         overdueCount = overdueCountVal,
@@ -180,7 +179,7 @@ fun AchievementsScreen(
                         monthTasks = monthTasksVal,
                         completedMonthCount = completedMonthCountVal,
                         monthRate = monthRateVal,
-                        warningTasks = warningTasksVal
+                        warningTasks = warningTasksVal,
                     )
                 }
 
@@ -220,7 +219,7 @@ fun AchievementsScreen(
                         listOf(
                             "main" to "🏆 目標進捗",
                             "stats" to "📈 作業統計",
-                            "completed" to "✅ 完了タスク (${completedTasksCount}件)"
+                            "completed" to "✅ 完了タスク (${completedTasksCount}件)",
                         ).forEach { (page, label) ->
                             val isSelected = subPage == page
                             Box(
@@ -323,7 +322,7 @@ fun AchievementsScreen(
                                                     text = "⏳ 持ち越しタスク",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFD84315)
+                                                    color = Color(0xFFD84315),
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
@@ -357,12 +356,12 @@ fun AchievementsScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(14.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                verticalAlignment = Alignment.CenterVertically,
                                             ) {
                                                 Text(
                                                     text = "📅 今週のタスク達成率",
@@ -395,7 +394,7 @@ fun AchievementsScreen(
                                             )
 
                                             val motivationWeek = when {
-                                                weekRate == 100 && weekTasks.isNotEmpty() -> "素晴らしい！今週のタスク完全クリアです！ 🎉"
+                                                (weekRate == 100) && weekTasks.isNotEmpty() -> "素晴らしい！今週のタスク完全クリアです！ 🎉"
                                                 weekRate >= 75 -> "目標達成まであと一息！素晴らしいペースです🔥"
                                                 weekRate >= 50 -> "半分達成！この調子で後半も進めましょう🚀"
                                                 weekRate > 0 -> "一歩ずつ確実に進んでいます。頑張りましょう💪"
@@ -433,12 +432,12 @@ fun AchievementsScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(14.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                verticalAlignment = Alignment.CenterVertically,
                                             ) {
                                                 Text(
                                                     text = "✨ 今月のタスク達成率",
@@ -471,7 +470,7 @@ fun AchievementsScreen(
                                             )
 
                                             val motivationMonth = when {
-                                                monthRate == 100 && monthTasks.isNotEmpty() -> "信じられない快挙！今月パーフェクト達成！ 🏆"
+                                                (monthRate == 100) && monthTasks.isNotEmpty() -> "信じられない快挙！今月パーフェクト達成！ 🏆"
                                                 monthRate >= 75 -> "極めて順調です。圧倒的な推進力です！ ✨"
                                                 monthRate >= 50 -> "目標の半分を消化。素晴らしい自己管理能力です！ 🌟"
                                                 monthRate > 0 -> "良いスタートです。着実な一歩を重ねています。 🍀"
@@ -482,7 +481,7 @@ fun AchievementsScreen(
                                                     .fillMaxWidth()
                                                     .background(
                                                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                                        shape = RoundedCornerShape(8.dp)
+                                                        shape = RoundedCornerShape(8.dp),
                                                     )
                                                     .padding(8.dp)
                                             ) {
@@ -541,7 +540,7 @@ fun AchievementsScreen(
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     textAlign = TextAlign.Center,
-                                                    fontSize = 10.sp
+                                                    fontSize = 10.sp,
                                                 )
                                             }
                                         }
@@ -551,16 +550,17 @@ fun AchievementsScreen(
                                         TaskItemCard(
                                             task = task,
                                             statusOptions = statusOptions,
-                                            onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
-                                            onEditClick = { onEditTask(task) }
-                                        )
+                                            onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) }
+                                        ) { onEditTask(task) }
                                     }
                                 }
                             }
                         }
                         "stats" -> {
                             val categoryColorMap = remember(state.tasks) {
-                                state.tasks.filter { it.category.isNotBlank() }.associate { it.category to it.categoryColor }
+                                state.tasks.asSequence()
+                                    .filter { it.category.isNotBlank() }
+                                    .associateBy({ it.category }) { it.categoryColor }
                             }
                             PomodoroStatsSubPage(
                                 context = LocalContext.current,
@@ -614,9 +614,8 @@ fun AchievementsScreen(
                                         TaskItemCard(
                                             task = task,
                                             statusOptions = statusOptions,
-                                            onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
-                                            onEditClick = { onEditTask(task) }
-                                        )
+                                            onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) }
+                                        ) { onEditTask(task) }
                                     }
                                 }
                             }
@@ -632,7 +631,7 @@ fun AchievementsScreen(
 fun PomodoroStatsSubPage(
     context: Context,
     categoryOptions: List<NotionOptionInfo>,
-    categoryColorMap: Map<String, String?>
+    categoryColorMap: Map<String, String?>,
 ) {
     var pomodoroLogs by remember { mutableStateOf<List<PomodoroLog>>(emptyList()) }
     LaunchedEffect(context) {
@@ -645,13 +644,13 @@ fun PomodoroStatsSubPage(
     val currentMonthPrefix = todayStr.substring(0, 7)
 
     val todayMinutes = remember(pomodoroLogs, todayStr) {
-        pomodoroLogs.filter { it.date == todayStr }.sumOf { it.minutes }
+        pomodoroLogs.asSequence().filter { it.date == todayStr }.sumOf { it.minutes }
     }
     val todayHours = todayMinutes / 60
     val todayMinsRemainder = todayMinutes % 60
 
     val monthMinutes = remember(pomodoroLogs, currentMonthPrefix) {
-        pomodoroLogs.filter { it.date.startsWith(currentMonthPrefix) }.sumOf { it.minutes }
+        pomodoroLogs.asSequence().filter { it.date.startsWith(currentMonthPrefix) }.sumOf { it.minutes }
     }
     val monthHoursTotal = monthMinutes / 60
 
@@ -668,8 +667,7 @@ fun PomodoroStatsSubPage(
         val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
         
         val cal = Calendar.getInstance()
-        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
-        val offsetToMonday = when (dayOfWeek) {
+        val offsetToMonday = when (cal[Calendar.DAY_OF_WEEK]) {
             Calendar.SUNDAY -> -6
             Calendar.MONDAY -> 0
             Calendar.TUESDAY -> -1
@@ -701,7 +699,7 @@ fun PomodoroStatsSubPage(
     val maxDailyHours = remember(pomodoroLogs, thisWeekDays) {
         var max = 10f
         for (day in thisWeekDays) {
-            val dayHours = pomodoroLogs.filter { it.date == day.second }.sumOf { it.minutes } / 60f
+            val dayHours = pomodoroLogs.asSequence().filter { it.date == day.second }.sumOf { it.minutes } / 60f
             if (dayHours > max) {
                 max = dayHours
             }
@@ -715,7 +713,7 @@ fun PomodoroStatsSubPage(
         val totalReportMins = logsInThisWeek.sumOf { it.minutes }
         
         val catGroups = logsInThisWeek.groupBy { it.category }
-        val list = catGroups.map { entry ->
+        val list = catGroups.asSequence().map { entry ->
             val minutes = entry.value.sumOf { it.minutes }
             val pct = if (totalReportMins > 0) ((minutes.toFloat() / totalReportMins) * 100).roundToInt() else 0
             val firstWithColor = entry.value.firstOrNull { it.categoryColor != null }
@@ -727,7 +725,7 @@ fun PomodoroStatsSubPage(
                 minsRemainder = minutes % 60,
                 percentage = pct
             )
-        }.sortedByDescending { it.minutes }
+        }.sortedByDescending { it.minutes }.toList()
         
         Pair(list, totalReportMins)
     }
@@ -740,7 +738,7 @@ fun PomodoroStatsSubPage(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
@@ -894,7 +892,7 @@ fun PomodoroStatsSubPage(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .width(1.dp)
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)),
                         )
 
                         Row(
@@ -903,7 +901,7 @@ fun PomodoroStatsSubPage(
                                 .fillMaxHeight()
                                 .padding(start = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
+                            verticalAlignment = Alignment.Bottom,
                         ) {
                             val weekLabels = listOf("月", "火", "水", "木", "金", "土", "日")
                             thisWeekDays.forEachIndexed { index, day ->
@@ -1181,7 +1179,7 @@ fun PomodoroStatsSubPage(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val chunkedCats = sortedCats.take(6).chunked(2)
+                            val chunkedCats = sortedCats.asSequence().take(6).chunked(2).toList()
                             chunkedCats.forEach { rowItems ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

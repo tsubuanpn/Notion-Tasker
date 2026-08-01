@@ -2,17 +2,10 @@ package com.notiontasks.app.data.repository
 
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import com.notiontasks.app.data.local.LifeActivityDao
-import com.notiontasks.app.data.local.LifeActivityEntity
 import com.notiontasks.app.data.local.PendingSyncActionDao
 import com.notiontasks.app.data.local.PendingSyncActionEntity
-import com.notiontasks.app.data.local.PomodoroLogDao
-import com.notiontasks.app.data.local.PomodoroLogEntity
-import com.notiontasks.app.data.local.ScheduleBlockDao
-import com.notiontasks.app.data.local.ScheduleBlockEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
-import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
@@ -29,6 +22,7 @@ import com.notiontasks.app.data.remote.dto.DateValue
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -95,9 +89,6 @@ fun Map<String, JsonElement>.getSelectColor(propertyName: String): String? {
 class TaskRepository(
     private val notionApi: NotionApi,
     private val taskDao: TaskDao,
-    private val pomodoroLogDao: PomodoroLogDao,
-    private val scheduleBlockDao: ScheduleBlockDao,
-    private val lifeActivityDao: LifeActivityDao,
     private val pendingSyncActionDao: PendingSyncActionDao,
 ) {
 
@@ -130,20 +121,22 @@ class TaskRepository(
     }
 
     // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
-    val allTasks: Flow<List<TaskModel>> = taskDao.getAllTasksFlow().map { entities ->
-        entities.map { entity ->
-            TaskModel(
-                id = entity.id,
-                title = entity.title,
-                status = entity.status,
-                category = entity.category,
-                dueDate = entity.dueDate,
-                scheduledDate = entity.scheduledDate,
-                statusColor = entity.statusColor,
-                categoryColor = entity.categoryColor,
-            )
+    val allTasks: Flow<List<TaskModel>> = taskDao.getAllTasksFlow()
+        .map { entities ->
+            entities.map { entity ->
+                TaskModel(
+                    id = entity.id,
+                    title = entity.title,
+                    status = entity.status,
+                    category = entity.category,
+                    dueDate = entity.dueDate,
+                    scheduledDate = entity.scheduledDate,
+                    statusColor = entity.statusColor,
+                    categoryColor = entity.categoryColor,
+                )
+            }
         }
-    }
+        .flowOn(Dispatchers.Default)
 
     suspend fun getDatabaseMetadata(token: String, databaseId: String): NotionDatabaseResponse {
         val authHeader = "Bearer $token"
@@ -208,32 +201,7 @@ class TaskRepository(
         }
     }
 
-    // キャッシュされた要素全体に対する直接的なフィルタリング
-    @Suppress("unused")
-    fun getTasksByStatus(status: String): Flow<List<TaskModel>> {
-        return taskDao.getTasksByStatus(status).map { entities ->
-            entities.map { entity ->
-                TaskModel(
-                    id = entity.id,
-                    title = entity.title,
-                    status = entity.status,
-                    category = entity.category,
-                    dueDate = entity.dueDate,
-                    scheduledDate = entity.scheduledDate,
-                    statusColor = entity.statusColor,
-                    categoryColor = entity.categoryColor,
-                )
-            }
-        }
-    }
 
-    // カテゴリ画面用のローカルフィルターの実装
-    @Suppress("unused")
-    fun getTasksByCategory(category: String): Flow<List<TaskModel>> {
-        return allTasks.map { tasks ->
-            tasks.filter { it.category == category }
-        }
-    }
 
     // 直接的なローカル更新を伴う PATCH リクエストによる高性能なステータス遷移の更新
     suspend fun updateTaskStatus(
@@ -256,7 +224,7 @@ class TaskRepository(
                             propStatusType,
                             buildJsonObject {
                                 put("name", newStatus)
-                            },
+                            }
                         )
                     },
                 )
@@ -536,9 +504,10 @@ class TaskRepository(
 
         for (action in pendingActions) {
             try {
-                // すでにIDがマッピングされている場合は置き換える
+                // 各アクションを独立して処理し、1つのエラーが全体を止めないようにする
                 val taskId = idMapping[action.taskId] ?: action.taskId
-                val payloadObj = json.parseToJsonElement(action.payloadJson).jsonObject
+                val payloadJson = action.payloadJson
+                val payloadObj = json.parseToJsonElement(payloadJson).jsonObject
                 
                 when (action.actionType) {
                     "UPDATE_STATUS" -> {
@@ -551,7 +520,6 @@ class TaskRepository(
                             )
                         )
                         notionApi.updatePage(token = authHeader, pageId = taskId, request = request)
-                        pendingSyncActionDao.deletePendingActionById(action.id)
                     }
                     "UPDATE_TASK" -> {
                         val title = payloadObj["title"]?.jsonPrimitive?.content ?: ""
@@ -562,9 +530,12 @@ class TaskRepository(
 
                         val properties = mutableMapOf<String, JsonElement>()
                         properties[propTitleName] = buildJsonObject {
-                            put("title", buildJsonArray {
-                                add(buildJsonObject { put("text", buildJsonObject { put("content", title) }) })
-                            })
+                            put(
+                                "title",
+                                buildJsonArray {
+                                    add(buildJsonObject { put("text", buildJsonObject { put("content", title) }) })
+                                },
+                            )
                         }
                         properties[propStatusName] = buildJsonObject {
                             put(propStatusType, buildJsonObject { put("name", status) })
@@ -580,7 +551,6 @@ class TaskRepository(
                         }
 
                         notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
-                        pendingSyncActionDao.deletePendingActionById(action.id)
                     }
                     "CREATE_TASK" -> {
                         val title = payloadObj["title"]?.jsonPrimitive?.content ?: ""
@@ -619,68 +589,23 @@ class TaskRepository(
                                 scheduledDate = scheduledDate
                             )
                         ))
-                        pendingSyncActionDao.deletePendingActionById(action.id)
                     }
                 }
+                // 成功した場合のみアクションを削除
+                pendingSyncActionDao.deletePendingActionById(action.id)
             } catch (e: Exception) {
-                // 通信エラー等はログ出力して中断（次回リトライ）
+                // 通信エラー等はログ出力して次へ。ただし、深刻なネットワークエラーの場合はループを抜ける
                 e.printStackTrace()
-                break
+                if (e is IOException) break 
             }
         }
     }
 
-    // --- Schedule Block & Life Activity Methods (Room SQL SSOT) ---
-
-    val allTimeBlocks: Flow<List<TimeBlock>> = scheduleBlockDao.getAllBlocksFlow().map { entities ->
-        entities.map { it.toDomainModel() }
-    }
-
-    @Suppress("unused")
-    fun getTimeBlocksByDateFlow(date: String): Flow<List<TimeBlock>> = scheduleBlockDao.getBlocksByDateFlow(date).map { entities ->
-        entities.map { it.toDomainModel() }
-    }
-
-    @Suppress("unused")
-    suspend fun saveTimeBlocks(blocks: List<TimeBlock>) = withContext(Dispatchers.IO) {
-        scheduleBlockDao.insertBlocks(blocks.map { it.toEntity() })
-    }
-
-    suspend fun saveTimeBlock(block: TimeBlock) = withContext(Dispatchers.IO) {
-        scheduleBlockDao.insertBlock(block.toEntity())
-    }
-
-    suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
-        scheduleBlockDao.deleteBlockById(id)
-    }
-
-    @Suppress("unused")
-    suspend fun deleteTimeBlocksByDate(date: String) = withContext(Dispatchers.IO) {
-        scheduleBlockDao.deleteBlocksByDate(date)
-    }
-
-    val allLifeActivities: Flow<List<LifeActivity>> = lifeActivityDao.getAllActivitiesFlow().map { entities ->
-        entities.map { it.toDomainModel() }
-    }
-
-    suspend fun loadLifeActivities(): List<LifeActivity> = withContext(Dispatchers.IO) {
-        lifeActivityDao.getAllActivities().map { it.toDomainModel() }
-    }
-
-    suspend fun saveLifeActivities(activities: List<LifeActivity>) = withContext(Dispatchers.IO) {
-        lifeActivityDao.insertActivities(activities.map { it.toEntity() })
-    }
-
-    suspend fun saveLifeActivity(activity: LifeActivity) = withContext(Dispatchers.IO) {
-        lifeActivityDao.insertActivity(activity.toEntity())
-    }
-
-    suspend fun deleteLifeActivityById(id: String) = withContext(Dispatchers.IO) {
-        lifeActivityDao.deleteActivityById(id)
-    }
-
     // SharedPreferences から Room への古い JSON マイグレーション
-    suspend fun migrateLegacyPreferencesToRoom(sharedPreferences: SharedPreferences) = withContext(Dispatchers.IO) {
+    suspend fun migrateLegacyPreferencesToRoom(
+        sharedPreferences: SharedPreferences,
+        scheduleRepository: ScheduleRepository,
+    ) = withContext(Dispatchers.IO) {
         val migratedKey = "has_migrated_legacy_prefs_to_room_v1"
         if (!sharedPreferences.getBoolean(migratedKey, false)) {
             try {
@@ -688,14 +613,14 @@ class TaskRepository(
                 val rawTimeBlocksJson = sharedPreferences.getString("time_blocks_v2", null)
                 if (!rawTimeBlocksJson.isNullOrBlank()) {
                     val blocks: List<TimeBlock> = json.decodeFromString(rawTimeBlocksJson)
-                    scheduleBlockDao.insertBlocks(blocks.map { it.toEntity() })
+                    scheduleRepository.saveTimeBlocks(blocks)
                 }
 
                 // LifeActivities のマイグレーション
                 val rawLifeActivitiesJson = sharedPreferences.getString("life_activities_v2", null)
                 if (!rawLifeActivitiesJson.isNullOrBlank()) {
                     val activities: List<LifeActivity> = json.decodeFromString(rawLifeActivitiesJson)
-                    lifeActivityDao.insertActivities(activities.map { it.toEntity() })
+                    scheduleRepository.saveLifeActivities(activities)
                 }
 
                 sharedPreferences.edit { putBoolean(migratedKey, true) }
@@ -704,89 +629,4 @@ class TaskRepository(
             }
         }
     }
-
-    private fun ScheduleBlockEntity.toDomainModel() = TimeBlock(
-        id = id,
-        type = type,
-        title = title,
-        associatedId = associatedId,
-        startTime = startTime,
-        endTime = endTime,
-        color = color,
-        date = date
-    )
-
-    private fun TimeBlock.toEntity() = ScheduleBlockEntity(
-        id = id,
-        type = type,
-        title = title,
-        associatedId = associatedId,
-        startTime = startTime,
-        endTime = endTime,
-        color = color,
-        date = date
-    )
-
-    private fun LifeActivityEntity.toDomainModel() = LifeActivity(
-        id = id,
-        name = name,
-        durationMinutes = durationMinutes,
-        color = color,
-        defaultStartTime = defaultStartTime,
-        defaultEndTime = defaultEndTime
-    )
-
-    private fun LifeActivity.toEntity() = LifeActivityEntity(
-        id = id,
-        name = name,
-        durationMinutes = durationMinutes,
-        color = color,
-        defaultStartTime = defaultStartTime,
-        defaultEndTime = defaultEndTime
-    )
-
-    // --- Pomodoro Log Methods ---
-
-    @Suppress("unused")
-    val allPomodoroLogs: Flow<List<PomodoroLog>> = pomodoroLogDao.getAllLogsFlow().map { entities ->
-        entities.map { it.toDomainModel() }
-    }
-
-    @Suppress("unused")
-    suspend fun loadPomodoroLogs(): List<PomodoroLog> = withContext(Dispatchers.IO) {
-        pomodoroLogDao.getAllLogs().map { it.toDomainModel() }
-    }
-
-    @Suppress("unused")
-    suspend fun savePomodoroLogs(logs: List<PomodoroLog>) = withContext(Dispatchers.IO) {
-        pomodoroLogDao.clearAllLogs()
-        pomodoroLogDao.insertLogs(logs.map { it.toEntity() })
-    }
-
-    @Suppress("unused")
-    suspend fun savePomodoroLog(log: PomodoroLog) = withContext(Dispatchers.IO) {
-        pomodoroLogDao.insertLog(log.toEntity())
-    }
-
-    private fun PomodoroLogEntity.toDomainModel() = PomodoroLog(
-        id = id,
-        taskId = taskId,
-        taskTitle = taskTitle,
-        category = category,
-        categoryColor = categoryColor,
-        date = date,
-        minutes = minutes,
-        timestamp = timestamp
-    )
-
-    private fun PomodoroLog.toEntity() = PomodoroLogEntity(
-        id = id,
-        taskId = taskId,
-        taskTitle = taskTitle,
-        category = category,
-        categoryColor = categoryColor,
-        date = date,
-        minutes = minutes,
-        timestamp = timestamp
-    )
 }

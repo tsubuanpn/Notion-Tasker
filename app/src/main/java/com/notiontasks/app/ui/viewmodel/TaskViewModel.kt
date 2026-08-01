@@ -8,12 +8,11 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -31,24 +30,25 @@ sealed interface TasksUiState {
 
 class TaskViewModel(
     private val repository: TaskRepository,
+    private val scheduleRepository: ScheduleRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 
     // スケジュール/タイムブロッキングの状態 (Room SQL を SSOT としてリアクティブに購読)
-    val timeBlocks: StateFlow<List<TimeBlock>> = repository.allTimeBlocks
+    val timeBlocks: StateFlow<List<TimeBlock>> = scheduleRepository.allTimeBlocks
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
+            initialValue = emptyList(),
         )
 
-    val lifeActivities: StateFlow<List<LifeActivity>> = repository.allLifeActivities
+    val lifeActivities: StateFlow<List<LifeActivity>> = scheduleRepository.allLifeActivities
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
+            initialValue = emptyList(),
         )
 
     private val _initializedDates = MutableStateFlow<Set<String>>(emptySet())
@@ -86,13 +86,10 @@ class TaskViewModel(
     private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
     val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
 
-    private val _errorEvents = MutableSharedFlow<String>()
-    val errorEvents = _errorEvents.asSharedFlow()
-
     init {
         viewModelScope.launch {
             // SharedPreferences に残っている過去のデータを Room データベースへマイグレーション
-            repository.migrateLegacyPreferencesToRoom(sharedPrefs)
+            repository.migrateLegacyPreferencesToRoom(sharedPrefs, scheduleRepository)
             ensureDefaultLifeActivities()
         }
         loadCredentialsAndMappings()
@@ -101,7 +98,7 @@ class TaskViewModel(
     }
 
     private suspend fun ensureDefaultLifeActivities() {
-        val current = repository.loadLifeActivities()
+        val current = scheduleRepository.loadLifeActivities()
         if (current.isEmpty()) {
             val defaults = listOf(
                 LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 420), // 00:00 - 07:00
@@ -111,7 +108,7 @@ class TaskViewModel(
                 LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
                 LifeActivity("la_exercise", "運動", 60, "#E91E63"),
             )
-            repository.saveLifeActivities(defaults)
+            scheduleRepository.saveLifeActivities(defaults)
         }
     }
 
@@ -138,19 +135,19 @@ class TaskViewModel(
 
     fun saveLifeActivities(list: List<LifeActivity>) {
         viewModelScope.launch {
-            repository.saveLifeActivities(list)
+            scheduleRepository.saveLifeActivities(list)
         }
     }
 
     fun addLifeActivity(activity: LifeActivity) {
         viewModelScope.launch {
-            repository.saveLifeActivity(activity)
+            scheduleRepository.saveLifeActivity(activity)
         }
     }
 
     fun deleteLifeActivity(id: String) {
         viewModelScope.launch {
-            repository.deleteLifeActivityById(id)
+            scheduleRepository.deleteLifeActivityById(id)
         }
     }
 
@@ -178,7 +175,7 @@ class TaskViewModel(
                 return@launch
             }
 
-            val currentLifeActivities = repository.loadLifeActivities()
+            val currentLifeActivities = scheduleRepository.loadLifeActivities()
             val defaultsToInsert = currentLifeActivities.filter {
                 (it.defaultStartTime != null) && (it.defaultEndTime != null)
             }
@@ -199,9 +196,9 @@ class TaskViewModel(
                     startTime = act.defaultStartTime!!,
                     endTime = act.defaultEndTime!!,
                     color = act.color,
-                    date = date
+                    date = date,
                 )
-                repository.saveTimeBlock(block)
+                scheduleRepository.saveTimeBlock(block)
                 com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
             }
 
@@ -216,7 +213,7 @@ class TaskViewModel(
         com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
         
         viewModelScope.launch {
-            repository.saveTimeBlock(block)
+            scheduleRepository.saveTimeBlock(block)
             com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
         }
     }
@@ -225,7 +222,7 @@ class TaskViewModel(
         com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, id)
         
         viewModelScope.launch {
-            repository.deleteTimeBlockById(id)
+            scheduleRepository.deleteTimeBlockById(id)
         }
     }
 
@@ -310,7 +307,6 @@ class TaskViewModel(
                 repository.syncTasks(token, dbId)
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorEvents.emit("Notionとの同期に失敗しました: ${e.localizedMessage}")
             }
         }
     }

@@ -97,7 +97,7 @@ class PomodoroService : Service() {
         }
 
         currentMode = if (currentMode == "work") {
-            if (pomodoroCompletedCount % 4 == 0) "longBreak" else "shortBreak"
+            if ((pomodoroCompletedCount % 4) == 0) "longBreak" else "shortBreak"
         } else {
             "work"
         }
@@ -390,7 +390,7 @@ class PomodoroService : Service() {
                 categoryColor = categoryColorVal,
                 date = todayStr,
                 minutes = elapsedMins,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
             )
 
             serviceScope.launch {

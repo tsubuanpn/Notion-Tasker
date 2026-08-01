@@ -2,10 +2,8 @@ package com.notiontasks.app.data
 
 import android.content.Context
 import androidx.compose.ui.graphics.Color
-import com.notiontasks.app.data.local.PomodoroLogEntity
 import com.notiontasks.app.data.local.TaskDatabase
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.notiontasks.app.data.repository.PomodoroRepository
 
 // PomodoroLog 用のデータクラス
 data class PomodoroLog(
@@ -44,44 +42,17 @@ fun getCategoryChartColorInCompose(colorName: String?): Color {
     }
 }
 
-suspend fun loadPomodoroLogs(context: Context): List<PomodoroLog> = withContext(Dispatchers.IO) {
-    val db = TaskDatabase.getInstance(context)
-    val entities = db.pomodoroLogDao.getAllLogs()
-    entities.map { entity ->
-        PomodoroLog(
-            id = entity.id,
-            taskId = entity.taskId,
-            taskTitle = entity.taskTitle,
-            category = entity.category,
-            categoryColor = entity.categoryColor,
-            date = entity.date,
-            minutes = entity.minutes,
-            timestamp = entity.timestamp,
-        )
-    }
+private fun getPomodoroRepository(context: Context): PomodoroRepository {
+    val database = TaskDatabase.getInstance(context.applicationContext)
+    return PomodoroRepository(database.pomodoroLogDao)
 }
 
-// レガシーな命名との互換性のために残す（中身は async と同じ）
+suspend fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
+    return getPomodoroRepository(context).loadPomodoroLogs()
+}
+
 suspend fun loadPomodoroLogsAsync(context: Context): List<PomodoroLog> = loadPomodoroLogs(context)
 
-suspend fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) = withContext(Dispatchers.IO) {
-    val db = TaskDatabase.getInstance(context)
-    db.pomodoroLogDao.clearAllLogs()
-    val entities = logs.map { log ->
-        PomodoroLogEntity(
-            id = log.id,
-            taskId = log.taskId,
-            taskTitle = log.taskTitle,
-            category = log.category,
-            categoryColor = log.categoryColor,
-            date = log.date,
-            minutes = log.minutes,
-            timestamp = log.timestamp,
-        )
-    }
-    db.pomodoroLogDao.insertLogs(entities)
+suspend fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
+    getPomodoroRepository(context).savePomodoroLogs(logs)
 }
-
-/**
- * 特定のログを追加または更新する（テーブル全体をクリアしない効率的な方法）
- */

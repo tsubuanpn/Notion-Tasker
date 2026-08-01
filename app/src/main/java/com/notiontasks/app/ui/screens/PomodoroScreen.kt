@@ -45,7 +45,7 @@ private fun pomodoroDurationSecondsFor(mode: String, prefs: SharedPreferences): 
 fun PomodoroScreen(
     viewModel: TaskViewModel,
     statusOptions: List<NotionOptionInfo>,
-    boundService: PomodoroService?
+    boundService: PomodoroService?,
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
@@ -53,17 +53,15 @@ fun PomodoroScreen(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
     }
     val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
-    val initialCompletedCount = remember(todayStr, savedCompletedCountDate) {
-        if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
-    }
+    val initialCompletedCount = if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     
     var timeLeft by remember { mutableIntStateOf(prefs.getInt("work_duration_min", 25) * 60) }
-    var isRunning by remember { mutableStateOf(false) }
+    var isRunning by remember { mutableStateOf(value = false) }
     var mode by remember { mutableStateOf("work") } // "work" (作業), "shortBreak" (短い休憩), "longBreak" (長い休憩)
     var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
     var selectedTaskId by remember { mutableStateOf(initialTaskId) }
-    var isInitialSyncDone by remember { mutableStateOf(false) }
+    var isInitialSyncDone by remember { mutableStateOf(value = false) }
 
     val tasksState by viewModel.tasksState.collectAsState()
 
@@ -74,7 +72,7 @@ fun PomodoroScreen(
     LaunchedEffect(tasksState) {
         if (tasksState is TasksUiState.Success) {
             val successState = tasksState as TasksUiState.Success
-            if (selectedTaskId != null && successState.tasks.none { it.id == selectedTaskId }) {
+            if ((selectedTaskId != null) && (successState.tasks.none { it.id == selectedTaskId })) {
                 selectedTaskId = null
             }
         }
@@ -94,16 +92,16 @@ fun PomodoroScreen(
     val uncompletedTasks = remember(tasksState, completedStatus, todayStr) {
         when (val state = tasksState) {
             is TasksUiState.Success -> {
-                state.tasks.filter { task ->
+                state.tasks.asSequence().filter { task ->
                     val isUncompleted = task.status != completedStatus
-                    task.scheduledDate == todayStr ||
-                    (isUncompleted && (task.scheduledDate != null && task.scheduledDate < todayStr)) ||
-                    (isUncompleted && (task.dueDate != null && task.dueDate < todayStr))
+                    (task.scheduledDate == todayStr) ||
+                    (isUncompleted && (task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
+                    (isUncompleted && (task.dueDate != null) && (task.dueDate < todayStr))
                 }.sortedWith(
                     compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                         .thenBy(nullsLast(naturalOrder())) { it.dueDate }
-                        .thenBy { it.id }
-                )
+                        .thenBy { it.id },
+                ).toList()
             }
             else -> emptyList()
         }
@@ -152,14 +150,14 @@ fun PomodoroScreen(
                     taskId = selectedTaskId,
                     taskTitle = activeFocusTask?.title,
                     category = activeFocusTask?.category,
-                    categoryColor = activeFocusTask?.categoryColor
+                    categoryColor = activeFocusTask?.categoryColor,
                 )
             }
         }
     }
 
     // サービスに基づいて状態を更新します
-    var isAlarmPlaying by remember { mutableStateOf(false) }
+    var isAlarmPlaying by remember { mutableStateOf(value = false) }
     DisposableEffect(boundService) {
         if (boundService != null) {
             if (!boundService.isRunning) {
@@ -169,11 +167,10 @@ fun PomodoroScreen(
             isRunning = boundService.isRunning
             mode = boundService.currentMode
             pomodoroCompletedCount = boundService.getCompletedCountToday()
-            if (boundService.isRunning) {
-                selectedTaskId = boundService.associatedTaskId
+            selectedTaskId = if (boundService.isRunning) {
+                boundService.associatedTaskId
             } else {
-                val savedTaskId = prefs.getString("selected_task_id", null)
-                selectedTaskId = savedTaskId
+                prefs.getString("selected_task_id", null)
             }
             isInitialSyncDone = true
 
@@ -227,7 +224,7 @@ fun PomodoroScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (boundService == null && !isRunning) {
+        if ((boundService == null) && (!isRunning)) {
             timeLeft = pomodoroDurationSecondsFor(mode, prefs)
         }
     }
@@ -238,7 +235,7 @@ fun PomodoroScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // 2. モード選択セグメントコントロール
         Row(
@@ -518,7 +515,7 @@ fun PomodoroScreen(
             }
 
             // カスタムのシンプルなドロップダウン
-            var dropdownExpanded by remember { mutableStateOf(false) }
+            var dropdownExpanded by remember { mutableStateOf(value = false) }
             val selectedTaskTitle = activeFocusTask?.let { "[${it.category}] ${it.title}" } ?: "-- タスクを選択しない (一般作業) --"
 
             Box(modifier = Modifier.fillMaxWidth()) {

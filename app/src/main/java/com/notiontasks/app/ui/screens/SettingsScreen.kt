@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.content.IntentCompat
+import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
@@ -97,7 +98,7 @@ fun SettingsScreen(
         mDue: String,
         mCatOptions: List<NotionOptionInfo>,
         mStatOptions: List<NotionOptionInfo>,
-    ) -> Unit
+    ) -> Unit,
 ) {
     // --- 内部状態 ---
     var token by remember { mutableStateOf(initialToken) }
@@ -137,7 +138,7 @@ fun SettingsScreen(
     }
 
     val handleSave: () -> Unit = {
-        if (listOf(propTitle, propStatus, propCategory, propScheduled, propDue).any { (it.isBlank() || it == "未選択") }) {
+        if (listOf(propTitle, propStatus, propCategory, propScheduled, propDue).any { (it.isBlank() || (it == "未選択")) }) {
             Toast.makeText(context, "未選択のマッピング項目があります。すべてのプロパティを選択してください。", Toast.LENGTH_LONG).show()
         } else {
             // 動的なオプションの同期
@@ -747,7 +748,7 @@ fun LifeActivitySettingsSection(
                 } else {
                     lifeActivities.forEach { act ->
                         val colorParsed = try {
-                            Color(android.graphics.Color.parseColor(act.color))
+                            Color(act.color.toColorInt())
                         } catch (_: Exception) {
                             MaterialTheme.colorScheme.secondaryContainer
                         }
@@ -881,7 +882,7 @@ fun LifeActivitySettingsSection(
                                 Box(
                                     modifier = Modifier
                                         .size(24.dp)
-                                        .background(Color(android.graphics.Color.parseColor(c)), RoundedCornerShape(100.dp))
+                                        .background(Color(c.toColorInt()), RoundedCornerShape(100.dp))
                                         .border(
                                             width = if (actColor == c) 2.dp else 0.dp,
                                             color = MaterialTheme.colorScheme.onSurface,
