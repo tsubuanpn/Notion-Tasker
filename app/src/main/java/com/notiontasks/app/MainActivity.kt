@@ -109,7 +109,14 @@ class MainActivity : ComponentActivity() {
 
         val notionApi = retrofit.create(NotionApi::class.java)
         val database = TaskDatabase.getInstance(applicationContext)
-        val repository = TaskRepository(notionApi, database.taskDao, database.pomodoroLogDao)
+        val repository = TaskRepository(
+            notionApi = notionApi,
+            taskDao = database.taskDao,
+            pomodoroLogDao = database.pomodoroLogDao,
+            scheduleBlockDao = database.scheduleBlockDao,
+            lifeActivityDao = database.lifeActivityDao,
+            pendingSyncActionDao = database.pendingSyncActionDao
+        )
 
         // MVVM ファクトリ
         viewModel = ViewModelProvider(this, object : ViewModelProvider.Factory {

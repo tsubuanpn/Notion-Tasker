@@ -9,9 +9,11 @@ import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.TaskRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -34,12 +36,20 @@ class TaskViewModel(
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 
-    // スケジュール/タイムブロッキングの状態
-    private val _timeBlocks = MutableStateFlow<List<TimeBlock>>(emptyList())
-    val timeBlocks: StateFlow<List<TimeBlock>> = _timeBlocks.asStateFlow()
+    // スケジュール/タイムブロッキングの状態 (Room SQL を SSOT としてリアクティブに購読)
+    val timeBlocks: StateFlow<List<TimeBlock>> = repository.allTimeBlocks
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
-    private val _lifeActivities = MutableStateFlow<List<LifeActivity>>(emptyList())
-    val lifeActivities: StateFlow<List<LifeActivity>> = _lifeActivities.asStateFlow()
+    val lifeActivities: StateFlow<List<LifeActivity>> = repository.allLifeActivities
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     private val _initializedDates = MutableStateFlow<Set<String>>(emptySet())
 
@@ -76,12 +86,33 @@ class TaskViewModel(
     private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
     val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
 
+    private val _errorEvents = MutableSharedFlow<String>()
+    val errorEvents = _errorEvents.asSharedFlow()
+
     init {
+        viewModelScope.launch {
+            // SharedPreferences に残っている過去のデータを Room データベースへマイグレーション
+            repository.migrateLegacyPreferencesToRoom(sharedPrefs)
+            ensureDefaultLifeActivities()
+        }
         loadCredentialsAndMappings()
-        loadLifeActivities()
-        loadTimeBlocks()
         loadInitializedDates()
         loadOptions()
+    }
+
+    private suspend fun ensureDefaultLifeActivities() {
+        val current = repository.loadLifeActivities()
+        if (current.isEmpty()) {
+            val defaults = listOf(
+                LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 420), // 00:00 - 07:00
+                LifeActivity("la_meal", "食事", 60, "#FF9800", defaultStartTime = 720, defaultEndTime = 780), // 12:00 - 13:00
+                LifeActivity("la_rest", "休憩", 30, "#4CAF50"),
+                LifeActivity("la_transit", "移動", 30, "#2196F3"),
+                LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
+                LifeActivity("la_exercise", "運動", 60, "#E91E63"),
+            )
+            repository.saveLifeActivities(defaults)
+        }
     }
 
     private fun loadOptions() {
@@ -105,56 +136,22 @@ class TaskViewModel(
         }
     }
 
-    private fun loadLifeActivities() {
-        val jsonStr = sharedPrefs.getString("saved_life_activities", null)
-        val list = if (jsonStr != null) {
-            try {
-                jsonSerializer.decodeFromString<List<LifeActivity>>(jsonStr)
-            } catch (_: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
-        
-        if (list.isEmpty()) {
-            val defaults = listOf(
-                LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 420), // 00:00 - 07:00
-                LifeActivity("la_meal", "食事", 60, "#FF9800", defaultStartTime = 720, defaultEndTime = 780), // 12:00 - 13:00
-                LifeActivity("la_rest", "休憩", 30, "#4CAF50"),
-                LifeActivity("la_transit", "移動", 30, "#2196F3"),
-                LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
-                LifeActivity("la_exercise", "運動", 60, "#E91E63"),
-            )
-            _lifeActivities.value = defaults
-            saveLifeActivitiesInternal(defaults)
-        } else {
-            _lifeActivities.value = list
-        }
-    }
-
-    private fun saveLifeActivitiesInternal(list: List<LifeActivity>) {
-        try {
-            val str = jsonSerializer.encodeToString(list)
-            sharedPrefs.edit { putString("saved_life_activities", str) }
-        } catch (_: Exception) {}
-    }
-
     fun saveLifeActivities(list: List<LifeActivity>) {
-        _lifeActivities.value = list
-        saveLifeActivitiesInternal(list)
+        viewModelScope.launch {
+            repository.saveLifeActivities(list)
+        }
     }
 
     fun addLifeActivity(activity: LifeActivity) {
-        val updated = _lifeActivities.value + activity
-        _lifeActivities.value = updated
-        saveLifeActivitiesInternal(updated)
+        viewModelScope.launch {
+            repository.saveLifeActivity(activity)
+        }
     }
 
     fun deleteLifeActivity(id: String) {
-        val updated = _lifeActivities.value.filter { it.id != id }
-        _lifeActivities.value = updated
-        saveLifeActivitiesInternal(updated)
+        viewModelScope.launch {
+            repository.deleteLifeActivityById(id)
+        }
     }
 
     private fun loadInitializedDates() {
@@ -168,88 +165,68 @@ class TaskViewModel(
 
     fun autoInitializeDefaultLifeActivities(context: android.content.Context, date: String) {
         if (_initializedDates.value.contains(date)) return
-        
-        val currentBlocks = _timeBlocks.value
-        val hasAnyLifeOnThisDate = currentBlocks.any { (it.date == date) && (it.type == "life") }
-        
-        // この日付に既に生活アクティビティブロックがある場合は、重複を避けるために初期化済みとして扱います
-        if (hasAnyLifeOnThisDate) {
+
+        viewModelScope.launch {
+            val currentBlocks = timeBlocks.value
+            val hasAnyLifeOnThisDate = currentBlocks.any { (it.date == date) && (it.type == "life") }
+            
+            // この日付に既に生活アクティビティブロックがある場合は初期化済みとして扱います
+            if (hasAnyLifeOnThisDate) {
+                val updated = _initializedDates.value + date
+                _initializedDates.value = updated
+                saveInitializedDates(updated)
+                return@launch
+            }
+
+            val currentLifeActivities = repository.loadLifeActivities()
+            val defaultsToInsert = currentLifeActivities.filter {
+                (it.defaultStartTime != null) && (it.defaultEndTime != null)
+            }
+
+            if (defaultsToInsert.isEmpty()) {
+                val updated = _initializedDates.value + date
+                _initializedDates.value = updated
+                saveInitializedDates(updated)
+                return@launch
+            }
+
+            defaultsToInsert.forEach { act ->
+                val block = TimeBlock(
+                    id = "tb_" + java.util.UUID.randomUUID().toString().take(8),
+                    type = "life",
+                    title = act.name,
+                    associatedId = act.id,
+                    startTime = act.defaultStartTime!!,
+                    endTime = act.defaultEndTime!!,
+                    color = act.color,
+                    date = date
+                )
+                repository.saveTimeBlock(block)
+                com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
+            }
+
             val updated = _initializedDates.value + date
             _initializedDates.value = updated
             saveInitializedDates(updated)
-            return
         }
-
-        val defaultsToInsert = _lifeActivities.value.filter {
-            (it.defaultStartTime != null) && (it.defaultEndTime != null)
-        }
-
-        if (defaultsToInsert.isEmpty()) {
-            val updated = _initializedDates.value + date
-            _initializedDates.value = updated
-            saveInitializedDates(updated)
-            return
-        }
-
-        var updatedBlocks = currentBlocks
-        defaultsToInsert.forEach { act ->
-            val block = TimeBlock(
-                id = "tb_" + java.util.UUID.randomUUID().toString().take(8),
-                type = "life",
-                title = act.name,
-                associatedId = act.id,
-                startTime = act.defaultStartTime!!,
-                endTime = act.defaultEndTime!!,
-                color = act.color,
-                date = date
-            )
-            updatedBlocks = updatedBlocks.filter { it.id != block.id } + block
-            com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
-        }
-
-        _timeBlocks.value = updatedBlocks
-        saveTimeBlocksInternal(updatedBlocks)
-
-        val updated = _initializedDates.value + date
-        _initializedDates.value = updated
-        saveInitializedDates(updated)
-    }
-
-    private fun loadTimeBlocks() {
-        val jsonStr = sharedPrefs.getString("saved_time_blocks", null)
-        if (jsonStr != null) {
-            try {
-                val list = jsonSerializer.decodeFromString<List<TimeBlock>>(jsonStr)
-                _timeBlocks.value = list
-            } catch (_: Exception) {}
-        }
-    }
-
-    private fun saveTimeBlocksInternal(list: List<TimeBlock>) {
-        try {
-            val str = jsonSerializer.encodeToString(list)
-            sharedPrefs.edit { putString("saved_time_blocks", str) }
-        } catch (_: Exception) {}
     }
 
     fun addTimeBlock(context: android.content.Context, block: TimeBlock) {
-        // 念のため、同じ ID の既存のアラームをキャンセルします
+        // 同じ ID の既存のアラームをキャンセルします
         com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
         
-        val updated = _timeBlocks.value.filter { it.id != block.id } + block
-        _timeBlocks.value = updated
-        saveTimeBlocksInternal(updated)
-        
-        // 新しいブロックのアラームをスケジュールします
-        com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
+        viewModelScope.launch {
+            repository.saveTimeBlock(block)
+            com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
+        }
     }
 
     fun deleteTimeBlock(context: android.content.Context, id: String) {
         com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, id)
         
-        val updated = _timeBlocks.value.filter { it.id != id }
-        _timeBlocks.value = updated
-        saveTimeBlocksInternal(updated)
+        viewModelScope.launch {
+            repository.deleteTimeBlockById(id)
+        }
     }
 
     // データベースプロパティの定義を取得する
@@ -333,6 +310,7 @@ class TaskViewModel(
                 repository.syncTasks(token, dbId)
             } catch (e: Exception) {
                 e.printStackTrace()
+                _errorEvents.emit("Notionとの同期に失敗しました: ${e.localizedMessage}")
             }
         }
     }

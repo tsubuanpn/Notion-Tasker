@@ -1,11 +1,21 @@
 package com.notiontasks.app.data.repository
 
+import android.content.SharedPreferences
+import androidx.core.content.edit
+import com.notiontasks.app.data.local.LifeActivityDao
+import com.notiontasks.app.data.local.LifeActivityEntity
+import com.notiontasks.app.data.local.PendingSyncActionDao
+import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.local.PomodoroLogDao
 import com.notiontasks.app.data.local.PomodoroLogEntity
+import com.notiontasks.app.data.local.ScheduleBlockDao
+import com.notiontasks.app.data.local.ScheduleBlockEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.NotionUpdateRequest
 import com.notiontasks.app.data.remote.dto.NotionCreateRequest
@@ -20,6 +30,8 @@ import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.IOException
@@ -84,7 +96,14 @@ class TaskRepository(
     private val notionApi: NotionApi,
     private val taskDao: TaskDao,
     private val pomodoroLogDao: PomodoroLogDao,
+    private val scheduleBlockDao: ScheduleBlockDao,
+    private val lifeActivityDao: LifeActivityDao,
+    private val pendingSyncActionDao: PendingSyncActionDao,
 ) {
+
+    // 非同期処理およびリレーショナル整合性のための Mutex 排他制御
+    private val syncMutex = Mutex()
+    private val json = Json { ignoreUnknownKeys = true }
 
     // 設定画面から構成された動的なマッピングキー
     var propTitleName: String = "名前"
@@ -141,17 +160,25 @@ class TaskRepository(
         return meta
     }
 
-    // リモートの Notion DB からタスクのキャッシュを更新する
-    suspend fun syncTasks(token: String, databaseId: String) {
+    // リモートの Notion DB からタスクのキャッシュを更新し、保留中のオフラインアクションを同期する
+    suspend fun syncTasks(token: String, databaseId: String) = syncMutex.withLock {
         val authHeader = "Bearer $token"
+        
+        // 1. まずオフライン中の変更があれば順次処理を試みる
         try {
-            // 生のクエリデータベース DTO ノードから一致するすべてのレコードを取得する
+            processPendingSyncActionsInternal(token, databaseId)
+        } catch (e: Exception) {
+            // Pending sync actions failure is logged but we still try to sync tasks
+            e.printStackTrace()
+        }
+
+        // 2. リモートから最新データを取得
+        try {
             val response = notionApi.queryDatabase(token = authHeader, databaseId = databaseId)
             
             val activeEntities = response.results.mapNotNull { page ->
                 val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
                 
-                // ステータスの解析が空を返す場合、セレクトの解析にフォールバックする
                 val statusValue = page.properties.getStatusText(propStatusName)
                     ?: page.properties.getSelectText(propStatusName)
                     ?: "未着手"
@@ -174,11 +201,9 @@ class TaskRepository(
                 )
             }
 
-            // ローカルリポジトリのデータベースと同期する
-            taskDao.clearAllTasks()
-            taskDao.insertTasks(activeEntities)
+            // 3. トランザクションを用いて差分更新（Upsert + 不要データの削除）
+            taskDao.syncTasksTransactionally(activeEntities)
         } catch (e: Exception) {
-            // 呼び出し元で HTTP 障害や接続断を処理する
             throw IOException("Network synchronization failed: ${e.message}", e)
         }
     }
@@ -215,7 +240,7 @@ class TaskRepository(
         token: String,
         pageId: String,
         newStatus: String,
-    ) {
+    ) = syncMutex.withLock {
         // 楽観的な UI/ローカルの更新
         val statusColor = taskDao.getStatusColorForStatus(newStatus)
         taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
@@ -237,28 +262,38 @@ class TaskRepository(
                 )
             )
             notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val retryRequest = NotionUpdateRequest(
-                properties = mapOf(
-                    propStatusName to buildJsonObject {
-                        put(
-                            alternateType,
-                            buildJsonObject {
-                                put("name", newStatus)
-                            },
-                        )
-                    },
-                ),
-            )
+                    properties = mapOf(
+                        propStatusName to buildJsonObject {
+                            put(
+                                alternateType,
+                                buildJsonObject {
+                                    put("name", newStatus)
+                                },
+                            )
+                        },
+                    ),
+                )
                 notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
                 // 再試行が成功した場合は、構成をシームレスに更新します
                 propStatusType = alternateType
             } catch (_: Exception) {
-                // 両方が失敗した場合は、エラーをスローします
-                throw IOException("Failed to save remote status change with either select or status type: ${e.message}", e)
+                // オフラインまたは通信エラー時はキューに保存して次回自動リトライする
+                val actionPayload = buildJsonObject {
+                    put("newStatus", newStatus)
+                }.toString()
+                pendingSyncActionDao.insertPendingAction(
+                    PendingSyncActionEntity(
+                        actionType = "UPDATE_STATUS",
+                        taskId = pageId,
+                        payloadJson = actionPayload,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
             }
         }
     }
@@ -270,8 +305,8 @@ class TaskRepository(
         status: String,
         category: String,
         dueDate: String?,
-        scheduledDate: String?
-    ) {
+        scheduledDate: String?,
+    ) = syncMutex.withLock {
         // 楽観的な UI/ローカルの更新
         val currentLocalTask = taskDao.getTaskById(pageId)
         val statusColor = if (currentLocalTask?.status == status) {
@@ -294,7 +329,7 @@ class TaskRepository(
             statusColor = statusColor,
             categoryColor = categoryColor,
         )
-        taskDao.insertTasks(listOf(updatedLocalRef))
+        taskDao.upsertTasks(listOf(updatedLocalRef))
 
         // リクエストプロパティのペイロードを構築するためのヘルパー
         fun buildPropertiesPayload(sType: String): Map<String, JsonElement> {
@@ -375,8 +410,22 @@ class TaskRepository(
         }
         try {
             notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = payload))
-        } catch (e: Exception) {
-            throw IOException("Failed to save remote task change: ${e.message}", e)
+        } catch (_: Exception) {
+            val actionPayload = buildJsonObject {
+                put("title", title)
+                put("status", status)
+                put("category", category)
+                dueDate?.let { put("dueDate", it) }
+                scheduledDate?.let { put("scheduledDate", it) }
+            }.toString()
+            pendingSyncActionDao.insertPendingAction(
+                PendingSyncActionEntity(
+                    actionType = "UPDATE_TASK",
+                    taskId = pageId,
+                    payloadJson = actionPayload,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
         }
     }
 
@@ -387,8 +436,8 @@ class TaskRepository(
         status: String,
         category: String,
         dueDate: String?,
-        scheduledDate: String?
-    ) {
+        scheduledDate: String?,
+    ) = syncMutex.withLock {
         val authHeader = "Bearer $token"
         
         fun buildCreatePayload(sType: String): NotionCreateRequest {
@@ -426,8 +475,8 @@ class TaskRepository(
                 dueDate = dueDate,
                 scheduledDate = scheduledDate
             )
-            taskDao.insertTasks(listOf(localEntity))
-        } catch (e: Exception) {
+            taskDao.upsertTasks(listOf(localEntity))
+        } catch (_: Exception) {
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val request = buildCreatePayload(alternateType)
@@ -442,12 +491,259 @@ class TaskRepository(
                     dueDate = dueDate,
                     scheduledDate = scheduledDate
                 )
-                taskDao.insertTasks(listOf(localEntity))
+                taskDao.upsertTasks(listOf(localEntity))
             } catch (_: Exception) {
-                throw IOException("Failed to create remote task: ${e.message}", e)
+                // オフライン時等：ローカルダミーIDでとりあえず保存し、キューに入れる
+                val tempId = "pending_" + System.currentTimeMillis()
+                val localEntity = TaskEntity(
+                    id = tempId,
+                    title = title,
+                    status = status,
+                    category = category,
+                    dueDate = dueDate,
+                    scheduledDate = scheduledDate
+                )
+                taskDao.upsertTasks(listOf(localEntity))
+
+                val actionPayload = buildJsonObject {
+                    put("title", title)
+                    put("status", status)
+                    put("category", category)
+                    dueDate?.let { put("dueDate", it) }
+                    scheduledDate?.let { put("scheduledDate", it) }
+                }.toString()
+
+                pendingSyncActionDao.insertPendingAction(
+                    PendingSyncActionEntity(
+                        actionType = "CREATE_TASK",
+                        taskId = tempId,
+                        payloadJson = actionPayload,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
             }
         }
     }
+
+    // 保留中のオフライン同期アクションを順次処理
+    private suspend fun processPendingSyncActionsInternal(token: String, databaseId: String) {
+        val pendingActions = pendingSyncActionDao.getAllPendingActions()
+        if (pendingActions.isEmpty()) return
+
+        val authHeader = "Bearer $token"
+        // 仮IDから本番IDへのマッピング
+        val idMapping = mutableMapOf<String, String>()
+
+        for (action in pendingActions) {
+            try {
+                // すでにIDがマッピングされている場合は置き換える
+                val taskId = idMapping[action.taskId] ?: action.taskId
+                val payloadObj = json.parseToJsonElement(action.payloadJson).jsonObject
+                
+                when (action.actionType) {
+                    "UPDATE_STATUS" -> {
+                        val newStatus = payloadObj["newStatus"]?.jsonPrimitive?.content ?: continue
+                        val request = NotionUpdateRequest(
+                            properties = mapOf(
+                                propStatusName to buildJsonObject {
+                                    put(propStatusType, buildJsonObject { put("name", newStatus) })
+                                }
+                            )
+                        )
+                        notionApi.updatePage(token = authHeader, pageId = taskId, request = request)
+                        pendingSyncActionDao.deletePendingActionById(action.id)
+                    }
+                    "UPDATE_TASK" -> {
+                        val title = payloadObj["title"]?.jsonPrimitive?.content ?: ""
+                        val status = payloadObj["status"]?.jsonPrimitive?.content ?: ""
+                        val category = payloadObj["category"]?.jsonPrimitive?.content ?: ""
+                        val dueDate = payloadObj["dueDate"]?.jsonPrimitive?.contentOrNull
+                        val scheduledDate = payloadObj["scheduledDate"]?.jsonPrimitive?.contentOrNull
+
+                        val properties = mutableMapOf<String, JsonElement>()
+                        properties[propTitleName] = buildJsonObject {
+                            put("title", buildJsonArray {
+                                add(buildJsonObject { put("text", buildJsonObject { put("content", title) }) })
+                            })
+                        }
+                        properties[propStatusName] = buildJsonObject {
+                            put(propStatusType, buildJsonObject { put("name", status) })
+                        }
+                        properties[propCategoryName] = buildJsonObject {
+                            put("select", buildJsonObject { put("name", category) })
+                        }
+                        properties[propDueDateName] = buildJsonObject {
+                            if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
+                        }
+                        properties[propScheduledDateName] = buildJsonObject {
+                            if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
+                        }
+
+                        notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
+                        pendingSyncActionDao.deletePendingActionById(action.id)
+                    }
+                    "CREATE_TASK" -> {
+                        val title = payloadObj["title"]?.jsonPrimitive?.content ?: ""
+                        val status = payloadObj["status"]?.jsonPrimitive?.content ?: ""
+                        val category = payloadObj["category"]?.jsonPrimitive?.content ?: ""
+                        val dueDate = payloadObj["dueDate"]?.jsonPrimitive?.contentOrNull
+                        val scheduledDate = payloadObj["scheduledDate"]?.jsonPrimitive?.contentOrNull
+
+                        val propMap = mutableMapOf<String, PropertyUpdate>()
+                        propMap[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
+                        propMap[propStatusName] = if (propStatusType == "select") PropertyUpdate(select = SelectValue(name = status)) else PropertyUpdate(status = StatusValue(name = status))
+                        propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+                        if (!dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
+                        if (!scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
+
+                        val request = NotionCreateRequest(
+                            parent = DatabaseParent(databaseId = databaseId),
+                            properties = propMap
+                        )
+                        val created = notionApi.createPage(token = authHeader, request = request)
+                        
+                        // IDマッピングを記録
+                        idMapping[action.taskId] = created.id
+
+                        // 仮タスクを正式な ID で入れ替え
+                        taskDao.getTaskById(action.taskId)?.let { tempTask ->
+                            taskDao.deleteTask(tempTask)
+                        }
+                        taskDao.upsertTasks(listOf(
+                            TaskEntity(
+                                id = created.id,
+                                title = title,
+                                status = status,
+                                category = category,
+                                dueDate = dueDate,
+                                scheduledDate = scheduledDate
+                            )
+                        ))
+                        pendingSyncActionDao.deletePendingActionById(action.id)
+                    }
+                }
+            } catch (e: Exception) {
+                // 通信エラー等はログ出力して中断（次回リトライ）
+                e.printStackTrace()
+                break
+            }
+        }
+    }
+
+    // --- Schedule Block & Life Activity Methods (Room SQL SSOT) ---
+
+    val allTimeBlocks: Flow<List<TimeBlock>> = scheduleBlockDao.getAllBlocksFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    @Suppress("unused")
+    fun getTimeBlocksByDateFlow(date: String): Flow<List<TimeBlock>> = scheduleBlockDao.getBlocksByDateFlow(date).map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    @Suppress("unused")
+    suspend fun saveTimeBlocks(blocks: List<TimeBlock>) = withContext(Dispatchers.IO) {
+        scheduleBlockDao.insertBlocks(blocks.map { it.toEntity() })
+    }
+
+    suspend fun saveTimeBlock(block: TimeBlock) = withContext(Dispatchers.IO) {
+        scheduleBlockDao.insertBlock(block.toEntity())
+    }
+
+    suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
+        scheduleBlockDao.deleteBlockById(id)
+    }
+
+    @Suppress("unused")
+    suspend fun deleteTimeBlocksByDate(date: String) = withContext(Dispatchers.IO) {
+        scheduleBlockDao.deleteBlocksByDate(date)
+    }
+
+    val allLifeActivities: Flow<List<LifeActivity>> = lifeActivityDao.getAllActivitiesFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    suspend fun loadLifeActivities(): List<LifeActivity> = withContext(Dispatchers.IO) {
+        lifeActivityDao.getAllActivities().map { it.toDomainModel() }
+    }
+
+    suspend fun saveLifeActivities(activities: List<LifeActivity>) = withContext(Dispatchers.IO) {
+        lifeActivityDao.insertActivities(activities.map { it.toEntity() })
+    }
+
+    suspend fun saveLifeActivity(activity: LifeActivity) = withContext(Dispatchers.IO) {
+        lifeActivityDao.insertActivity(activity.toEntity())
+    }
+
+    suspend fun deleteLifeActivityById(id: String) = withContext(Dispatchers.IO) {
+        lifeActivityDao.deleteActivityById(id)
+    }
+
+    // SharedPreferences から Room への古い JSON マイグレーション
+    suspend fun migrateLegacyPreferencesToRoom(sharedPreferences: SharedPreferences) = withContext(Dispatchers.IO) {
+        val migratedKey = "has_migrated_legacy_prefs_to_room_v1"
+        if (!sharedPreferences.getBoolean(migratedKey, false)) {
+            try {
+                // TimeBlocks のマイグレーション
+                val rawTimeBlocksJson = sharedPreferences.getString("time_blocks_v2", null)
+                if (!rawTimeBlocksJson.isNullOrBlank()) {
+                    val blocks: List<TimeBlock> = json.decodeFromString(rawTimeBlocksJson)
+                    scheduleBlockDao.insertBlocks(blocks.map { it.toEntity() })
+                }
+
+                // LifeActivities のマイグレーション
+                val rawLifeActivitiesJson = sharedPreferences.getString("life_activities_v2", null)
+                if (!rawLifeActivitiesJson.isNullOrBlank()) {
+                    val activities: List<LifeActivity> = json.decodeFromString(rawLifeActivitiesJson)
+                    lifeActivityDao.insertActivities(activities.map { it.toEntity() })
+                }
+
+                sharedPreferences.edit { putBoolean(migratedKey, true) }
+            } catch (_: Exception) {
+                // エラー時はスキップして次回マイグレーションを再トライ
+            }
+        }
+    }
+
+    private fun ScheduleBlockEntity.toDomainModel() = TimeBlock(
+        id = id,
+        type = type,
+        title = title,
+        associatedId = associatedId,
+        startTime = startTime,
+        endTime = endTime,
+        color = color,
+        date = date
+    )
+
+    private fun TimeBlock.toEntity() = ScheduleBlockEntity(
+        id = id,
+        type = type,
+        title = title,
+        associatedId = associatedId,
+        startTime = startTime,
+        endTime = endTime,
+        color = color,
+        date = date
+    )
+
+    private fun LifeActivityEntity.toDomainModel() = LifeActivity(
+        id = id,
+        name = name,
+        durationMinutes = durationMinutes,
+        color = color,
+        defaultStartTime = defaultStartTime,
+        defaultEndTime = defaultEndTime
+    )
+
+    private fun LifeActivity.toEntity() = LifeActivityEntity(
+        id = id,
+        name = name,
+        durationMinutes = durationMinutes,
+        color = color,
+        defaultStartTime = defaultStartTime,
+        defaultEndTime = defaultEndTime
+    )
 
     // --- Pomodoro Log Methods ---
 
