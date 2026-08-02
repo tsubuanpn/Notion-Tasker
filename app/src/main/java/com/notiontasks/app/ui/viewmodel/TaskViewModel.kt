@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
+import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.PomodoroRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import java.util.Calendar
 
 // 画面操作のステータス状態
 sealed interface TasksUiState {
@@ -31,10 +34,19 @@ sealed interface TasksUiState {
 class TaskViewModel(
     private val repository: TaskRepository,
     private val scheduleRepository: ScheduleRepository,
+    private val pomodoroRepository: PomodoroRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
+
+    // ポモドーロログの状態 (Room を購読)
+    val pomodoroLogs: StateFlow<List<PomodoroLog>> = pomodoroRepository.allLogsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList(),
+        )
 
     // スケジュール/タイムブロッキングの状態 (Room SQL を SSOT としてリアクティブに購読)
     val timeBlocks: StateFlow<List<TimeBlock>> = scheduleRepository.allTimeBlocks
@@ -59,6 +71,10 @@ class TaskViewModel(
 
     private val _databaseId = MutableStateFlow("")
     val databaseId: StateFlow<String> = _databaseId.asStateFlow()
+
+    // 統計データの保存期間設定 (0 = 無制限, 1, 3, 6, 12 = ヶ月)
+    private val _statsStorageDuration = MutableStateFlow(sharedPrefs.getInt("pomodoro_stats_duration_months", 0))
+    val statsStorageDuration: StateFlow<Int> = _statsStorageDuration.asStateFlow()
 
     // ライブ Room 更新を組み合わせた画面レベルの StateFlow
     val tasksState: StateFlow<TasksUiState> = repository.allTasks
@@ -91,22 +107,58 @@ class TaskViewModel(
             // SharedPreferences に残っている過去のデータを Room データベースへマイグレーション
             repository.migrateLegacyPreferencesToRoom(sharedPrefs, scheduleRepository)
             ensureDefaultLifeActivities()
+            cleanupOldPomodoroLogs()
         }
         loadCredentialsAndMappings()
         loadInitializedDates()
         loadOptions()
     }
 
+    private suspend fun cleanupOldPomodoroLogs() {
+        val months = _statsStorageDuration.value
+        if (months > 0) {
+            val calendar = Calendar.getInstance()
+            calendar.add(Calendar.MONTH, -months)
+            pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
+        }
+    }
+
+    fun setStatsStorageDuration(months: Int) {
+        _statsStorageDuration.value = months
+        sharedPrefs.edit().putInt("pomodoro_stats_duration_months", months).apply()
+        viewModelScope.launch {
+            cleanupOldPomodoroLogs()
+        }
+    }
+
+    fun deletePomodoroLog(id: String) {
+        viewModelScope.launch {
+            pomodoroRepository.deletePomodoroLogById(id)
+        }
+    }
+
+    fun deletePomodoroLogsOlderThan(months: Int) {
+        viewModelScope.launch {
+            if (months == -1) {
+                pomodoroRepository.clearAllLogs()
+            } else {
+                val calendar = Calendar.getInstance()
+                calendar.add(Calendar.MONTH, -months)
+                pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
+            }
+        }
+    }
+
     private suspend fun ensureDefaultLifeActivities() {
         val current = scheduleRepository.loadLifeActivities()
         if (current.isEmpty()) {
             val defaults = listOf(
-                LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 420), // 00:00 - 07:00
-                LifeActivity("la_meal", "食事", 60, "#FF9800", defaultStartTime = 720, defaultEndTime = 780), // 12:00 - 13:00
-                LifeActivity("la_rest", "休憩", 30, "#4CAF50"),
-                LifeActivity("la_transit", "移動", 30, "#2196F3"),
-                LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290), // 21:00 - 21:30
-                LifeActivity("la_exercise", "運動", 60, "#E91E63"),
+                LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 420, sortOrder = 0), // 00:00 - 07:00
+                LifeActivity("la_meal", "食事", 60, "#FF9800", defaultStartTime = 720, defaultEndTime = 780, sortOrder = 1), // 12:00 - 13:00
+                LifeActivity("la_rest", "休憩", 30, "#4CAF50", sortOrder = 2),
+                LifeActivity("la_transit", "移動", 30, "#2196F3", sortOrder = 3),
+                LifeActivity("la_bath", "お風呂", 30, "#2196F3", defaultStartTime = 1260, defaultEndTime = 1290, sortOrder = 4), // 21:00 - 21:30
+                LifeActivity("la_exercise", "運動", 60, "#E91E63", sortOrder = 5),
             )
             scheduleRepository.saveLifeActivities(defaults)
         }
@@ -133,21 +185,72 @@ class TaskViewModel(
         }
     }
 
-    fun saveLifeActivities(list: List<LifeActivity>) {
+    fun saveLifeActivities(context: android.content.Context, list: List<LifeActivity>) {
         viewModelScope.launch {
             scheduleRepository.saveLifeActivities(list)
+            // 今後初期化される予定の日付（今日を含む）に反映
+            syncAllInitializedFutureDates(context)
         }
     }
 
-    fun addLifeActivity(activity: LifeActivity) {
+    fun addLifeActivity(context: android.content.Context, activity: LifeActivity) {
         viewModelScope.launch {
-            scheduleRepository.saveLifeActivity(activity)
+            // 新規追加時はリストの最後に配置
+            val current = scheduleRepository.loadLifeActivities()
+            val maxOrder = current.maxOfOrNull { it.sortOrder } ?: -1
+            val newAct = activity.copy(sortOrder = maxOrder + 1)
+            
+            scheduleRepository.saveLifeActivity(newAct)
+            // 今後初期化される予定の日付（今日を含む）に反映
+            syncAllInitializedFutureDates(context)
         }
     }
 
-    fun deleteLifeActivity(id: String) {
+    fun moveLifeActivity(id: String, direction: Int) {
+        // direction: -1 for up, 1 for down
+        viewModelScope.launch {
+            val current = scheduleRepository.loadLifeActivities().sortedBy { it.sortOrder }
+            val index = current.indexOfFirst { it.id == id }
+            if (index == -1) return@launch
+
+            val targetIndex = index + direction
+            if ((targetIndex < 0) || (targetIndex >= current.size)) return@launch
+
+            val list = current.toMutableList()
+            val item = list.removeAt(index)
+            list.add(targetIndex, item)
+
+            // sortOrder を振り直し
+            val updatedList = list.mapIndexed { i, act -> act.copy(sortOrder = i) }
+            scheduleRepository.saveLifeActivities(updatedList)
+        }
+    }
+
+    fun deleteLifeActivity(context: android.content.Context, id: String) {
         viewModelScope.launch {
             scheduleRepository.deleteLifeActivityById(id)
+            
+            // 初期化済みの未来（今日含む）のスケジュールから、この習慣を削除
+            val today = java.time.LocalDate.now()
+            val nowMinutes = java.time.LocalTime.now().let { (it.hour * 60) + it.minute }
+            
+            // UIキャッシュではなく、DBから全ブロックを直接取得してスキャンする
+            val allBlocks = scheduleRepository.getAllTimeBlocks()
+            val blocksToDelete = allBlocks.filter { 
+                (it.associatedId == id) && (it.type == "life") && 
+                (try {
+                    val blockDate = java.time.LocalDate.parse(it.date)
+                    !blockDate.isBefore(today)
+                } catch(_: Exception) { false })
+            }
+
+            blocksToDelete.forEach { block ->
+                val isToday = (block.date == today.toString())
+                if (!isToday || (block.startTime > nowMinutes)) {
+                    scheduleRepository.deleteTimeBlockById(block.id)
+                    com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
+                }
+            }
         }
     }
 
@@ -158,6 +261,107 @@ class TaskViewModel(
 
     private fun saveInitializedDates(set: Set<String>) {
         sharedPrefs.edit { putStringSet("initialized_dates", set) }
+    }
+
+    /**
+     * 初期化済みの全ての日付のうち、今日および未来の日付に対して設定を同期します。
+     */
+    private fun syncAllInitializedFutureDates(context: android.content.Context) {
+        val today = java.time.LocalDate.now()
+
+        // ConcurrentModificationException を避けるためコピーに対して処理
+        val dates = _initializedDates.value.toList()
+
+        dates.forEach { dateStr ->
+            try {
+                val date = java.time.LocalDate.parse(dateStr)
+                if (date.isAfter(today)) {
+                    // 未来の日付は全件同期
+                    syncDefaultLifeActivitiesForDate(context, dateStr, futureOnly = false)
+                } else if (date.isEqual(today)) {
+                    // 今日は今以降の分のみ同期
+                    syncDefaultLifeActivitiesForDate(context, dateStr, futureOnly = true)
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * 指定された日付に対して、デフォルトの生活習慣を同期（追加・更新）します。
+     * @param context アラーム設定用
+     * @param date 同期対象の日付 (yyyy-MM-dd)
+     * @param futureOnly true の場合、現在時刻より後の習慣のみを追加・更新します。
+     */
+    fun syncDefaultLifeActivitiesForDate(
+        context: android.content.Context,
+        date: String,
+        futureOnly: Boolean = false,
+    ) {
+        viewModelScope.launch {
+            syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly)
+        }
+    }
+
+    private suspend fun syncDefaultLifeActivitiesForDateInternal(
+        context: android.content.Context,
+        date: String,
+        futureOnly: Boolean = false,
+    ) {
+        val currentLifeActivities = scheduleRepository.loadLifeActivities()
+        val defaults = currentLifeActivities.filter {
+            (it.defaultStartTime != null) && (it.defaultEndTime != null)
+        }
+
+        if (defaults.isEmpty()) return
+
+        val now = java.time.LocalDateTime.now()
+        val todayStr = java.time.LocalDate.now().toString()
+        val currentMinutes = (now.hour * 60) + now.minute
+
+        val dayBlocks = timeBlocks.value.filter { (it.date == date) && (it.type == "life") }
+
+        defaults.forEach { act ->
+            // futureOnly かつ 今日の日付の場合、終了時刻が過ぎているものはスキップ
+            if (futureOnly && (date == todayStr) && (act.defaultEndTime!! <= currentMinutes)) {
+                return@forEach
+            }
+
+            val existingBlock = dayBlocks.find { it.associatedId == act.id }
+
+            if (existingBlock != null) {
+                // 既に存在する場合、内容（時間やタイトル、色）を更新
+                if ((existingBlock.startTime != act.defaultStartTime) ||
+                    (existingBlock.endTime != act.defaultEndTime) ||
+                    (existingBlock.title != act.name) ||
+                    (existingBlock.color != act.color)
+                ) {
+
+                    val updated = existingBlock.copy(
+                        title = act.name,
+                        startTime = act.defaultStartTime!!,
+                        endTime = act.defaultEndTime!!,
+                        color = act.color,
+                    )
+                    scheduleRepository.saveTimeBlock(updated)
+                    com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, updated)
+                }
+            } else {
+                // 存在しない場合のみ新規追加
+                val block = TimeBlock(
+                    id = "tb_" + java.util.UUID.randomUUID().toString().take(8),
+                    type = "life",
+                    title = act.name,
+                    associatedId = act.id,
+                    startTime = act.defaultStartTime!!,
+                    endTime = act.defaultEndTime!!,
+                    color = act.color,
+                    date = date,
+                )
+                scheduleRepository.saveTimeBlock(block)
+                com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
+            }
+        }
     }
 
     fun autoInitializeDefaultLifeActivities(context: android.content.Context, date: String) {
@@ -175,32 +379,7 @@ class TaskViewModel(
                 return@launch
             }
 
-            val currentLifeActivities = scheduleRepository.loadLifeActivities()
-            val defaultsToInsert = currentLifeActivities.filter {
-                (it.defaultStartTime != null) && (it.defaultEndTime != null)
-            }
-
-            if (defaultsToInsert.isEmpty()) {
-                val updated = _initializedDates.value + date
-                _initializedDates.value = updated
-                saveInitializedDates(updated)
-                return@launch
-            }
-
-            defaultsToInsert.forEach { act ->
-                val block = TimeBlock(
-                    id = "tb_" + java.util.UUID.randomUUID().toString().take(8),
-                    type = "life",
-                    title = act.name,
-                    associatedId = act.id,
-                    startTime = act.defaultStartTime!!,
-                    endTime = act.defaultEndTime!!,
-                    color = act.color,
-                    date = date,
-                )
-                scheduleRepository.saveTimeBlock(block)
-                com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
-            }
+            syncDefaultLifeActivitiesForDate(context, date, futureOnly = false)
 
             val updated = _initializedDates.value + date
             _initializedDates.value = updated
@@ -265,7 +444,7 @@ class TaskViewModel(
             statusType = statusType,
             category = category,
             scheduledDate = scheduledDate,
-            dueDate = dueDate
+            dueDate = dueDate,
         )
     }
 
@@ -278,7 +457,7 @@ class TaskViewModel(
         statusType: String = "status",
         category: String = "種類",
         scheduledDate: String = "予定日",
-        dueDate: String = "締め切り"
+        dueDate: String = "締め切り",
     ) {
         _notionToken.value = token
         _databaseId.value = dbId
@@ -288,7 +467,7 @@ class TaskViewModel(
             statusType = statusType,
             category = category,
             scheduledDate = scheduledDate,
-            dueDate = dueDate
+            dueDate = dueDate,
         )
     }
 
@@ -385,7 +564,7 @@ class TaskViewModel(
                 repository.updateTaskStatus(
                     token = token,
                     pageId = task.id,
-                    newStatus = nextOption.name
+                    newStatus = nextOption.name,
                 )
             } catch (_: Exception) {
                 // フォールバックまたはログ出力
@@ -401,7 +580,7 @@ class TaskViewModel(
         dueDate: String? = null,
         scheduledDate: String? = null,
         onSuccess: () -> Unit = {},
-        onFailure: (String) -> Unit = {}
+        onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
         val token = _notionToken.value
@@ -435,7 +614,7 @@ class TaskViewModel(
         dueDate: String? = null,
         scheduledDate: String? = null,
         onSuccess: () -> Unit = {},
-        onFailure: (String) -> Unit = {}
+        onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
         val token = _notionToken.value
@@ -456,7 +635,7 @@ class TaskViewModel(
                     status = finalStatus,
                     category = category.trim(),
                     dueDate = if (dueDate.isNullOrBlank()) null else dueDate,
-                    scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate
+                    scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                 )
                 onSuccess()
             } catch (e: Exception) {

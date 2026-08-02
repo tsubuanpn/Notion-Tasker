@@ -30,6 +30,10 @@ class ScheduleRepository(
         scheduleBlockDao.insertBlock(block.toEntity())
     }
 
+    suspend fun getAllTimeBlocks(): List<TimeBlock> = withContext(Dispatchers.IO) {
+        scheduleBlockDao.getAllBlocks().map { it.toDomainModel() }
+    }
+
     suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
         scheduleBlockDao.deleteBlockById(id)
     }
@@ -84,7 +88,8 @@ class ScheduleRepository(
         durationMinutes = durationMinutes,
         color = color,
         defaultStartTime = defaultStartTime,
-        defaultEndTime = defaultEndTime
+        defaultEndTime = defaultEndTime,
+        sortOrder = sortOrder,
     )
 
     private fun LifeActivity.toEntity() = LifeActivityEntity(
@@ -93,6 +98,7 @@ class ScheduleRepository(
         durationMinutes = durationMinutes,
         color = color,
         defaultStartTime = defaultStartTime,
-        defaultEndTime = defaultEndTime
+        defaultEndTime = defaultEndTime,
+        sortOrder = sortOrder,
     )
 }

@@ -56,6 +56,7 @@ sealed class SettingsSubPage(val title: String, val subtitle: String) {
     data object Pomodoro : SettingsSubPage("ポモドーロタイマー設定", "集中・休憩セッションの時間のカスタマイズ")
     data object LifeActivitySettings : SettingsSubPage("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集")
     data object Tabs : SettingsSubPage("表示タブ設定", "ナビゲーションバーに表示するタブの管理")
+    data object StatsManagement : SettingsSubPage("統計データ管理", "作業ログの保存期間設定とデータ削除")
     data object Info : SettingsSubPage("通知 / プロパティについて", "アプリ仕様と通知機能に関する補足説明")
 }
 
@@ -140,7 +141,7 @@ fun SettingsScreen(
                 onSuccess = { meta ->
                     loadedMetadata = meta
                     isLoadingSchema = false
-                }
+                },
             ) { isLoadingSchema = false }
         }
     }
@@ -169,7 +170,7 @@ fun SettingsScreen(
             onSave(
                 token, dbId, morningTime, eveningTime, morningEnabled, eveningEnabled, themeMode,
                 propTitle, propStatus, propStatusType, propCategory, propScheduled, propDue,
-                catOptions, statOptions, themeColor, dynamicColorEnabled
+                catOptions, statOptions, themeColor, dynamicColorEnabled,
             )
             Toast.makeText(context, "設定を保存しました", Toast.LENGTH_SHORT).show()
             currentSubPage = SettingsSubPage.Main
@@ -183,15 +184,14 @@ fun SettingsScreen(
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (currentSubPage == SettingsSubPage.Main) {
-            MainSettingsMenu(onNavigate = { currentSubPage = it })
+            MainSettingsMenu { currentSubPage = it }
         } else {
             SettingsSubHeader(
                 page = currentSubPage,
-                onBack = { currentSubPage = SettingsSubPage.Main }
-            )
+            ) { currentSubPage = SettingsSubPage.Main }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
 
@@ -211,7 +211,7 @@ fun SettingsScreen(
                                 loadedMetadata = meta
                                 isLoadingSchema = false
                                 Toast.makeText(context, "DB構造のロードに成功しました！", Toast.LENGTH_SHORT).show()
-                                
+
                                 // ViewModelのロジックを使用して自動検知
                                 val detected = viewModel.autoDetectMapping(meta)
                                 detected["title"]?.let { propTitle = it }
@@ -220,13 +220,13 @@ fun SettingsScreen(
                                 detected["category"]?.let { propCategory = it }
                                 detected["scheduled"]?.let { propScheduled = it }
                                 detected["due"]?.let { propDue = it }
-                            }
+                            },
                         ) { err ->
                             isLoadingSchema = false
                             Toast.makeText(context, "取得エラー: $err", Toast.LENGTH_LONG).show()
                         }
                     },
-                    onSave = handleSave
+                    onSave = handleSave,
                 )
                 is SettingsSubPage.Mapping -> MappingSettingsSection(
                     metadata = loadedMetadata,
@@ -236,14 +236,14 @@ fun SettingsScreen(
                     propCategory = propCategory, onCategoryChange = { propCategory = it },
                     propScheduled = propScheduled, onScheduledChange = { propScheduled = it },
                     propDue = propDue, onDueChange = { propDue = it },
-                    onSave = handleSave
+                    onSave = handleSave,
                 )
                 is SettingsSubPage.Notifications -> NotificationsSettingsSection(
                     morningEnabled = morningEnabled, onMorningToggle = { morningEnabled = it },
                     morningTime = morningTime, onMorningTimeChange = { morningTime = it },
                     eveningEnabled = eveningEnabled, onEveningToggle = { eveningEnabled = it },
                     eveningTime = eveningTime, onEveningTimeChange = { eveningTime = it },
-                    onSave = handleSave
+                    onSave = handleSave,
                 )
                 is SettingsSubPage.Theme -> ThemeSettingsSection(
                     themeMode = themeMode,
@@ -252,12 +252,12 @@ fun SettingsScreen(
                     onThemeColorChange = { themeColor = it },
                     dynamicColorEnabled = dynamicColorEnabled,
                     onDynamicColorToggle = { dynamicColorEnabled = it },
-                    onSave = handleSave
+                    onSave = handleSave,
                 )
-                is SettingsSubPage.Alarm -> AlarmSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
-                is SettingsSubPage.Pomodoro -> PomodoroSettingsSection(onBack = { currentSubPage = SettingsSubPage.Main })
+                is SettingsSubPage.Alarm -> AlarmSettingsSection { currentSubPage = SettingsSubPage.Main }
+                is SettingsSubPage.Pomodoro -> PomodoroSettingsSection { currentSubPage = SettingsSubPage.Main }
                 is SettingsSubPage.LifeActivitySettings -> LifeActivitySettingsSection(
-                    viewModel = viewModel
+                    viewModel = viewModel,
                 )
                 is SettingsSubPage.Tabs -> TabsSettingsSection(
                     catEnabled = initialCategoryTabEnabled,
@@ -266,9 +266,9 @@ fun SettingsScreen(
                     pomEnabled = initialPomodoroTabEnabled,
                     achEnabled = initialAchievementsTabEnabled,
                     onTabToggle = onTabToggle,
-                    onBack = { currentSubPage = SettingsSubPage.Main }
-                )
-                is SettingsSubPage.Info -> InfoSection(onBack = { currentSubPage = SettingsSubPage.Main })
+                ) { currentSubPage = SettingsSubPage.Main }
+                is SettingsSubPage.StatsManagement -> StatsManagementSection(viewModel)
+                is SettingsSubPage.Info -> InfoSection { currentSubPage = SettingsSubPage.Main }
                 else -> {}
             }
         }
@@ -287,10 +287,12 @@ fun MainSettingsMenu(onNavigate: (SettingsSubPage) -> Unit) {
         SettingsMenuItem("プロパティマッピング", "Notion側のカラム名と同期属性を定義します", Icons.Default.Layers) { onNavigate(SettingsSubPage.Mapping) }
     }
 
-    SettingsGroup("アプリ設定") {
-        SettingsMenuItem("通知スケジュール設定", "今日期限タスクを知らせる朝・夕の通知タイマー", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Notifications) }
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        SettingsMenuItem("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集", Icons.Default.Favorite) { onNavigate(SettingsSubPage.LifeActivitySettings) }
+        SettingsGroup("アプリ設定") {
+            SettingsMenuItem("通知スケジュール設定", "今日期限タスクを知らせる朝・夕の通知タイマー", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Notifications) }
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            SettingsMenuItem("統計データ管理", "作業ログの保存期間設定と一括削除", Icons.Default.BarChart) { onNavigate(SettingsSubPage.StatsManagement) }
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            SettingsMenuItem("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集", Icons.Default.Favorite) { onNavigate(SettingsSubPage.LifeActivitySettings) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         SettingsMenuItem("アラーム音設定", "ポモドーロ完了時に鳴らす音を選択", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Alarm) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -313,7 +315,7 @@ fun SettingsGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-        content = content
+        content = content,
     )
 }
 
@@ -322,11 +324,16 @@ fun SettingsSubHeader(page: SettingsSubPage, onBack: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         IconButton(
             onClick = onBack,
-            modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    RoundedCornerShape(12.dp),
+                ),
         ) {
             Icon(Icons.Default.ChevronLeft, contentDescription = "戻る")
         }
@@ -341,7 +348,7 @@ fun SettingsSubHeader(page: SettingsSubPage, onBack: () -> Unit) {
 fun NotionSettingsSection(
     token: String, onTokenChange: (String) -> Unit,
     dbId: String, onDbIdChange: (String) -> Unit,
-    isLoading: Boolean, onFetch: () -> Unit, onSave: () -> Unit
+    isLoading: Boolean, onFetch: () -> Unit, onSave: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         OutlinedTextField(value = token, onValueChange = onTokenChange, label = { Text("Notion インテグレーション トークン") }, modifier = Modifier.fillMaxWidth())
@@ -370,14 +377,14 @@ fun MappingSettingsSection(
     propCategory: String, onCategoryChange: (String) -> Unit,
     propScheduled: String, onScheduledChange: (String) -> Unit,
     propDue: String, onDueChange: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PropertyDropdown("名前 (タスクタイトル)", propTitle, metadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList(), onTitleChange)
         
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1.8f)) {
-                PropertyDropdown("状態 (ステータス)", propStatus, metadata?.properties?.filter { it.value.status != null || it.value.select != null }?.keys?.toList() ?: emptyList(), onStatusChange)
+                PropertyDropdown("状態 (ステータス)", propStatus, metadata?.properties?.filter { (it.value.status != null) || (it.value.select != null) }?.keys?.toList() ?: emptyList(), onStatusChange)
             }
             Box(Modifier.weight(1.2f)) {
                 TypeDropdown("タイプ", propStatusType, onStatusTypeChange)
@@ -395,9 +402,9 @@ fun MappingSettingsSection(
 
 @Composable
 fun PropertyDropdown(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val displayOptions = if (selected.isNotBlank() && selected !in options) listOf(selected) + options else options
-    
+    var expanded by remember { mutableStateOf(value = false) }
+    val displayOptions = if (selected.isNotBlank() && (selected !in options)) listOf(selected) + options else options
+
     Box(Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = selected.ifBlank { "未選択" },
@@ -406,7 +413,7 @@ fun PropertyDropdown(label: String, selected: String, options: List<String>, onS
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
         )
         Box(Modifier.matchParentSize().clickable { expanded = true })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -420,7 +427,7 @@ fun PropertyDropdown(label: String, selected: String, options: List<String>, onS
 
 @Composable
 fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(value = false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = if (selected == "status") "Status型" else "Select型",
@@ -429,7 +436,7 @@ fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
             modifier = Modifier.fillMaxWidth(),
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
         )
         Box(Modifier.matchParentSize().clickable { expanded = true })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -452,15 +459,21 @@ fun NotificationsSettingsSection(
         val parts = currentTime.split(":")
         val h = parts.getOrNull(0)?.toIntOrNull() ?: 8
         val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        android.app.TimePickerDialog(context, { _, hour, min ->
-            onUpdate(String.format(java.util.Locale.US, "%02d:%02d", hour, min))
-        }, h, m, true).show()
+        android.app.TimePickerDialog(
+            context,
+            { _, hour, min ->
+                onUpdate(String.format(java.util.Locale.US, "%02d:%02d", hour, min))
+            },
+            h,
+            m,
+            true,
+        ).show()
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         NotificationCard("朝の通知", "当日の予定を確認", Icons.Default.WbSunny, morningEnabled, onMorningToggle, morningTime) { showPicker(morningTime, onMorningTimeChange) }
         NotificationCard("夜の通知", "未完了タスクを確認", Icons.Default.NightsStay, eveningEnabled, onEveningToggle, eveningTime) { showPicker(eveningTime, onEveningTimeChange) }
-        
+
         Spacer(Modifier.height(8.dp))
         Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("通知設定を保存", fontWeight = FontWeight.Bold) }
     }
@@ -599,7 +612,7 @@ fun ThemeSettingsSection(
                 }
 
                 // Color Palette Grid
-                val isColorSelectionEnabled = !dynamicColorEnabled || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S
+                val isColorSelectionEnabled = !dynamicColorEnabled || (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S)
                 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
@@ -615,7 +628,7 @@ fun ThemeSettingsSection(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             rowItems.forEach { palette ->
-                                val isSelected = themeColor == palette.name && isColorSelectionEnabled
+                                val isSelected = (themeColor == palette.name) && isColorSelectionEnabled
                                 Box(
                                     modifier = Modifier
                                         .size(56.dp)
@@ -695,14 +708,16 @@ fun AlarmSettingsSection(onBack: () -> Unit) {
         Text("現在の選択: $title", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+            Button(
+                onClick = {
+                    val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                     putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
                     putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                     if (uriStr.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, uriStr.toUri())
                 }
                 launcher.launch(intent)
-            }) { Text("音を選択") }
+            }
+            ) { Text("音を選択") }
             Button(onClick = {
                 try {
                     preview?.stop()
@@ -734,10 +749,13 @@ fun PomodoroSettingsSection(onBack: () -> Unit) {
         
         Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = { work = 25; sBreak = 5; lBreak = 15 }, Modifier.weight(1f)) { Text("デフォルト") }
-            Button(onClick = {
-                prefs.edit { putInt("work_duration_min", work); putInt("short_break_duration_min", sBreak); putInt("long_break_duration_min", lBreak) }
-                onBack()
-            }, Modifier.weight(1f)) { Text("保存して戻る") }
+            Button(
+                onClick = {
+                    prefs.edit { putInt("work_duration_min", work); putInt("short_break_duration_min", sBreak); putInt("long_break_duration_min", lBreak) }
+                    onBack()
+                },
+                Modifier.weight(1f),
+            ) { Text("保存して戻る") }
         }
     }
 }
@@ -764,6 +782,81 @@ fun InfoSection(onBack: () -> Unit) {
         }
     }
     Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("戻る") }
+}
+
+@Composable
+fun StatsManagementSection(viewModel: TaskViewModel) {
+    val duration by viewModel.statsStorageDuration.collectAsState()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var deleteTargetMonths by remember { mutableIntStateOf(0) }
+    
+    val durationOptions = listOf(0 to "無制限", 1 to "1ヶ月", 3 to "3ヶ月", 6 to "6ヶ月", 12 to "1年")
+    
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("統計の保存期間設定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                durationOptions.forEach { (months, label) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { viewModel.setStatsStorageDuration(months) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = duration == months, onClick = { viewModel.setStatsStorageDuration(months) })
+                        Text(label, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        }
+
+        Text("データの一括削除", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+        val deleteOptions = listOf(1 to "1ヶ月以上前の記録", 3 to "3ヶ月以上前の記録", 6 to "6ヶ月以上前の記録", 12 to "1年以上前の記録", -1 to "すべての記録")
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                deleteOptions.forEach { (months, label) ->
+                    OutlinedButton(
+                        onClick = { deleteTargetMonths = months; showDeleteConfirm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("データの削除") },
+            text = { 
+                val target = when(deleteTargetMonths) {
+                    -1 -> "すべて"
+                    else -> "${deleteTargetMonths}ヶ月以上前"
+                }
+                Text("${target}の統計データを削除しますか？\nこの操作は取り消せません。") 
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePomodoroLogsOlderThan(deleteTargetMonths)
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("削除する") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("キャンセル") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -830,14 +923,14 @@ fun LifeActivitySettingsSection(
     val context = LocalContext.current
     val lifeActivities by viewModel.lifeActivities.collectAsState()
     
-    var showDialog by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf(value = false) }
     var editingActivity by remember { mutableStateOf<com.notiontasks.app.data.model.LifeActivity?>(null) }
     
     var actName by remember { mutableStateOf("") }
     var actDuration by remember { mutableStateOf("30") }
     var actColor by remember { mutableStateOf("#4CAF50") }
-    
-    var hasDefaultTime by remember { mutableStateOf(false) }
+
+    var hasDefaultTime by remember { mutableStateOf(value = false) }
     var defaultStartHour by remember { mutableIntStateOf(8) }
     var defaultStartMin by remember { mutableIntStateOf(0) }
     var defaultEndHour by remember { mutableIntStateOf(9) }
@@ -919,7 +1012,7 @@ fun LifeActivitySettingsSection(
                                     actName = act.name
                                     actDuration = act.durationMinutes.toString()
                                     actColor = act.color
-                                    hasDefaultTime = act.defaultStartTime != null && act.defaultEndTime != null
+                                    hasDefaultTime = (act.defaultStartTime != null) && (act.defaultEndTime != null)
                                     
                                     val startTot = act.defaultStartTime ?: 480
                                     defaultStartHour = startTot / 60
@@ -959,7 +1052,7 @@ fun LifeActivitySettingsSection(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        if (act.defaultStartTime != null && act.defaultEndTime != null) {
+                                        if ((act.defaultStartTime != null) && (act.defaultEndTime != null)) {
                                             val startH = act.defaultStartTime / 60
                                             val startM = act.defaultStartTime % 60
                                             val endH = act.defaultEndTime / 60
@@ -974,16 +1067,50 @@ fun LifeActivitySettingsSection(
                                     }
                                 }
                             }
-                            IconButton(
-                                onClick = { viewModel.deleteLifeActivity(act.id) },
-                                modifier = Modifier.size(32.dp)
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "削除",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                // 並び替えボタン
+                                Column {
+                                    IconButton(
+                                        onClick = { viewModel.moveLifeActivity(act.id, -1) },
+                                        enabled = lifeActivities.indexOf(act) > 0,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "上に移動",
+                                            tint = if (lifeActivities.indexOf(act) > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.moveLifeActivity(act.id, 1) },
+                                        enabled = (lifeActivities.indexOf(act) < (lifeActivities.size - 1)),
+                                        modifier = Modifier.size(32.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "下に移動",
+                                            tint = if (lifeActivities.indexOf(act) < (lifeActivities.size - 1)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.deleteLifeActivity(context, act.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "削除",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1082,8 +1209,8 @@ fun LifeActivitySettingsSection(
                                                 defaultStartHour = hour
                                                 defaultStartMin = minute
                                                 // 終了時間が開始時間以前にならないよう調整
-                                                val startTot = defaultStartHour * 60 + defaultStartMin
-                                                val endTot = defaultEndHour * 60 + defaultEndMin
+                                                val startTot = (defaultStartHour * 60) + defaultStartMin
+                                                val endTot = (defaultEndHour * 60) + defaultEndMin
                                                 if (endTot <= startTot) {
                                                     val newEnd = startTot + 60
                                                     defaultEndHour = (newEnd / 60) % 24
@@ -1146,8 +1273,8 @@ fun LifeActivitySettingsSection(
                             if (actName.isBlank()) return@Button
                             val duration = actDuration.toIntOrNull() ?: 30
                             
-                            val startTot = if (hasDefaultTime) defaultStartHour * 60 + defaultStartMin else null
-                            val endTot = if (hasDefaultTime) defaultEndHour * 60 + defaultEndMin else null
+                            val startTot = if (hasDefaultTime) (defaultStartHour * 60) + defaultStartMin else null
+                            val endTot = if (hasDefaultTime) (defaultEndHour * 60) + defaultEndMin else null
 
                             val newAct = com.notiontasks.app.data.model.LifeActivity(
                                 id = editingActivity?.id ?: ("la_" + java.util.UUID.randomUUID().toString().take(6)),
@@ -1162,9 +1289,9 @@ fun LifeActivitySettingsSection(
                                 val updated = lifeActivities.map {
                                     if (it.id == editingActivity!!.id) newAct else it
                                 }
-                                viewModel.saveLifeActivities(updated)
+                                viewModel.saveLifeActivities(context, updated)
                             } else {
-                                viewModel.addLifeActivity(newAct)
+                                viewModel.addLifeActivity(context, newAct)
                             }
 
                             showDialog = false

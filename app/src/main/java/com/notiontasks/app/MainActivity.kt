@@ -16,6 +16,7 @@ import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.ui.MainAppScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
@@ -87,6 +88,9 @@ class MainActivity : ComponentActivity() {
             scheduleBlockDao = database.scheduleBlockDao,
             lifeActivityDao = database.lifeActivityDao
         )
+        val pomodoroRepository = PomodoroRepository(
+            pomodoroLogDao = database.pomodoroLogDao
+        )
 
         // MVVM ファクトリ
         viewModel = ViewModelProvider(
@@ -98,6 +102,7 @@ class MainActivity : ComponentActivity() {
                         return TaskViewModel(
                             repository = taskRepository,
                             scheduleRepository = scheduleRepository,
+                            pomodoroRepository = pomodoroRepository,
                             sharedPrefs = sharedPreferences
                         ) as T
                     }

@@ -53,6 +53,22 @@ suspend fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
 
 suspend fun loadPomodoroLogsAsync(context: Context): List<PomodoroLog> = loadPomodoroLogs(context)
 
+suspend fun insertPomodoroLog(context: Context, log: PomodoroLog) {
+    getPomodoroRepository(context).insertPomodoroLog(log)
+}
+
+suspend fun deletePomodoroLogById(context: Context, id: String) {
+    getPomodoroRepository(context).deletePomodoroLogById(id)
+}
+
+suspend fun deleteLogsOlderThan(context: Context, timestamp: Long) {
+    getPomodoroRepository(context).deleteLogsOlderThan(timestamp)
+}
+
+suspend fun clearAllPomodoroLogs(context: Context) {
+    getPomodoroRepository(context).clearAllLogs()
+}
+
 suspend fun savePomodoroLogs(context: Context, logs: List<PomodoroLog>) {
     getPomodoroRepository(context).savePomodoroLogs(logs)
 }

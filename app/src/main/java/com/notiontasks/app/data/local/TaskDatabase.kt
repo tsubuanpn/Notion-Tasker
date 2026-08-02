@@ -50,7 +50,8 @@ data class LifeActivityEntity(
     val durationMinutes: Int,
     val color: String,
     val defaultStartTime: Int? = null,
-    val defaultEndTime: Int? = null
+    val defaultEndTime: Int? = null,
+    val sortOrder: Int = 0,
 )
 
 // オフライン時・リトライ用の未同期アクションキュー用エンティティ
@@ -120,6 +121,12 @@ interface PomodoroLogDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLogs(logs: List<PomodoroLogEntity>)
 
+    @Query("DELETE FROM pomodoro_logs WHERE id = :id")
+    suspend fun deleteLogById(id: String)
+
+    @Query("DELETE FROM pomodoro_logs WHERE timestamp < :timestamp")
+    suspend fun deleteLogsOlderThan(timestamp: Long)
+
     @Query("DELETE FROM pomodoro_logs")
     suspend fun clearAllLogs()
 }
@@ -153,10 +160,10 @@ interface ScheduleBlockDao {
 
 @Dao
 interface LifeActivityDao {
-    @Query("SELECT * FROM life_activities")
+    @Query("SELECT * FROM life_activities ORDER BY sortOrder ASC")
     fun getAllActivitiesFlow(): Flow<List<LifeActivityEntity>>
 
-    @Query("SELECT * FROM life_activities")
+    @Query("SELECT * FROM life_activities ORDER BY sortOrder ASC")
     suspend fun getAllActivities(): List<LifeActivityEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -194,10 +201,10 @@ interface PendingSyncActionDao {
         PomodoroLogEntity::class,
         ScheduleBlockEntity::class,
         LifeActivityEntity::class,
-        PendingSyncActionEntity::class
+        PendingSyncActionEntity::class,
     ],
-    version = 4,
-    exportSchema = false
+    version = 5,
+    exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
     abstract val taskDao: TaskDao
@@ -210,13 +217,22 @@ abstract class TaskDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: TaskDatabase? = null
 
+        private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE life_activities ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TaskDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     TaskDatabase::class.java,
-                    "notion_tasks_cache.db"
-                ).fallbackToDestructiveMigration(false).build().also {
+                    "notion_tasks_cache.db",
+                )
+                .addMigrations(MIGRATION_4_5)
+                .fallbackToDestructiveMigration(dropAllTables = false)
+                .build().also {
                     INSTANCE = it
                 }
             }

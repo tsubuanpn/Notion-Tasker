@@ -20,13 +20,15 @@ import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.loadPomodoroLogs
-import com.notiontasks.app.data.savePomodoroLogs
+import com.notiontasks.app.data.insertPomodoroLog
+import com.notiontasks.app.data.deletePomodoroLogById
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 class PomodoroService : Service() {
 
@@ -199,16 +201,12 @@ class PomodoroService : Service() {
         if (isRunning) return
         
         if (!isPaused || currentSessionId == null) {
-            currentSessionId = System.currentTimeMillis().toString()
+            currentSessionId = UUID.randomUUID().toString()
         } else {
             currentSessionId?.let { sessionId ->
                 serviceScope.launch {
                     val targetId = "pomo_paused_$sessionId"
-                    val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
-                    val removed = currentLogs.removeAll { it.id == targetId }
-                    if (removed) {
-                        savePomodoroLogs(this@PomodoroService, currentLogs)
-                    }
+                    deletePomodoroLogById(this@PomodoroService, targetId)
                 }
             }
         }
@@ -379,7 +377,7 @@ class PomodoroService : Service() {
             val logId = if (isTemporary && currentSessionId != null) {
                 "pomo_paused_$currentSessionId"
             } else {
-                "pomo_${System.currentTimeMillis()}"
+                "pomo_${UUID.randomUUID()}"
             }
 
             val newLog = PomodoroLog(
@@ -394,15 +392,12 @@ class PomodoroService : Service() {
             )
 
             serviceScope.launch {
-                val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
-                
                 // 本登録するときに、既に同じセッションの一時的なログがあればそれを削除して新しく追加する
                 if (!isTemporary && currentSessionId != null) {
-                    currentLogs.removeAll { it.id == "pomo_paused_$currentSessionId" }
+                    deletePomodoroLogById(this@PomodoroService, "pomo_paused_$currentSessionId")
                 }
 
-                currentLogs.add(newLog)
-                savePomodoroLogs(this@PomodoroService, currentLogs)
+                insertPomodoroLog(this@PomodoroService, newLog)
             }
         }
 
@@ -414,13 +409,12 @@ class PomodoroService : Service() {
         val sessionId = currentSessionId ?: return
         val targetId = "pomo_paused_$sessionId"
         serviceScope.launch {
-            val currentLogs = loadPomodoroLogs(this@PomodoroService).toMutableList()
-            val tempLogIndex = currentLogs.indexOfFirst { it.id == targetId }
-            if (tempLogIndex != -1) {
-                val tempLog = currentLogs[tempLogIndex]
-                val promotedLog = tempLog.copy(id = "pomo_${System.currentTimeMillis()}")
-                currentLogs[tempLogIndex] = promotedLog
-                savePomodoroLogs(this@PomodoroService, currentLogs)
+            val currentLogs = loadPomodoroLogs(this@PomodoroService)
+            val tempLog = currentLogs.find { it.id == targetId }
+            if (tempLog != null) {
+                val promotedLog = tempLog.copy(id = "pomo_${UUID.randomUUID()}")
+                deletePomodoroLogById(this@PomodoroService, targetId)
+                insertPomodoroLog(this@PomodoroService, promotedLog)
             }
         }
         currentSessionId = null

@@ -1,6 +1,5 @@
 package com.notiontasks.app.ui.screens
 
-import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,11 +22,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +51,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,12 +59,14 @@ import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.getCategoryChartColorInCompose
-import com.notiontasks.app.data.loadPomodoroLogsAsync
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
-import com.notiontasks.app.ui.theme.*
+import com.notiontasks.app.ui.theme.WarningOrangeContainerDark
+import com.notiontasks.app.ui.theme.WarningOrangeContainerLight
+import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
+import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import java.util.Calendar
@@ -593,7 +597,7 @@ fun AchievementsScreen(
                                     .associateBy({ it.category }) { it.categoryColor }
                             }
                             PomodoroStatsSubPage(
-                                context = LocalContext.current,
+                                viewModel = viewModel,
                                 categoryOptions = categoryOptions,
                                 categoryColorMap = categoryColorMap
                             )
@@ -659,14 +663,12 @@ fun AchievementsScreen(
 
 @Composable
 fun PomodoroStatsSubPage(
-    context: Context,
+    viewModel: TaskViewModel,
     categoryOptions: List<NotionOptionInfo>,
     categoryColorMap: Map<String, String?>,
 ) {
-    var pomodoroLogs by remember { mutableStateOf<List<PomodoroLog>>(emptyList()) }
-    LaunchedEffect(context) {
-        pomodoroLogs = loadPomodoroLogsAsync(context)
-    }
+    val pomodoroLogs by viewModel.pomodoroLogs.collectAsState()
+    var logToDelete by remember { mutableStateOf<PomodoroLog?>(null) }
 
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
@@ -1131,6 +1133,18 @@ fun PomodoroStatsSubPage(
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = { logToDelete = log },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "削除",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1273,5 +1287,29 @@ fun PomodoroStatsSubPage(
                 }
             }
         }
+    }
+
+    if (logToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { logToDelete = null },
+            title = { Text("記録の削除", style = MaterialTheme.typography.titleMedium) },
+            text = { Text("この作業記録を削除しますか？\n（${logToDelete?.taskTitle ?: "ポモドーロセッション"} : ${logToDelete?.minutes}分）") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        logToDelete?.id?.let { viewModel.deletePomodoroLog(it) }
+                        logToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("削除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { logToDelete = null }) {
+                    Text("キャンセル")
+                }
+            }
+        )
     }
 }
