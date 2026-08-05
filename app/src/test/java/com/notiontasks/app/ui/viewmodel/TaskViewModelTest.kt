@@ -62,7 +62,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun tasksState_初期状態_Loadingを放出() = runTest {
+    fun tasksState_initial_emitsLoading() = runTest {
         // Arrange
         // repository.allTasks がまだ何も放出していない状態をシミュレート
         every { repository.allTasks } returns flow { /* no-op */ }
@@ -78,7 +78,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun tasksState_データあり_Successを放出() = runTest {
+    fun tasksState_withData_emitsSuccess() = runTest {
         // Arrange
         val tasks = listOf(
             TaskModel(
@@ -87,8 +87,8 @@ class TaskViewModelTest {
                 status = "Todo",
                 category = "Work",
                 dueDate = null,
-                scheduledDate = null
-            )
+                scheduledDate = null,
+            ),
         )
         every { repository.allTasks } returns flowOf(tasks)
 
@@ -106,7 +106,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun tasksState_データなし_Idleを放出() = runTest {
+    fun tasksState_noData_emitsIdle() = runTest {
         // Arrange
         every { repository.allTasks } returns flowOf(emptyList())
 
@@ -121,7 +121,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun tasksState_エラー発生_Errorを放出() = runTest {
+    fun tasksState_onError_emitsError() = runTest {
         // Arrange
         val errorMessage = "Database Error"
         every { repository.allTasks } returns flow { throw Exception(errorMessage) }
@@ -139,7 +139,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun init_初期化時_マイグレーションとデフォルト設定が実行される() = runTest {
+    fun init_onInitialize_executesMigrationAndDefaults() = runTest {
         // Arrange
         every { sharedPrefs.getInt("pomodoro_stats_duration_months", 0) } returns 3
 
@@ -154,7 +154,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun syncWithNotion_認証情報あり_リポジトリの同期が呼ばれる() = runTest {
+    fun syncWithNotion_withCredentials_callsRepositorySync() = runTest {
         // Arrange
         every { sharedPrefs.getString("notion_token", "") } returns "valid_token"
         every { sharedPrefs.getString("database_id", "") } returns "valid_db_id"
@@ -169,7 +169,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun syncWithNotion_認証情報なし_リポジトリの同期が呼ばれない() = runTest {
+    fun syncWithNotion_withoutCredentials_doesNotCallRepositorySync() = runTest {
         // Arrange
         every { sharedPrefs.getString("notion_token", "") } returns ""
         every { sharedPrefs.getString("database_id", "") } returns ""
@@ -184,11 +184,11 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun autoInitializeDefaultLifeActivities_未初期化の日付_同期処理が実行される() = runTest {
+    fun autoInitializeDefaultLifeActivities_uninitializedDate_executesSync() = runTest {
         // Arrange
         val date = "2026-08-02"
         val defaults = listOf(
-            LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 480, sortOrder = 0)
+            LifeActivity("la_sleep", "睡眠", 480, "#9C27B0", defaultStartTime = 0, defaultEndTime = 480, sortOrder = 0),
         )
         coEvery { scheduleRepository.loadLifeActivities() } returns defaults
         
@@ -207,7 +207,7 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun autoInitializeDefaultLifeActivities_初期化済みの日付_処理がスキップされる() = runTest {
+    fun autoInitializeDefaultLifeActivities_alreadyInitializedDate_skipsProcessing() = runTest {
         // Arrange
         val date = "2026-08-02"
         every { sharedPrefs.getStringSet("initialized_dates", any()) } returns setOf(date)

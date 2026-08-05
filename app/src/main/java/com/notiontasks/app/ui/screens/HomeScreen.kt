@@ -31,7 +31,7 @@ private data class HomeTasksData(
     val unstartedTasks: List<TaskModel>,
     val inProgressTasks: List<TaskModel>,
     val allCount: Int,
-    val todayCount: Int
+    val todayCount: Int,
 )
 
 @Composable
@@ -61,8 +61,9 @@ fun HomeScreen(
             is TasksUiState.Idle -> {
                 EmptyStateView(
                     message = "タスクがありません。右上の更新ボタンを押して同期するか、Notionデータベースを確認してください。",
-                    onRefresh = { viewModel.syncWithNotion() }
-                )
+                ) {
+                    viewModel.syncWithNotion()
+                }
             }
             is TasksUiState.Success -> {
                 var homeFilter by remember { mutableStateOf("all") } // "all" or "today"
@@ -85,7 +86,7 @@ fun HomeScreen(
                             .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                     )
 
-                    val active = sortedTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }
+                    val active = sortedTasks.filter { (it.status == unstartedStatus) || (it.status == inProgressStatus) }
 
                     fun filterBySearch(tasks: List<TaskModel>): List<TaskModel> {
                         if (searchQuery.isBlank()) return tasks

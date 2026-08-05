@@ -125,7 +125,7 @@ class TaskViewModel(
 
     fun setStatsStorageDuration(months: Int) {
         _statsStorageDuration.value = months
-        sharedPrefs.edit().putInt("pomodoro_stats_duration_months", months).apply()
+        sharedPrefs.edit { putInt("pomodoro_stats_duration_months", months) }
         viewModelScope.launch {
             cleanupOldPomodoroLogs()
         }
@@ -565,6 +565,7 @@ class TaskViewModel(
                     token = token,
                     pageId = task.id,
                     newStatus = nextOption.name,
+                    newStatusColor = nextOption.color.ifBlank { null }
                 )
             } catch (_: Exception) {
                 // フォールバックまたはログ出力
@@ -589,6 +590,9 @@ class TaskViewModel(
             return
         }
 
+        val sColor = _statusOptions.value.find { it.name == status }?.color
+        val cColor = _categoryOptions.value.find { it.name == category }?.color
+
         viewModelScope.launch {
             try {
                 repository.updateTask(
@@ -599,6 +603,8 @@ class TaskViewModel(
                     category = category.trim(),
                     dueDate = if (dueDate.isNullOrBlank()) null else dueDate,
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
+                    statusColor = sColor?.ifBlank { null },
+                    categoryColor = cColor?.ifBlank { null }
                 )
                 onSuccess()
             } catch (e: Exception) {
@@ -625,6 +631,8 @@ class TaskViewModel(
         }
 
         val finalStatus = status ?: _statusOptions.value.firstOrNull()?.name ?: "未着手"
+        val sColor = _statusOptions.value.find { it.name == finalStatus }?.color
+        val cColor = _categoryOptions.value.find { it.name == category.trim() }?.color
 
         viewModelScope.launch {
             try {
@@ -636,6 +644,8 @@ class TaskViewModel(
                     category = category.trim(),
                     dueDate = if (dueDate.isNullOrBlank()) null else dueDate,
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
+                    statusColor = sColor?.ifBlank { null },
+                    categoryColor = cColor?.ifBlank { null }
                 )
                 onSuccess()
             } catch (e: Exception) {

@@ -20,6 +20,8 @@ import com.notiontasks.app.data.remote.dto.StatusValue
 import com.notiontasks.app.data.remote.dto.SelectValue
 import com.notiontasks.app.data.remote.dto.DateValue
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
+import com.notiontasks.app.data.remote.dto.NotionQueryRequest
+import com.notiontasks.app.data.remote.dto.NotionSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -167,35 +169,57 @@ class TaskRepository(
 
         // 2. リモートから最新データを取得
         try {
-            val response = notionApi.queryDatabase(token = authHeader, databaseId = databaseId)
+            val allFetchedEntities = mutableListOf<TaskEntity>()
+            var hasMore = true
+            var nextCursor: String? = null
             
-            val activeEntities = response.results.mapNotNull { page ->
-                val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
-                
-                val statusValue = page.properties.getStatusText(propStatusName)
-                    ?: page.properties.getSelectText(propStatusName)
-                    ?: "未着手"
-                    
-                val categoryValue = (page.properties.getSelectText(propCategoryName) ?: "他").trim()
-                
-                val statusColorVal = page.properties.getStatusColor(propStatusName)
-                    ?: page.properties.getSelectColor(propStatusName)
-                val categoryColorVal = page.properties.getSelectColor(propCategoryName)
+            // サーバー側で予定日・締め切り順にソートして取得することで、同期の優先順位を確保する
+            val sorts = listOf(
+                NotionSort(property = propScheduledDateName, direction = "ascending"),
+                NotionSort(property = propDueDateName, direction = "ascending")
+            )
 
-                TaskEntity(
-                    id = page.id,
-                    title = title,
-                    status = statusValue,
-                    category = categoryValue,
-                    dueDate = page.properties.getDateValue(propDueDateName),
-                    scheduledDate = page.properties.getDateValue(propScheduledDateName),
-                    statusColor = statusColorVal,
-                    categoryColor = categoryColorVal,
+            while (hasMore) {
+                val request = NotionQueryRequest(
+                    sorts = sorts,
+                    startCursor = nextCursor,
+                    pageSize = 100
                 )
+                val response = notionApi.queryDatabase(token = authHeader, databaseId = databaseId, request = request)
+                
+                val pageEntities = response.results.mapNotNull { page ->
+                    val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
+                    
+                    val statusValue = page.properties.getStatusText(propStatusName)
+                        ?: page.properties.getSelectText(propStatusName)
+                        ?: "未着手"
+                        
+                    val categoryValue = (page.properties.getSelectText(propCategoryName) ?: "他").trim()
+                    
+                    val statusColorVal = page.properties.getStatusColor(propStatusName)
+                        ?: page.properties.getSelectColor(propStatusName)
+                    val categoryColorVal = page.properties.getSelectColor(propCategoryName)
+
+                    TaskEntity(
+                        id = page.id,
+                        title = title,
+                        status = statusValue,
+                        category = categoryValue,
+                        dueDate = page.properties.getDateValue(propDueDateName),
+                        scheduledDate = page.properties.getDateValue(propScheduledDateName),
+                        statusColor = statusColorVal,
+                        categoryColor = categoryColorVal,
+                    )
+                }
+                allFetchedEntities.addAll(pageEntities)
+                
+                hasMore = response.hasMore
+                nextCursor = response.nextCursor
             }
 
             // 3. トランザクションを用いて差分更新（Upsert + 不要データの削除）
-            taskDao.syncTasksTransactionally(activeEntities)
+            // 全件取得後に行うことで、100件制限による意図しない削除を防止する
+            taskDao.syncTasksTransactionally(allFetchedEntities)
         } catch (e: Exception) {
             throw IOException("Network synchronization failed: ${e.message}", e)
         }
@@ -208,9 +232,10 @@ class TaskRepository(
         token: String,
         pageId: String,
         newStatus: String,
+        newStatusColor: String? = null,
     ) = syncMutex.withLock {
         // 楽観的な UI/ローカルの更新
-        val statusColor = taskDao.getStatusColorForStatus(newStatus)
+        val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(newStatus)
         taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
 
         // リモートの Patch 呼び出しを実行する
@@ -229,7 +254,13 @@ class TaskRepository(
                     },
                 )
             )
-            notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
+            val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
+            
+            // APIからの最新の色情報を反映させる（Notion側での変更を追従）
+            val finalStatusColor = updatedPage.properties.getStatusColor(propStatusName)
+            if (finalStatusColor != null) {
+                taskDao.updateTaskStatusLocal(pageId, newStatus, finalStatusColor)
+            }
         } catch (_: Exception) {
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
@@ -246,9 +277,18 @@ class TaskRepository(
                         },
                     ),
                 )
-                notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
+                val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
                 // 再試行が成功した場合は、構成をシームレスに更新します
                 propStatusType = alternateType
+                
+                val finalStatusColor = if (alternateType == "status") {
+                    updatedPage.properties.getStatusColor(propStatusName)
+                } else {
+                    updatedPage.properties.getSelectColor(propStatusName)
+                }
+                if (finalStatusColor != null) {
+                    taskDao.updateTaskStatusLocal(pageId, newStatus, finalStatusColor)
+                }
             } catch (_: Exception) {
                 // オフラインまたは通信エラー時はキューに保存して次回自動リトライする
                 val actionPayload = buildJsonObject {
@@ -274,15 +314,17 @@ class TaskRepository(
         category: String,
         dueDate: String?,
         scheduledDate: String?,
+        statusColor: String? = null,
+        categoryColor: String? = null,
     ) = syncMutex.withLock {
         // 楽観的な UI/ローカルの更新
         val currentLocalTask = taskDao.getTaskById(pageId)
-        val statusColor = if (currentLocalTask?.status == status) {
+        val finalStatusColor = statusColor ?: if (currentLocalTask?.status == status) {
             currentLocalTask.statusColor
         } else {
             taskDao.getStatusColorForStatus(status)
         }
-        val categoryColor = if (currentLocalTask?.category == category) {
+        val finalCategoryColor = categoryColor ?: if (currentLocalTask?.category == category) {
             currentLocalTask.categoryColor
         } else {
             taskDao.getCategoryColorForCategory(category)
@@ -294,8 +336,8 @@ class TaskRepository(
             category = category,
             dueDate = dueDate,
             scheduledDate = scheduledDate,
-            statusColor = statusColor,
-            categoryColor = categoryColor,
+            statusColor = finalStatusColor,
+            categoryColor = finalCategoryColor,
         )
         taskDao.upsertTasks(listOf(updatedLocalRef))
 
@@ -369,15 +411,32 @@ class TaskRepository(
 
         // フォールバックメカニズムを使用したリモートの Patch 呼び出しの実行
         val authHeader = "Bearer $token"
-        val payload = try {
-            buildPropertiesPayload(propStatusType)
-        } catch (_: Exception) {
-            val alternateType = if (propStatusType == "select") "status" else "select"
-            propStatusType = alternateType
-            buildPropertiesPayload(alternateType)
-        }
         try {
-            notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = payload))
+            val payload = try {
+                buildPropertiesPayload(propStatusType)
+            } catch (_: Exception) {
+                val alternateType = if (propStatusType == "select") "status" else "select"
+                propStatusType = alternateType
+                buildPropertiesPayload(alternateType)
+            }
+            
+            val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = payload))
+            
+            // APIからの最新の色情報を反映させる
+            val apiStatusColor = if (propStatusType == "status") {
+                updatedPage.properties.getStatusColor(propStatusName)
+            } else {
+                updatedPage.properties.getSelectColor(propStatusName)
+            }
+            val apiCategoryColor = updatedPage.properties.getSelectColor(propCategoryName)
+            
+            if (apiStatusColor != null || apiCategoryColor != null) {
+                val refreshedEntity = updatedLocalRef.copy(
+                    statusColor = apiStatusColor ?: updatedLocalRef.statusColor,
+                    categoryColor = apiCategoryColor ?: updatedLocalRef.categoryColor
+                )
+                taskDao.upsertTasks(listOf(refreshedEntity))
+            }
         } catch (_: Exception) {
             val actionPayload = buildJsonObject {
                 put("title", title)
@@ -405,6 +464,8 @@ class TaskRepository(
         category: String,
         dueDate: String?,
         scheduledDate: String?,
+        statusColor: String? = null,
+        categoryColor: String? = null,
     ) = syncMutex.withLock {
         val authHeader = "Bearer $token"
         
@@ -435,13 +496,23 @@ class TaskRepository(
             val request = buildCreatePayload(propStatusType)
             val createdPage = notionApi.createPage(token = authHeader, request = request)
             
+            // APIから返された実際の色情報を取得
+            val apiStatusColor = if (propStatusType == "status") {
+                createdPage.properties.getStatusColor(propStatusName)
+            } else {
+                createdPage.properties.getSelectColor(propStatusName)
+            }
+            val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+
             val localEntity = TaskEntity(
                 id = createdPage.id,
                 title = title,
                 status = status,
                 category = category,
                 dueDate = dueDate,
-                scheduledDate = scheduledDate
+                scheduledDate = scheduledDate,
+                statusColor = apiStatusColor ?: statusColor,
+                categoryColor = apiCategoryColor ?: categoryColor
             )
             taskDao.upsertTasks(listOf(localEntity))
         } catch (_: Exception) {
@@ -451,13 +522,22 @@ class TaskRepository(
                 val createdPage = notionApi.createPage(token = authHeader, request = request)
                 propStatusType = alternateType
                 
+                val apiStatusColor = if (alternateType == "status") {
+                    createdPage.properties.getStatusColor(propStatusName)
+                } else {
+                    createdPage.properties.getSelectColor(propStatusName)
+                }
+                val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+
                 val localEntity = TaskEntity(
                     id = createdPage.id,
                     title = title,
                     status = status,
                     category = category,
                     dueDate = dueDate,
-                    scheduledDate = scheduledDate
+                    scheduledDate = scheduledDate,
+                    statusColor = apiStatusColor ?: statusColor,
+                    categoryColor = apiCategoryColor ?: categoryColor
                 )
                 taskDao.upsertTasks(listOf(localEntity))
             } catch (_: Exception) {
@@ -469,7 +549,9 @@ class TaskRepository(
                     status = status,
                     category = category,
                     dueDate = dueDate,
-                    scheduledDate = scheduledDate
+                    scheduledDate = scheduledDate,
+                    statusColor = statusColor,
+                    categoryColor = categoryColor
                 )
                 taskDao.upsertTasks(listOf(localEntity))
 

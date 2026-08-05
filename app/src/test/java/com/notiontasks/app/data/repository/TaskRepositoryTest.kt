@@ -32,7 +32,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun syncTasks_正常系_Roomへデータが反映される() = runTest {
+    fun syncTasks_success_reflectsDataToRoom() = runTest {
         // Arrange
         val token = "test_token"
         val databaseId = "test_db"
@@ -73,8 +73,82 @@ class TaskRepositoryTest {
         }
     }
 
+    @Test
+    fun syncTasks_pagination_mergesMultiplePages() = runTest {
+        // Arrange
+        val token = "test_token"
+        val databaseId = "test_db"
+        
+        fun createPageProperties(title: String) = mapOf(
+            "名前" to buildJsonObject {
+                put("title", buildJsonArray {
+                    add(buildJsonObject { put("plain_text", title) })
+                })
+            }
+        )
+        
+        val responsePage1 = NotionQueryResponse(
+            results = listOf(NotionPage(id = "page_1", properties = createPageProperties("Task 1"))),
+            hasMore = true,
+            nextCursor = "cursor_2"
+        )
+        val responsePage2 = NotionQueryResponse(
+            results = listOf(NotionPage(id = "page_2", properties = createPageProperties("Task 2"))),
+            hasMore = false,
+            nextCursor = null
+        )
+        
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+        // 1回目の呼び出し（cursorなし）と2回目の呼び出し（cursor_2あり）をシミュレート
+        coEvery { notionApi.queryDatabase(any(), any(), any(), match { it.startCursor == null }) } returns responsePage1
+        coEvery { notionApi.queryDatabase(any(), any(), any(), match { it.startCursor == "cursor_2" }) } returns responsePage2
+
+        // Act
+        repository.syncTasks(token, databaseId)
+
+        // Assert
+        coVerify(exactly = 2) { notionApi.queryDatabase(any(), any(), any(), any()) }
+        coVerify { 
+            taskDao.syncTasksTransactionally(match { entities ->
+                entities.size == 2 &&
+                entities.any { it.id == "page_1" && it.title == "Task 1" } &&
+                entities.any { it.id == "page_2" && it.title == "Task 2" }
+            })
+        }
+    }
+
+    @Test
+    fun syncTasks_sortParameters_sentToApiCorrectly() = runTest {
+        // Arrange
+        val token = "test_token"
+        val databaseId = "test_db"
+        
+        val response = NotionQueryResponse(results = emptyList(), hasMore = false)
+        
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns response
+
+        // Act
+        repository.syncTasks(token, databaseId)
+
+        // Assert
+        coVerify { 
+            notionApi.queryDatabase(
+                any(),
+                any(),
+                databaseId,
+                match { request ->
+                    val sorts = request.sorts
+                    sorts?.size == 2 &&
+                    sorts[0].property == repository.propScheduledDateName &&
+                    sorts[1].property == repository.propDueDateName
+                }
+            )
+        }
+    }
+
     @Test(expected = IOException::class)
-    fun syncTasks_通信エラー_IOExceptionがスローされる() = runTest {
+    fun syncTasks_networkError_throwsIOException() = runTest {
         // Arrange
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
         coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } throws Exception("Network Error")
@@ -84,7 +158,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun updateTaskStatus_成功時_リモート更新とローカル更新が両方行われる() = runTest {
+    fun updateTaskStatus_success_updatesRemoteAndLocal() = runTest {
         // Arrange
         val token = "token"
         val pageId = "id"
@@ -101,7 +175,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun updateTaskStatus_オフライン時_PendingSyncActionとして保存される() = runTest {
+    fun updateTaskStatus_offline_queuesPendingAction() = runTest {
         // Arrange
         val token = "token"
         val pageId = "id"
@@ -124,7 +198,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun createTask_オフライン時_一時IDでRoomに保存されアクションがキューイングされる() = runTest {
+    fun createTask_offline_savesWithTempIdAndQueuesAction() = runTest {
         // Arrange
         coEvery { notionApi.createPage(any(), any(), any()) } throws IOException("Offline")
 
@@ -145,7 +219,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun migrateLegacyPreferencesToRoom_未実施時_データが移行されフラグがセットされる() = runTest {
+    fun migrateLegacyPreferencesToRoom_notMigrated_migratesDataAndSetsFlag() = runTest {
         // Arrange
         val editor: SharedPreferences.Editor = mockk(relaxed = true)
         val migratedKey = "has_migrated_legacy_prefs_to_room_v1"
@@ -166,7 +240,7 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun migrateLegacyPreferencesToRoom_実施済み_何も行われない() = runTest {
+    fun migrateLegacyPreferencesToRoom_alreadyMigrated_doesNothing() = runTest {
         // Arrange
         val migratedKey = "has_migrated_legacy_prefs_to_room_v1"
         every { sharedPrefs.getBoolean(migratedKey, false) } returns true

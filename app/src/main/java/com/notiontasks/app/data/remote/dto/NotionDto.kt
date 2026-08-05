@@ -9,13 +9,15 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class NotionQueryResponse(
-    @SerialName("results") val results: List<NotionPage>
+    @SerialName("results") val results: List<NotionPage>,
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 @Serializable
 data class NotionPage(
     @SerialName("id") val id: String,
-    @SerialName("properties") val properties: Map<String, JsonElement>
+    @SerialName("properties") val properties: Map<String, JsonElement>,
 )
 
 @Serializable
@@ -98,6 +100,20 @@ data class DateValue(
 )
 
 // リクエスト用の DTO
+
+@Serializable
+data class NotionQueryRequest(
+    @SerialName("filter") val filter: JsonElement? = null,
+    @SerialName("sorts") val sorts: List<NotionSort>? = null,
+    @SerialName("start_cursor") val startCursor: String? = null,
+    @SerialName("page_size") val pageSize: Int? = null
+)
+
+@Serializable
+data class NotionSort(
+    @SerialName("property") val property: String,
+    @SerialName("direction") val direction: String // "ascending" or "descending"
+)
 
 @Serializable
 data class NotionUpdateRequest(

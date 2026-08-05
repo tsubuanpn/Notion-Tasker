@@ -63,7 +63,6 @@ fun TaskItemCard(
 
     val isCompleted = task.status == completedStatus
     val isInProgress = task.status == inProgressStatus
-    val isUnstarted = !isCompleted && !isInProgress
 
     val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
     val isOverdueScheduled = !isCompleted && task.scheduledDate != null && task.scheduledDate < todayStr
@@ -85,12 +84,7 @@ fun TaskItemCard(
     }
 
     val categoryColors = getNotionCategoryColors(task.categoryColor, isSystemDark)
-
-    val statusColors = if (isUnstarted) {
-        if (isSystemDark) Pair(Color(0xFF2C2C2E), Color(0xFFEBEBF5)) else Pair(Color(0xFFF2F2F7), Color(0xFF8E8E93))
-    } else {
-        getNotionStatusColors(task.statusColor, isSystemDark)
-    }
+    val statusColors = getNotionStatusColors(task.statusColor, isSystemDark)
 
     Card(
         modifier = Modifier

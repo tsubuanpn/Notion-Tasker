@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +63,7 @@ import androidx.core.content.edit
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 
@@ -98,6 +100,9 @@ fun PomodoroScreen(
 
     val tasksState by viewModel.tasksState.collectAsState()
 
+    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
+    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
+
     LaunchedEffect(selectedTaskId) {
         prefs.edit { putString("selected_task_id", selectedTaskId) }
     }
@@ -105,13 +110,13 @@ fun PomodoroScreen(
     LaunchedEffect(tasksState) {
         if (tasksState is TasksUiState.Success) {
             val successState = tasksState as TasksUiState.Success
-            if ((selectedTaskId != null) && (successState.tasks.none { it.id == selectedTaskId })) {
+            val selectedTask = successState.tasks.find { it.id == selectedTaskId }
+            // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
+            if (selectedTaskId != null && (selectedTask == null || selectedTask.status == completedStatus)) {
                 selectedTaskId = null
             }
         }
     }
-    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     LaunchedEffect(todayStr, savedCompletedCountDate) {
         if (savedCompletedCountDate != todayStr) {
@@ -127,9 +132,11 @@ fun PomodoroScreen(
             is TasksUiState.Success -> {
                 state.tasks.asSequence().filter { task ->
                     val isUncompleted = task.status != completedStatus
-                    (task.scheduledDate == todayStr) ||
-                    (isUncompleted && (task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
-                    (isUncompleted && (task.dueDate != null) && (task.dueDate < todayStr))
+                    isUncompleted && (
+                        (task.scheduledDate == todayStr) ||
+                        ((task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
+                        ((task.dueDate != null) && (task.dueDate < todayStr))
+                    )
                 }.sortedWith(
                     compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                         .thenBy(nullsLast(naturalOrder())) { it.dueDate }
@@ -591,8 +598,38 @@ fun PomodoroScreen(
                         }
                     )
                     uncompletedTasks.forEach { task ->
+                        val isOverdueDue = task.dueDate != null && task.dueDate < todayStr
+                        val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < todayStr
+                        val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+
                         DropdownMenuItem(
-                            text = { Text("[${task.category}] ${task.title}", fontWeight = FontWeight.Medium, fontSize = 12.sp) },
+                            text = {
+                                Text(
+                                    text = "[${task.category}] ${task.title}",
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            trailingIcon = {
+                                if (isOverdueDue) {
+                                    Text(
+                                        text = "⚠️ 期限",
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else if (isOverdueScheduled) {
+                                    val orangeColor = if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+                                    Text(
+                                        text = "⚠️ 持ち越し",
+                                        color = orangeColor,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            },
                             onClick = {
                                 selectedTaskId = task.id
                                 dropdownExpanded = false

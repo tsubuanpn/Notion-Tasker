@@ -43,7 +43,7 @@ class ScheduleRepositoryTest {
     }
 
     @Test
-    fun allTimeBlocks_データ取得時_ドメインモデルに変換されて放出される() = runTest {
+    fun allTimeBlocks_whenDataExists_emitsConvertedDomainModels() = runTest {
         // Arrange
         val entity = ScheduleBlockEntity(
             id = "1",
@@ -53,7 +53,7 @@ class ScheduleRepositoryTest {
             startTime = 60,
             endTime = 120,
             color = "#FFFFFF",
-            date = "2026-08-02"
+            date = "2026-08-02",
         )
         every { scheduleBlockDao.getAllBlocksFlow() } returns flowOf(listOf(entity))
         repository = createRepository()
@@ -69,7 +69,7 @@ class ScheduleRepositoryTest {
     }
 
     @Test
-    fun saveTimeBlock_呼び出し時_Entityに変換されてDAOが呼ばれる() = runTest {
+    fun saveTimeBlock_whenCalled_convertsToEntityAndCallsDao() = runTest {
         // Arrange
         repository = createRepository()
         val block = TimeBlock(
@@ -80,7 +80,7 @@ class ScheduleRepositoryTest {
             startTime = 0,
             endTime = 480,
             color = "#000000",
-            date = "2026-08-02"
+            date = "2026-08-02",
         )
 
         // Act
@@ -88,14 +88,16 @@ class ScheduleRepositoryTest {
 
         // Assert
         coVerify { 
-            scheduleBlockDao.insertBlock(match { 
-                it.id == "1" && it.title == "Sleep" && it.type == "life"
-            })
+            scheduleBlockDao.insertBlock(
+                match { 
+                    (it.id == "1") && (it.title == "Sleep") && (it.type == "life")
+                },
+            )
         }
     }
 
     @Test
-    fun deleteTimeBlockById_呼び出し時_DAOの削除が呼ばれる() = runTest {
+    fun deleteTimeBlockById_whenCalled_callsDaoDelete() = runTest {
         // Arrange
         repository = createRepository()
         val id = "target_id"
@@ -108,7 +110,7 @@ class ScheduleRepositoryTest {
     }
 
     @Test
-    fun allLifeActivities_データ取得時_ドメインモデルに変換されて放出される() = runTest {
+    fun allLifeActivities_whenDataExists_emitsConvertedDomainModels() = runTest {
         // Arrange
         val entity = LifeActivityEntity(
             id = "la_1",
@@ -117,7 +119,7 @@ class ScheduleRepositoryTest {
             color = "#FF9800",
             defaultStartTime = 720,
             defaultEndTime = 780,
-            sortOrder = 1
+            sortOrder = 1,
         )
         every { lifeActivityDao.getAllActivitiesFlow() } returns flowOf(listOf(entity))
         repository = createRepository()
@@ -133,7 +135,7 @@ class ScheduleRepositoryTest {
     }
 
     @Test
-    fun saveLifeActivity_呼び出し時_Entityに変換されてDAOが呼ばれる() = runTest {
+    fun saveLifeActivity_whenCalled_convertsToEntityAndCallsDao() = runTest {
         // Arrange
         repository = createRepository()
         val activity = LifeActivity(
@@ -141,7 +143,7 @@ class ScheduleRepositoryTest {
             name = "Exercise",
             durationMinutes = 60,
             color = "#E91E63",
-            sortOrder = 5
+            sortOrder = 5,
         )
 
         // Act
@@ -149,14 +151,16 @@ class ScheduleRepositoryTest {
 
         // Assert
         coVerify { 
-            lifeActivityDao.insertActivity(match { 
-                it.id == "la_1" && it.name == "Exercise" && it.sortOrder == 5
-            })
+            lifeActivityDao.insertActivity(
+                match { 
+                    (it.id == "la_1") && (it.name == "Exercise") && (it.sortOrder == 5)
+                },
+            )
         }
     }
 
     @Test
-    fun deleteLifeActivityById_呼び出し時_DAOの削除が呼ばれる() = runTest {
+    fun deleteLifeActivityById_whenCalled_callsDaoDelete() = runTest {
         // Arrange
         repository = createRepository()
         val id = "la_id"

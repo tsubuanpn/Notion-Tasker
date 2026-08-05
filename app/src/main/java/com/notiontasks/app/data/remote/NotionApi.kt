@@ -5,6 +5,7 @@ import com.notiontasks.app.data.remote.dto.NotionUpdateRequest
 import com.notiontasks.app.data.remote.dto.NotionCreateRequest
 import com.notiontasks.app.data.remote.dto.NotionPage
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
+import com.notiontasks.app.data.remote.dto.NotionQueryRequest
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.GET
@@ -18,7 +19,7 @@ interface NotionApi {
     suspend fun getDatabase(
         @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
-        @Path("database_id") databaseId: String
+        @Path("database_id") databaseId: String,
     ): NotionDatabaseResponse
 
     @POST("v1/databases/{database_id}/query")
@@ -26,7 +27,7 @@ interface NotionApi {
         @Header("Authorization") token: String, // Bearer <トークン>
         @Header("Notion-Version") version: String = "2022-06-28",
         @Path("database_id") databaseId: String,
-        @Body filter: Map<String, String> = emptyMap()
+        @Body request: NotionQueryRequest = NotionQueryRequest(),
     ): NotionQueryResponse
 
     @PATCH("v1/pages/{page_id}")

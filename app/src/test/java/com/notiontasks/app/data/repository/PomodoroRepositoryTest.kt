@@ -40,7 +40,7 @@ class PomodoroRepositoryTest {
     }
 
     @Test
-    fun allLogsFlow_データが存在する場合_ドメインモデルのリストが放出される() = runTest {
+    fun allLogsFlow_whenDataExists_emitsConvertedDomainModels() = runTest {
         // Arrange
         val entity = PomodoroLogEntity(
             id = "log_1",
@@ -50,7 +50,7 @@ class PomodoroRepositoryTest {
             categoryColor = "#2196F3",
             date = "2026-08-02",
             minutes = 25,
-            timestamp = 1722596400000L
+            timestamp = 1722596400000L,
         )
         every { pomodoroLogDao.getAllLogsFlow() } returns flowOf(listOf(entity))
         repository = createRepository()
@@ -66,7 +66,7 @@ class PomodoroRepositoryTest {
     }
 
     @Test
-    fun insertPomodoroLog_有効なデータの場合_DAOのinsertLogが正しい値で呼ばれる() = runTest {
+    fun insertPomodoroLog_withValidData_callsDaoInsertLogWithCorrectValues() = runTest {
         // Arrange
         repository = createRepository()
         val log = PomodoroLog(
@@ -77,7 +77,7 @@ class PomodoroRepositoryTest {
             categoryColor = "#4CAF50",
             date = "2026-08-02",
             minutes = 50,
-            timestamp = 1722596400000L
+            timestamp = 1722596400000L,
         )
 
         // Act
@@ -85,20 +85,22 @@ class PomodoroRepositoryTest {
 
         // Assert
         coVerify { 
-            pomodoroLogDao.insertLog(match { 
-                it.id == "log_new" && it.taskTitle == "Study" && it.minutes == 50
-            })
+            pomodoroLogDao.insertLog(
+                match { 
+                    (it.id == "log_new") && (it.taskTitle == "Study") && (it.minutes == 50)
+                },
+            )
         }
     }
 
     @Test
-    fun loadPomodoroLogs_DAOからデータが返る場合_正しくマッピングされたリストが返る() = runTest {
+    fun loadPomodoroLogs_whenDaoReturnsData_returnsCorrectlyMappedList() = runTest {
         // Arrange
         val entities = listOf(
             PomodoroLogEntity(
                 id = "1", taskId = null, taskTitle = null, category = "Break", 
-                categoryColor = null, date = "2026-08-02", minutes = 5, timestamp = 0L
-            )
+                categoryColor = null, date = "2026-08-02", minutes = 5, timestamp = 0L,
+            ),
         )
         coEvery { pomodoroLogDao.getAllLogs() } returns entities
         repository = createRepository()
@@ -113,7 +115,7 @@ class PomodoroRepositoryTest {
     }
 
     @Test
-    fun deletePomodoroLogById_IDを指定した場合_DAOの削除メソッドが呼ばれる() = runTest {
+    fun deletePomodoroLogById_whenIdProvided_callsDaoDeleteMethod() = runTest {
         // Arrange
         repository = createRepository()
         val id = "target_log_id"
@@ -126,7 +128,7 @@ class PomodoroRepositoryTest {
     }
 
     @Test
-    fun deleteLogsOlderThan_閾値を指定した場合_DAOの期間指定削除が呼ばれる() = runTest {
+    fun deleteLogsOlderThan_whenThresholdProvided_callsDaoDeleteOlderThan() = runTest {
         // Arrange
         repository = createRepository()
         val threshold = 1722596400000L
@@ -139,7 +141,7 @@ class PomodoroRepositoryTest {
     }
 
     @Test
-    fun clearAllLogs_呼び出し時_DAOの全削除が呼ばれる() = runTest {
+    fun clearAllLogs_whenCalled_callsDaoClearAll() = runTest {
         repository = createRepository()
         // Act
         repository.clearAllLogs()
