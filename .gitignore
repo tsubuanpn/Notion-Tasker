@@ -6,3 +6,4 @@ gradlew.bat
 gradlew
 gradle-wrapper.jar
 build/reports/problems/
+.artifacts/
