@@ -181,6 +181,9 @@ class PomodoroService : Service() {
                 ACTION_SKIP -> {
                     skipToNext()
                 }
+                ACTION_COMPLETE -> {
+                    completeSession()
+                }
                 ACTION_STOP_ALARM -> {
                     stopRingtonePlayback()
                     if (!isRunning && !isPaused) {
@@ -235,47 +238,55 @@ class PomodoroService : Service() {
             }
 
             override fun onFinish() {
-                timeLeftMs = 0
-                isRunning = false
-                isPaused = false
-                onStateChangedListener?.invoke(false)
-                
-                commitFocusSession(isTemporary = false)
-                
-                val completedMode = currentMode
-                transitionToNextMode()
-                
-                onFinishedListener?.invoke()
-                // アラーム音を再生：pomodoro_prefs に保存されているユーザー選択の URI を優先する
-                val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-                val stored = prefs.getString("alarm_uri", "")
-                val alarmUri = if (!stored.isNullOrBlank()) {
-                    try { stored.toUri() } catch (_: Exception) { null }
-                } else {
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                } ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
-                try {
-                    ringtone = RingtoneManager.getRingtone(this@PomodoroService, alarmUri)
-                    val audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                    ringtone?.audioAttributes = audioAttributes
-                    ringtone?.play()
-                    isRingtonePlaying = true
-                    onRingtoneStateChangedListener?.invoke(true)
-
-
-                } catch (_: Exception) {
-                    // 再生に失敗しても処理は継続
-                }
-
-                // 常駐通知と完了通知を表示する（常駐通知はアラーム鳴動中のレイアウトに更新）
-                updateNotification("")
-                showCompletionNotification(completedMode)
+                handleSessionFinished()
             }
         }.start()
+    }
+
+    private fun handleSessionFinished() {
+        timeLeftMs = 0
+        isRunning = false
+        isPaused = false
+        onStateChangedListener?.invoke(false)
+
+        commitFocusSession(isTemporary = false)
+
+        val completedMode = currentMode
+        transitionToNextMode()
+
+        onFinishedListener?.invoke()
+        // アラーム音を再生：pomodoro_prefs に保存されているユーザー選択の URI を優先する
+        val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
+        val stored = prefs.getString("alarm_uri", "")
+        val alarmUri = if (!stored.isNullOrBlank()) {
+            try {
+                stored.toUri()
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        } ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+        try {
+            ringtone = RingtoneManager.getRingtone(this@PomodoroService, alarmUri)
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            ringtone?.audioAttributes = audioAttributes
+            ringtone?.play()
+            isRingtonePlaying = true
+            onRingtoneStateChangedListener?.invoke(true)
+
+
+        } catch (_: Exception) {
+            // 再生に失敗しても処理は継続
+        }
+
+        // 常駐通知と完了通知を表示する（常駐通知はアラーム鳴動中のレイアウトに更新）
+        updateNotification("")
+        showCompletionNotification(completedMode)
     }
 
     private fun pauseTimer() {
@@ -321,6 +332,22 @@ class PomodoroService : Service() {
             isRingtonePlaying = false
             onRingtoneStateChangedListener?.invoke(false)
             updateNotification(formatTime(timeLeftMs))
+        }
+    }
+
+    private fun completeSession() {
+        if (currentMode == "work") {
+            // 開発者モード用：現在のセッションを強制的に完了させ、セッション全時間を記録する
+            // 全時間分を一度に記録するため、開始時間を durationMs に、残り時間を 0 に設定する
+            focusStartLeftMs = durationMs
+            timeLeftMs = 0
+            
+            countDownTimer?.cancel()
+            countDownTimer = null
+            handleSessionFinished()
+        } else {
+            // 休憩モードの場合は単にスキップと同じ挙動にする
+            skipToNext()
         }
     }
 
@@ -636,6 +663,7 @@ class PomodoroService : Service() {
         const val ACTION_PAUSE = "com.notiontasks.app.ACTION_PAUSE"
         const val ACTION_STOP = "com.notiontasks.app.ACTION_STOP"
         const val ACTION_SKIP = "com.notiontasks.app.ACTION_SKIP"
+        const val ACTION_COMPLETE = "com.notiontasks.app.ACTION_COMPLETE"
         const val ACTION_STOP_ALARM = "com.notiontasks.app.ACTION_STOP_ALARM"
         const val ACTION_START_NEXT = "com.notiontasks.app.ACTION_START_NEXT"
 

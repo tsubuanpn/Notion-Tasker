@@ -81,6 +81,8 @@ fun PomodoroScreen(
     viewModel: TaskViewModel,
     statusOptions: List<NotionOptionInfo>,
     boundService: PomodoroService?,
+    devModeEnabled: Boolean = false,
+    devCompleteButtonEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
@@ -448,6 +450,32 @@ fun PomodoroScreen(
                                 tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(28.dp)
                             )
+                        }
+
+                        // 開発者モード用: 強制完了ボタン
+                        if (devModeEnabled && devCompleteButtonEnabled && mode == "work") {
+                            IconButton(
+                                onClick = {
+                                    triggerServiceAction(PomodoroService.ACTION_COMPLETE)
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = RoundedCornerShape(50)
+                                    )
+                                    .border(
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(50)
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "強制完了 (Dev)",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
 
                         // アラーム停止ボタン (表示条件: アラーム再生中でタイマーは停止)

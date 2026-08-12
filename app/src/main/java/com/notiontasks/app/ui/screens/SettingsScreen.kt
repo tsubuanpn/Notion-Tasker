@@ -10,13 +10,16 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
@@ -27,17 +30,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.content.IntentCompat
 import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
+import com.notiontasks.app.R
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.theme.AppThemePalettes
@@ -57,7 +61,8 @@ sealed class SettingsSubPage(val title: String, val subtitle: String) {
     data object LifeActivitySettings : SettingsSubPage("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集")
     data object Tabs : SettingsSubPage("表示タブ設定", "ナビゲーションバーに表示するタブの管理")
     data object StatsManagement : SettingsSubPage("統計データ管理", "作業ログの保存期間設定とデータ削除")
-    data object Info : SettingsSubPage("通知 / プロパティについて", "アプリ仕様と通知機能に関する補足説明")
+    data object About : SettingsSubPage("アプリの概要", "バージョン情報とGitHubリンク、開発者モード設定")
+    data object Developer : SettingsSubPage("開発者設定", "アプリ開発・デバッグ用ツール")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,6 +89,8 @@ fun SettingsScreen(
     initialScheduleTabEnabled: Boolean,
     initialPomodoroTabEnabled: Boolean,
     initialAchievementsTabEnabled: Boolean,
+    initialDevModeEnabled: Boolean,
+    initialDevCompleteButtonEnabled: Boolean,
     onTabToggle: (String, Boolean) -> Unit,
     initialCategoryOptions: List<NotionOptionInfo>,
     initialStatusOptions: List<NotionOptionInfo>,
@@ -105,6 +112,8 @@ fun SettingsScreen(
         mStatOptions: List<NotionOptionInfo>,
         themeColor: String,
         dynamicColor: Boolean,
+        devMode: Boolean,
+        devCompleteButton: Boolean,
     ) -> Unit,
 ) {
     // --- 内部状態 ---
@@ -117,6 +126,8 @@ fun SettingsScreen(
     var themeMode by remember { mutableStateOf(initialThemeMode) }
     var themeColor by remember { mutableStateOf(initialThemeColor) }
     var dynamicColorEnabled by remember { mutableStateOf(initialDynamicColorEnabled) }
+    var devModeEnabled by remember { mutableStateOf(initialDevModeEnabled) }
+    var devCompleteButtonEnabled by remember { mutableStateOf(initialDevCompleteButtonEnabled) }
 
     var propTitle by remember { mutableStateOf(initialPropTitle) }
     var propStatus by remember { mutableStateOf(initialPropStatus) }
@@ -170,7 +181,7 @@ fun SettingsScreen(
             onSave(
                 token, dbId, morningTime, eveningTime, morningEnabled, eveningEnabled, themeMode,
                 propTitle, propStatus, propStatusType, propCategory, propScheduled, propDue,
-                catOptions, statOptions, themeColor, dynamicColorEnabled,
+                catOptions, statOptions, themeColor, dynamicColorEnabled, devModeEnabled, devCompleteButtonEnabled,
             )
             Toast.makeText(context, "設定を保存しました", Toast.LENGTH_SHORT).show()
             currentSubPage = SettingsSubPage.Main
@@ -187,7 +198,7 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (currentSubPage == SettingsSubPage.Main) {
-            MainSettingsMenu { currentSubPage = it }
+            MainSettingsMenu(devModeEnabled) { currentSubPage = it }
         } else {
             SettingsSubHeader(
                 page = currentSubPage,
@@ -268,7 +279,16 @@ fun SettingsScreen(
                     onTabToggle = onTabToggle,
                 ) { currentSubPage = SettingsSubPage.Main }
                 is SettingsSubPage.StatsManagement -> StatsManagementSection(viewModel)
-                is SettingsSubPage.Info -> InfoSection { currentSubPage = SettingsSubPage.Main }
+                is SettingsSubPage.About -> AboutSection(
+                    devModeEnabled = devModeEnabled,
+                    onDevModeToggle = { devModeEnabled = it },
+                    onSave = handleSave
+                )
+                is SettingsSubPage.Developer -> DeveloperSettingsSection(
+                    devCompleteButtonEnabled = devCompleteButtonEnabled,
+                    onDevCompleteButtonToggle = { devCompleteButtonEnabled = it },
+                    onSave = handleSave
+                ) { currentSubPage = SettingsSubPage.Main }
                 else -> {}
             }
         }
@@ -278,7 +298,7 @@ fun SettingsScreen(
 // --- 分割されたコンポーネント ---
 
 @Composable
-fun MainSettingsMenu(onNavigate: (SettingsSubPage) -> Unit) {
+fun MainSettingsMenu(devModeEnabled: Boolean, onNavigate: (SettingsSubPage) -> Unit) {
     Text("設定", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
     SettingsGroup("アカウント・連携") {
@@ -287,12 +307,12 @@ fun MainSettingsMenu(onNavigate: (SettingsSubPage) -> Unit) {
         SettingsMenuItem("プロパティマッピング", "Notion側のカラム名と同期属性を定義します", Icons.Default.Layers) { onNavigate(SettingsSubPage.Mapping) }
     }
 
-        SettingsGroup("アプリ設定") {
-            SettingsMenuItem("通知スケジュール設定", "今日期限タスクを知らせる朝・夕の通知タイマー", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Notifications) }
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingsMenuItem("統計データ管理", "作業ログの保存期間設定と一括削除", Icons.Default.BarChart) { onNavigate(SettingsSubPage.StatsManagement) }
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            SettingsMenuItem("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集", Icons.Default.Favorite) { onNavigate(SettingsSubPage.LifeActivitySettings) }
+    SettingsGroup("アプリ設定") {
+        SettingsMenuItem("通知スケジュール設定", "今日期限タスクを知らせる朝・夕の通知タイマー", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Notifications) }
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        SettingsMenuItem("統計データ管理", "作業ログの保存期間設定と一括削除", Icons.Default.BarChart) { onNavigate(SettingsSubPage.StatsManagement) }
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        SettingsMenuItem("生活習慣設定", "時間割に自動表示するデフォルト時刻やプリセットの編集", Icons.Default.Favorite) { onNavigate(SettingsSubPage.LifeActivitySettings) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         SettingsMenuItem("アラーム音設定", "ポモドーロ完了時に鳴らす音を選択", Icons.Default.Notifications) { onNavigate(SettingsSubPage.Alarm) }
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -303,8 +323,14 @@ fun MainSettingsMenu(onNavigate: (SettingsSubPage) -> Unit) {
         SettingsMenuItem("表示タブ設定", "ナビゲーションバーに表示するタブの管理", Icons.Default.Menu) { onNavigate(SettingsSubPage.Tabs) }
     }
 
+    if (devModeEnabled) {
+        SettingsGroup("開発者用") {
+            SettingsMenuItem("開発者設定", "アプリ開発・デバッグ用ツール", Icons.Default.Code) { onNavigate(SettingsSubPage.Developer) }
+        }
+    }
+
     SettingsGroup("その他") {
-        SettingsMenuItem("通知 / プロパティ等について", "通知の仕組みやプロパティの自動マッピング機能の説明", Icons.Default.Info) { onNavigate(SettingsSubPage.Info) }
+        SettingsMenuItem("アプリの概要", "バージョン情報、GitHubリンク、開発者モード", Icons.Default.Info) { onNavigate(SettingsSubPage.About) }
     }
 }
 
@@ -773,15 +799,107 @@ fun TabsSettingsSection(catEnabled: Boolean, calEnabled: Boolean, schEnabled: Bo
 }
 
 @Composable
-fun InfoSection(onBack: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))) {
-        Column(Modifier.padding(16.dp)) {
-            Text("通知 / プロパティ等について", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            Text("・朝夕の通知は「予定日」が今日のタスクを知らせます。\n・自動取得ボタンはNotionの構造をアプリに同期します。", style = MaterialTheme.typography.bodySmall)
-        }
+fun AboutSection(
+    devModeEnabled: Boolean,
+    onDevModeToggle: (Boolean) -> Unit,
+    onSave: () -> Unit
+) {
+    val context = LocalContext.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val version = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    } catch (_: Exception) {
+        "1.3.2"
     }
-    Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("戻る") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("NotionTasker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Version $version", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                
+                Spacer(Modifier.height(8.dp))
+                
+                OutlinedButton(
+                    onClick = { uriHandler.openUri("https://github.com/tsubuanpn/Notion-Tasker") },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Link, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("GitHub Repository")
+                }
+            }
+        }
+
+        SettingsGroup("開発者情報") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.dev_icon),
+                    contentDescription = "Developer Icon",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                )
+                Text(
+                    text = "tsubuanpn",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        SettingsGroup("詳細設定") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("開発者モード", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text("デバッグ用の追加機能（ポモドーロの強制完了など）を有効にします", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = devModeEnabled, onCheckedChange = onDevModeToggle)
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("設定を保存して戻る", fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+fun DeveloperSettingsSection(
+    devCompleteButtonEnabled: Boolean,
+    onDevCompleteButtonToggle: (Boolean) -> Unit,
+    onSave: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsGroup("タイマー機能") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ポモドーロ完了ボタンを表示", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text("集中タイマー画面に強制完了ボタンを追加します", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = devCompleteButtonEnabled, onCheckedChange = onDevCompleteButtonToggle)
+            }
+        }
+        
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("設定を保存して戻る", fontWeight = FontWeight.Bold) }
+        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("戻る") }
+    }
 }
 
 @Composable

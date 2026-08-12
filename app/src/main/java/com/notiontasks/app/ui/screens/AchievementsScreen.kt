@@ -51,14 +51,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.CategoryStats
-import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.GroupedPomodoroLog
+import com.notiontasks.app.data.formatDecimal
+import com.notiontasks.app.data.formatDurationJapanese
 import com.notiontasks.app.data.getCategoryChartColorInCompose
+import com.notiontasks.app.data.groupPomodoroLogs
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.EmptyStateView
@@ -667,8 +671,15 @@ fun PomodoroStatsSubPage(
     categoryOptions: List<NotionOptionInfo>,
     categoryColorMap: Map<String, String?>,
 ) {
+    val context = LocalContext.current
     val pomodoroLogs by viewModel.pomodoroLogs.collectAsState()
-    var logToDelete by remember { mutableStateOf<PomodoroLog?>(null) }
+    var logToDelete by remember { mutableStateOf<GroupedPomodoroLog?>(null) }
+    
+    // セッション計算用の設定時間を取得 (ポモドーロタイマー設定と同期)
+    val workDurationMin = remember(pomodoroLogs) {
+        val prefs = context.getSharedPreferences("pomodoro_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.getInt("work_duration_min", 25)
+    }
 
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
@@ -1082,13 +1093,17 @@ fun PomodoroStatsSubPage(
                                 modifier = Modifier.padding(vertical = 12.dp)
                             )
                         } else {
+                            val groupedLogs = remember(dateLogs) { groupPomodoroLogs(dateLogs) }
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                dateLogs.sortedByDescending { log -> log.timestamp }.forEach { log ->
-                                    val colorName = log.categoryColor ?: categoryColorMap[log.category]
+                                groupedLogs.forEach { group ->
+                                    val colorName = group.categoryColor ?: categoryColorMap[group.category]
                                     val catColor = getCategoryChartColorInCompose(colorName)
+                                    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+                                    val timeRange = "${timeFormat.format(group.startTime)} - ${timeFormat.format(group.endTime)}"
+
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1113,29 +1128,54 @@ fun PomodoroStatsSubPage(
                                             )
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
-                                                    text = log.taskTitle ?: "ポモドーロセッション",
+                                                    text = group.taskTitle ?: "ポモドーロセッション",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                Text(
-                                                    text = log.category,
-                                                    fontSize = 8.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = group.category,
+                                                        fontSize = 7.sp,
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "•",
+                                                        fontSize = 7.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                                    )
+                                                    Text(
+                                                        text = timeRange,
+                                                        fontSize = 8.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                    )
+                                                    val sessions = group.totalMinutes.toDouble() / workDurationMin
+                                                    Text(
+                                                        text = "(${formatDecimal(sessions)}回)",
+                                                        fontSize = 8.sp,
+                                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
                                             }
                                         }
                                         Text(
-                                            text = "${log.minutes}分",
+                                            text = formatDurationJapanese(group.totalMinutes),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         IconButton(
-                                            onClick = { logToDelete = log },
+                                            onClick = { logToDelete = group },
                                             modifier = Modifier.size(24.dp)
                                         ) {
                                             Icon(
@@ -1293,11 +1333,11 @@ fun PomodoroStatsSubPage(
         AlertDialog(
             onDismissRequest = { logToDelete = null },
             title = { Text("記録の削除", style = MaterialTheme.typography.titleMedium) },
-            text = { Text("この作業記録を削除しますか？\n（${logToDelete?.taskTitle ?: "ポモドーロセッション"} : ${logToDelete?.minutes}分）") },
+            text = { Text("この作業記録を削除しますか？\n（${logToDelete?.taskTitle ?: "ポモドーロセッション"} : ${logToDelete?.totalMinutes}分 / ${logToDelete?.sessionCount}回分）") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        logToDelete?.id?.let { viewModel.deletePomodoroLog(it) }
+                        logToDelete?.logIds?.let { viewModel.deletePomodoroLogs(it) }
                         logToDelete = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)

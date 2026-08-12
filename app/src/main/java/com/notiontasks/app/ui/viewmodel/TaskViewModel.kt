@@ -137,6 +137,12 @@ class TaskViewModel(
         }
     }
 
+    fun deletePomodoroLogs(ids: List<String>) {
+        viewModelScope.launch {
+            pomodoroRepository.deletePomodoroLogsByIds(ids)
+        }
+    }
+
     fun deletePomodoroLogsOlderThan(months: Int) {
         viewModelScope.launch {
             if (months == -1) {

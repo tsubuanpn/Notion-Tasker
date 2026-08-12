@@ -54,6 +54,8 @@ fun MainAppScreen(
     initialScheduleTabEnabled: Boolean,
     initialPomodoroTabEnabled: Boolean,
     initialAchievementsTabEnabled: Boolean,
+    initialDevModeEnabled: Boolean,
+    initialDevCompleteButtonEnabled: Boolean,
     onTabToggle: (String, Boolean) -> Unit,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
@@ -76,6 +78,8 @@ fun MainAppScreen(
         mStatOptions: List<NotionOptionInfo>,
         themeColor: String,
         dynamicColor: Boolean,
+        devMode: Boolean,
+        devCompleteButton: Boolean,
     ) -> Unit,
 ) {
     val navController = rememberNavController()
@@ -320,7 +324,9 @@ fun MainAppScreen(
                 PomodoroScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptions,
-                    boundService = boundService
+                    boundService = boundService,
+                    devModeEnabled = initialDevModeEnabled,
+                    devCompleteButtonEnabled = initialDevCompleteButtonEnabled
                 )
             }
             composable(Screen.Achievements.route) {
@@ -362,6 +368,8 @@ fun MainAppScreen(
                     initialScheduleTabEnabled = initialScheduleTabEnabled,
                     initialPomodoroTabEnabled = initialPomodoroTabEnabled,
                     initialAchievementsTabEnabled = initialAchievementsTabEnabled,
+                    initialDevModeEnabled = initialDevModeEnabled,
+                    initialDevCompleteButtonEnabled = initialDevCompleteButtonEnabled,
                     onTabToggle = onTabToggle,
                     initialCategoryOptions = categoryOptions,
                     initialStatusOptions = statusOptions,

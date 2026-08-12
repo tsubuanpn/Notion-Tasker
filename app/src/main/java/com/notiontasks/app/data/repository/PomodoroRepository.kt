@@ -26,6 +26,10 @@ class PomodoroRepository(
         pomodoroLogDao.deleteLogById(id)
     }
 
+    suspend fun deletePomodoroLogsByIds(ids: List<String>) = withContext(Dispatchers.IO) {
+        pomodoroLogDao.deleteLogsByIds(ids)
+    }
+
     suspend fun deleteLogsOlderThan(timestamp: Long) = withContext(Dispatchers.IO) {
         pomodoroLogDao.deleteLogsOlderThan(timestamp)
     }

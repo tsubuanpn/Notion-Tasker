@@ -139,6 +139,8 @@ class MainActivity : ComponentActivity() {
             val scheduleTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_schedule_enabled", true)) }
             val pomodoroTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_pomodoro_enabled", true)) }
             val achievementsTabEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("tab_achievements_enabled", true)) }
+            val devModeEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("dev_mode_enabled", false)) }
+            val devCompleteButtonEnabled = remember { mutableStateOf(sharedPreferences.getBoolean("dev_complete_button_enabled", false)) }
 
             val propTitle = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_title", "") ?: "") }
             val propStatus = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_status", "") ?: "") }
@@ -197,6 +199,8 @@ class MainActivity : ComponentActivity() {
                     initialScheduleTabEnabled = scheduleTabEnabled.value,
                     initialPomodoroTabEnabled = pomodoroTabEnabled.value,
                     initialAchievementsTabEnabled = achievementsTabEnabled.value,
+                    initialDevModeEnabled = devModeEnabled.value,
+                    initialDevCompleteButtonEnabled = devCompleteButtonEnabled.value,
                     onTabToggle = { tabKey, isEnabled ->
                         sharedPreferences.edit { putBoolean("tab_${tabKey}_enabled", isEnabled) }
                         when (tabKey) {
@@ -216,7 +220,7 @@ class MainActivity : ComponentActivity() {
                         }
                         viewModel.updateCategoryOptions(newOrder)
                     }
-                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor ->
+                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
@@ -237,6 +241,8 @@ class MainActivity : ComponentActivity() {
                         putString("mapping_prop_category", mCategory)
                         putString("mapping_prop_scheduled_date", mScheduled)
                         putString("mapping_prop_due_date", mDue)
+                        putBoolean("dev_mode_enabled", devMode)
+                        putBoolean("dev_complete_button_enabled", devCompleteButton)
                         if (catJson.isNotBlank()) {
                             putString("category_options_v2", catJson)
                         }
@@ -251,6 +257,8 @@ class MainActivity : ComponentActivity() {
                     propCategory.value = mCategory
                     propScheduled.value = mScheduled
                     propDue.value = mDue
+                    devModeEnabled.value = devMode
+                    devCompleteButtonEnabled.value = devCompleteButton
                     
                     viewModel.updateCategoryOptions(mCatOptions)
                     viewModel.updateStatusOptions(mStatOptions)

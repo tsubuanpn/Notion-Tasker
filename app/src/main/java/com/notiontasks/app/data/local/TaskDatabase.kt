@@ -124,6 +124,9 @@ interface PomodoroLogDao {
     @Query("DELETE FROM pomodoro_logs WHERE id = :id")
     suspend fun deleteLogById(id: String)
 
+    @Query("DELETE FROM pomodoro_logs WHERE id IN (:ids)")
+    suspend fun deleteLogsByIds(ids: List<String>)
+
     @Query("DELETE FROM pomodoro_logs WHERE timestamp < :timestamp")
     suspend fun deleteLogsOlderThan(timestamp: Long)
 
