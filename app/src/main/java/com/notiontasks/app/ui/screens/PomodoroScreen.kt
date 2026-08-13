@@ -62,7 +62,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
-import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -79,7 +78,6 @@ private fun pomodoroDurationSecondsFor(mode: String, prefs: SharedPreferences): 
 @Composable
 fun PomodoroScreen(
     viewModel: TaskViewModel,
-    statusOptions: List<NotionOptionInfo>,
     boundService: PomodoroService?,
     devModeEnabled: Boolean = false,
     devCompleteButtonEnabled: Boolean = false,
@@ -101,54 +99,8 @@ fun PomodoroScreen(
     var isInitialSyncDone by remember { mutableStateOf(value = false) }
 
     val tasksState by viewModel.tasksState.collectAsState()
-
-    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
-
-    LaunchedEffect(selectedTaskId) {
-        prefs.edit { putString("selected_task_id", selectedTaskId) }
-    }
-
-    LaunchedEffect(tasksState) {
-        if (tasksState is TasksUiState.Success) {
-            val successState = tasksState as TasksUiState.Success
-            val selectedTask = successState.tasks.find { it.id == selectedTaskId }
-            // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
-            if (selectedTaskId != null && (selectedTask == null || selectedTask.status == completedStatus)) {
-                selectedTaskId = null
-            }
-        }
-    }
-
-    LaunchedEffect(todayStr, savedCompletedCountDate) {
-        if (savedCompletedCountDate != todayStr) {
-            prefs.edit {
-                putInt("completed_count", 0)
-                putString("completed_count_date", todayStr)
-            }
-        }
-    }
-    
-    val uncompletedTasks = remember(tasksState, completedStatus, todayStr) {
-        when (val state = tasksState) {
-            is TasksUiState.Success -> {
-                state.tasks.asSequence().filter { task ->
-                    val isUncompleted = task.status != completedStatus
-                    isUncompleted && (
-                        (task.scheduledDate == todayStr) ||
-                        ((task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
-                        ((task.dueDate != null) && (task.dueDate < todayStr))
-                    )
-                }.sortedWith(
-                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy(nullsLast(naturalOrder())) { it.dueDate }
-                        .thenBy { it.id },
-                ).toList()
-            }
-            else -> emptyList()
-        }
-    }
-    
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
 
     val activeFocusTask = remember(selectedTaskId, tasksState) {
         when (val state = tasksState) {
@@ -170,6 +122,55 @@ fun PomodoroScreen(
             }
         }
         context.startForegroundService(intent)
+    }
+
+    LaunchedEffect(selectedTaskId) {
+        prefs.edit { putString("selected_task_id", selectedTaskId) }
+    }
+
+    LaunchedEffect(tasksState) {
+        if (tasksState is TasksUiState.Success) {
+            val successState = tasksState as TasksUiState.Success
+            val selectedTask = successState.tasks.find { it.id == selectedTaskId }
+            // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
+            if (selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
+                // 自動解除の前に、タイマーが動いていれば一時停止命令をサービスに送る（レースコンディション回避）
+                if (isRunning) {
+                    triggerServiceAction(PomodoroService.ACTION_PAUSE)
+                }
+                selectedTaskId = null
+            }
+        }
+    }
+
+    LaunchedEffect(todayStr, savedCompletedCountDate) {
+        if (savedCompletedCountDate != todayStr) {
+            prefs.edit {
+                putInt("completed_count", 0)
+                putString("completed_count_date", todayStr)
+            }
+        }
+    }
+    
+    val uncompletedTasks = remember(tasksState, completedStatus, todayStr) {
+        val completedTrimmed = completedStatus.trim()
+        when (val state = tasksState) {
+            is TasksUiState.Success -> {
+                state.tasks.asSequence().filter { task ->
+                    val isUncompleted = task.status.trim() != completedTrimmed
+                    isUncompleted && (
+                        (task.scheduledDate == todayStr) ||
+                        ((task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
+                        ((task.dueDate != null) && (task.dueDate < todayStr))
+                    )
+                }.sortedWith(
+                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
+                        .thenBy(nullsLast(naturalOrder())) { it.dueDate }
+                        .thenBy { it.id },
+                ).toList()
+            }
+            else -> emptyList()
+        }
     }
 
     // 選択されたタスクの状態をバインドされた PomodoroService に同期します
@@ -424,7 +425,8 @@ fun PomodoroScreen(
                                     val durationMinutes = pomodoroDurationSecondsFor(mode, prefs) / 60
                                     triggerServiceAction(PomodoroService.ACTION_START_OR_RESUME, durationMinutes)
                                     if (mode == "work" && activeFocusTask != null) {
-                                        if (activeFocusTask.status != inProgressStatus && activeFocusTask.status != completedStatus) {
+                                        val stTrimmed = activeFocusTask.status.trim()
+                                        if (stTrimmed != inProgressStatus.trim() && stTrimmed != completedStatus.trim()) {
                                             viewModel.updateTask(
                                                 id = activeFocusTask.id,
                                                 title = activeFocusTask.title,
@@ -668,7 +670,8 @@ fun PomodoroScreen(
                                     categoryColor = task.categoryColor
                                 )
                                 if (isRunning && mode == "work") {
-                                    if (task.status != inProgressStatus && task.status != completedStatus) {
+                                    val stTrimmed = task.status.trim()
+                                    if (stTrimmed != inProgressStatus.trim() && stTrimmed != completedStatus.trim()) {
                                         viewModel.updateTask(
                                              id = task.id,
                                              title = task.title,
@@ -736,6 +739,11 @@ fun PomodoroScreen(
 
                     IconButton(
                         onClick = {
+                            // 明示的にサービスへ一時停止命令を送る
+                            if (isRunning) {
+                                triggerServiceAction(PomodoroService.ACTION_PAUSE)
+                            }
+                            
                             viewModel.updateTask(
                                 id = task.id,
                                 title = task.title,

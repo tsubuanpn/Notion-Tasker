@@ -50,13 +50,11 @@ fun getNotionStatusColors(colorName: String?, isDark: Boolean): Pair<Color, Colo
 @Composable
 fun TaskItemCard(
     task: TaskModel,
-    statusOptions: List<NotionOptionInfo>,
+    inProgressStatus: String,
+    completedStatus: String,
     onStatusClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
-    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
-
     val todayStr = remember {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
     }

@@ -99,6 +99,15 @@ class TaskViewModel(
     private val _statusOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
     val statusOptions: StateFlow<List<NotionOptionInfo>> = _statusOptions.asStateFlow()
 
+    private val _statusUnstarted = MutableStateFlow(sharedPrefs.getString("mapping_status_unstarted", "未着手") ?: "未着手")
+    val statusUnstarted: StateFlow<String> = _statusUnstarted.asStateFlow()
+
+    private val _statusInProgress = MutableStateFlow(sharedPrefs.getString("mapping_status_in_progress", "進行中") ?: "進行中")
+    val statusInProgress: StateFlow<String> = _statusInProgress.asStateFlow()
+
+    private val _statusCompleted = MutableStateFlow(sharedPrefs.getString("mapping_status_completed", "完了") ?: "完了")
+    val statusCompleted: StateFlow<String> = _statusCompleted.asStateFlow()
+
     private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
     val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
 
@@ -438,16 +447,25 @@ class TaskViewModel(
         val title = sharedPrefs.getString("mapping_prop_title", "")?.ifBlank { "名前" } ?: "名前"
         val status = sharedPrefs.getString("mapping_prop_status", "")?.ifBlank { "状態" } ?: "状態"
         val statusType = sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status"
+        val statusUnstarted = sharedPrefs.getString("mapping_status_unstarted", "")?.ifBlank { "未着手" }?.trim() ?: "未着手"
+        val statusInProgress = sharedPrefs.getString("mapping_status_in_progress", "")?.ifBlank { "進行中" }?.trim() ?: "進行中"
+        val statusCompleted = sharedPrefs.getString("mapping_status_completed", "")?.ifBlank { "完了" }?.trim() ?: "完了"
         val category = sharedPrefs.getString("mapping_prop_category", "")?.ifBlank { "種類" } ?: "種類"
         val scheduledDate = sharedPrefs.getString("mapping_prop_scheduled_date", "")?.ifBlank { "予定日" } ?: "予定日"
         val dueDate = sharedPrefs.getString("mapping_prop_due_date", "")?.ifBlank { "締め切り" } ?: "締め切り"
 
         _notionToken.value = token
         _databaseId.value = dbId
+        _statusUnstarted.value = statusUnstarted
+        _statusInProgress.value = statusInProgress
+        _statusCompleted.value = statusCompleted
         repository.updatePropertyMappings(
             title = title,
             status = status,
             statusType = statusType,
+            statusUnstarted = statusUnstarted,
+            statusInProgress = statusInProgress,
+            statusCompleted = statusCompleted,
             category = category,
             scheduledDate = scheduledDate,
             dueDate = dueDate,
@@ -461,16 +479,29 @@ class TaskViewModel(
         title: String = "名前",
         status: String = "状態",
         statusType: String = "status",
+        statusUnstarted: String = "未着手",
+        statusInProgress: String = "進行中",
+        statusCompleted: String = "完了",
         category: String = "種類",
         scheduledDate: String = "予定日",
         dueDate: String = "締め切り",
     ) {
+        val trimmedUnstarted = statusUnstarted.trim()
+        val trimmedInProgress = statusInProgress.trim()
+        val trimmedCompleted = statusCompleted.trim()
+        
         _notionToken.value = token
         _databaseId.value = dbId
+        _statusUnstarted.value = trimmedUnstarted
+        _statusInProgress.value = trimmedInProgress
+        _statusCompleted.value = trimmedCompleted
         repository.updatePropertyMappings(
             title = title,
             status = status,
             statusType = statusType,
+            statusUnstarted = trimmedUnstarted,
+            statusInProgress = trimmedInProgress,
+            statusCompleted = trimmedCompleted,
             category = category,
             scheduledDate = scheduledDate,
             dueDate = dueDate,
@@ -527,6 +558,27 @@ class TaskViewModel(
                 pVal.status != null -> {
                     detected["status"] = pName
                     detected["statusType"] = "status"
+                    
+                    // ステータスグループから推論
+                    pVal.status.groups.forEach { group ->
+                        when (group.name.lowercase()) {
+                            "to do", "未着手", "todo" -> {
+                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
+                                    detected["statusUnstarted"] = it.name
+                                }
+                            }
+                            "in progress", "進行中", "doing" -> {
+                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
+                                    detected["statusInProgress"] = it.name
+                                }
+                            }
+                            "complete", "完了", "done" -> {
+                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
+                                    detected["statusCompleted"] = it.name
+                                }
+                            }
+                        }
+                    }
                 }
                 (pVal.select != null) && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
                     if (!detected.containsKey("status")) {
@@ -545,6 +597,25 @@ class TaskViewModel(
                 }
             }
         }
+        
+        // キーワードによる追加補完（グループから見つからなかった場合や Select 型の場合）
+        val statusPropName = detected["status"]
+        if (statusPropName != null) {
+            val options = meta.properties[statusPropName]?.let { it.status?.options ?: it.select?.options } ?: emptyList()
+            if (!detected.containsKey("statusUnstarted")) {
+                detected["statusUnstarted"] = options.find { it.name.contains("未着手") || it.name.contains("Todo", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(0)?.name ?: "未着手"
+            }
+            if (!detected.containsKey("statusInProgress")) {
+                detected["statusInProgress"] = options.find { it.name.contains("進行中") || it.name.contains("Doing", ignoreCase = true) || it.name.contains("Progress", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(1)?.name ?: "進行中"
+            }
+            if (!detected.containsKey("statusCompleted")) {
+                detected["statusCompleted"] = options.find { it.name.contains("完了") || it.name.contains("Done", ignoreCase = true) || it.name.contains("Finished", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(2)?.name ?: "完了"
+            }
+        }
+        
         return detected
     }
 
@@ -554,7 +625,8 @@ class TaskViewModel(
         val options = stateOptions.ifEmpty { _statusOptions.value }
         if (options.isEmpty()) return
 
-        val currentIndex = options.indexOfFirst { it.name == task.status }
+        val taskStatusTrimmed = task.status.trim()
+        val currentIndex = options.indexOfFirst { it.name.trim() == taskStatusTrimmed }
         
         val nextOption = if (currentIndex == -1) {
             options.first()

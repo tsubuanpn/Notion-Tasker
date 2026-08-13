@@ -55,10 +55,8 @@ fun ScheduleScreen(
     val timeBlocks by viewModel.timeBlocks.collectAsState()
     val lifeActivities by viewModel.lifeActivities.collectAsState()
     val tasksState by viewModel.tasksState.collectAsState()
-    val statusOptions by viewModel.statusOptions.collectAsState()
-
-    val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0)?.name ?: "未着手" }
-    val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1)?.name ?: "進行中" }
+    val unstartedStatus by viewModel.statusUnstarted.collectAsState()
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
 
     // 日付セレクターの状態
     var selectedDateStr by remember {
@@ -74,11 +72,14 @@ fun ScheduleScreen(
     }
 
     // 選択された日付の有効なタスクをロードする
-    val todayTasks = remember(tasksState, selectedDateStr, statusOptions, unstartedStatus, inProgressStatus) {
+    val todayTasks = remember(tasksState, selectedDateStr, unstartedStatus, inProgressStatus) {
+        val unstartedTrimmed = unstartedStatus.trim()
+        val inProgressTrimmed = inProgressStatus.trim()
         when (val state = tasksState) {
             is TasksUiState.Success -> {
                 state.tasks.filter { task ->
-                    val isActive = task.status == unstartedStatus || task.status == inProgressStatus
+                    val statusTrimmed = task.status.trim()
+                    val isActive = statusTrimmed == unstartedTrimmed || statusTrimmed == inProgressTrimmed
                     task.scheduledDate == selectedDateStr ||
                     (isActive && (task.scheduledDate != null && task.scheduledDate < selectedDateStr)) ||
                     (isActive && (task.dueDate != null && task.dueDate < selectedDateStr))
@@ -116,11 +117,16 @@ fun ScheduleScreen(
 
     // 有効（未着手・進行中）なタスク一覧を取得
     val activeTasks = remember(tasksState, unstartedStatus, inProgressStatus, editingBlock) {
+        val unstartedTrimmed = unstartedStatus.trim()
+        val inProgressTrimmed = inProgressStatus.trim()
         val allTasks = when (val state = tasksState) {
             is TasksUiState.Success -> state.tasks
             else -> emptyList()
         }
-        val baseList = allTasks.filter { it.status == unstartedStatus || it.status == inProgressStatus }.toMutableList()
+        val baseList = allTasks.filter { 
+            val st = it.status.trim()
+            st == unstartedTrimmed || st == inProgressTrimmed 
+        }.toMutableList()
         
         // 編集中のタイムブロックがあり、紐付けられているタスクが baseList にない場合、追加して選択可能にする
         val currentAssociatedId = editingBlock?.associatedId

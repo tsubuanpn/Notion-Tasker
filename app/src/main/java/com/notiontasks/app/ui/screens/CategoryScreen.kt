@@ -35,6 +35,9 @@ fun CategoryScreen(
 ) {
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val uiState by viewModel.tasksState.collectAsState()
+    val unstartedStatus by viewModel.statusUnstarted.collectAsState()
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
 
     val categories = remember(uiState, categoryOptions) {
         val allTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
@@ -49,20 +52,17 @@ fun CategoryScreen(
         combinedCategories.ifEmpty { listOf(NotionOptionInfo(name = "未選択")) }
     }
 
-    val tasksByCategoryAndStatus = remember(uiState, categories, statusOptions) {
+    val tasksByCategoryAndStatus = remember(uiState, categories, statusOptions, unstartedStatus, inProgressStatus, completedStatus) {
         val rawTasks = (uiState as? TasksUiState.Success)?.tasks ?: emptyList()
         val sortedTasks = rawTasks.sortedWith(
             compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
                 .thenBy(nullsLast(naturalOrder())) { it.dueDate }
         )
-        val unstartedStatus = statusOptions.getOrNull(0)?.name ?: "未着手"
-        val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
-        val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
         categories.associateWith { cat ->
-            val categoryTasks = sortedTasks.filter { it.category == cat.name && it.status != completedStatus }
-            val unstartedTasks = categoryTasks.filter { it.status == unstartedStatus }
-            val inProgressTasks = categoryTasks.filter { it.status == inProgressStatus }
+            val categoryTasks = sortedTasks.filter { it.category == cat.name && it.status.trim() != completedStatus.trim() }
+            val unstartedTasks = categoryTasks.filter { it.status.trim() == unstartedStatus.trim() }
+            val inProgressTasks = categoryTasks.filter { it.status.trim() == inProgressStatus.trim() }
             Triple(categoryTasks, unstartedTasks, inProgressTasks)
         }
     }
@@ -233,8 +233,6 @@ fun CategoryScreen(
                 .weight(1f)
         ) { page ->
             val pageCategory = categories.getOrNull(page)
-            val unstartedStatus = statusOptions.getOrNull(0)?.name ?: "未着手"
-            val inProgressStatus = statusOptions.getOrNull(1)?.name ?: "進行中"
 
             val triple = tasksByCategoryAndStatus[pageCategory] ?: Triple(emptyList(), emptyList(), emptyList())
             val categoryTasks = triple.first
@@ -273,7 +271,8 @@ fun CategoryScreen(
                             val task = inProgressTasks[index]
                             TaskItemCard(
                                 task = task,
-                                statusOptions = statusOptions,
+                                inProgressStatus = inProgressStatus,
+                                completedStatus = completedStatus,
                                 onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
                                 onEditClick = { onEditTask(task) }
                             )
@@ -295,7 +294,8 @@ fun CategoryScreen(
                             val task = unstartedTasks[index]
                             TaskItemCard(
                                 task = task,
-                                statusOptions = statusOptions,
+                                inProgressStatus = inProgressStatus,
+                                completedStatus = completedStatus,
                                 onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
                                 onEditClick = { onEditTask(task) }
                             )

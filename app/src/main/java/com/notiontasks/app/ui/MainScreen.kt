@@ -46,6 +46,9 @@ fun MainAppScreen(
     initialPropTitle: String,
     initialPropStatus: String,
     initialPropStatusType: String,
+    initialPropStatusUnstarted: String,
+    initialPropStatusInProgress: String,
+    initialPropStatusCompleted: String,
     initialPropCategory: String,
     initialPropScheduled: String,
     initialPropDue: String,
@@ -71,6 +74,9 @@ fun MainAppScreen(
         mTitle: String,
         mStatus: String,
         mStatusType: String,
+        mStatusUnstarted: String,
+        mStatusInProgress: String,
+        mStatusCompleted: String,
         mCategory: String,
         mScheduled: String,
         mDue: String,
@@ -323,7 +329,6 @@ fun MainAppScreen(
             composable(Screen.Pomodoro.route) {
                 PomodoroScreen(
                     viewModel = viewModel,
-                    statusOptions = statusOptions,
                     boundService = boundService,
                     devModeEnabled = initialDevModeEnabled,
                     devCompleteButtonEnabled = initialDevCompleteButtonEnabled
@@ -360,6 +365,9 @@ fun MainAppScreen(
                     initialPropTitle = initialPropTitle,
                     initialPropStatus = initialPropStatus,
                     initialPropStatusType = initialPropStatusType,
+                    initialPropStatusUnstarted = initialPropStatusUnstarted,
+                    initialPropStatusInProgress = initialPropStatusInProgress,
+                    initialPropStatusCompleted = initialPropStatusCompleted,
                     initialPropCategory = initialPropCategory,
                     initialPropScheduled = initialPropScheduled,
                     initialPropDue = initialPropDue,

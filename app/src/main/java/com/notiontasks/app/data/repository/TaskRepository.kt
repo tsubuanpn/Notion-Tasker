@@ -102,6 +102,9 @@ class TaskRepository(
     var propTitleName: String = "名前"
     var propStatusName: String = "状態"
     var propStatusType: String = "status" // "status" (ステータス) または "select" (セレクト)
+    var propStatusUnstartedName: String = "未着手"
+    var propStatusInProgressName: String = "進行中"
+    var propStatusCompletedName: String = "完了"
     var propCategoryName: String = "種類"
     var propScheduledDateName: String = "予定日"
     var propDueDateName: String = "締め切り"
@@ -110,6 +113,9 @@ class TaskRepository(
         title: String,
         status: String,
         statusType: String,
+        statusUnstarted: String,
+        statusInProgress: String,
+        statusCompleted: String,
         category: String,
         scheduledDate: String,
         dueDate: String,
@@ -117,6 +123,9 @@ class TaskRepository(
         propTitleName = title.ifBlank { "名前" }
         propStatusName = status.ifBlank { "状態" }
         propStatusType = if (statusType == "select") "select" else "status"
+        propStatusUnstartedName = statusUnstarted.ifBlank { "未着手" }
+        propStatusInProgressName = statusInProgress.ifBlank { "進行中" }
+        propStatusCompletedName = statusCompleted.ifBlank { "完了" }
         propCategoryName = category.ifBlank { "種類" }
         propScheduledDateName = scheduledDate.ifBlank { "予定日" }
         propDueDateName = dueDate.ifBlank { "締め切り" }
@@ -207,9 +216,9 @@ class TaskRepository(
                 val pageEntities = response.results.mapNotNull { page ->
                     val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
                     
-                    val statusValue = page.properties.getStatusText(propStatusName)
+                    val statusValue = (page.properties.getStatusText(propStatusName)
                         ?: page.properties.getSelectText(propStatusName)
-                        ?: "未着手"
+                        ?: "未着手").trim()
                         
                     val categoryValue = (page.properties.getSelectText(propCategoryName) ?: "他").trim()
                     
@@ -251,9 +260,10 @@ class TaskRepository(
         newStatus: String,
         newStatusColor: String? = null,
     ) = syncMutex.withLock {
+        val trimmedStatus = newStatus.trim()
         // 楽観的な UI/ローカルの更新
-        val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(newStatus)
-        taskDao.updateTaskStatusLocal(pageId, newStatus, statusColor)
+        val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(trimmedStatus)
+        taskDao.updateTaskStatusLocal(pageId, trimmedStatus, statusColor)
 
         // リモートの Patch 呼び出しを実行する
         val authHeader = "Bearer $token"
@@ -265,7 +275,7 @@ class TaskRepository(
                         put(
                             propStatusType,
                             buildJsonObject {
-                                put("name", newStatus)
+                                put("name", trimmedStatus)
                             }
                         )
                     },
@@ -276,7 +286,7 @@ class TaskRepository(
             // APIからの最新の色情報を反映させる（Notion側での変更を追従）
             val finalStatusColor = updatedPage.properties.getStatusColor(propStatusName)
             if (finalStatusColor != null) {
-                taskDao.updateTaskStatusLocal(pageId, newStatus, finalStatusColor)
+                taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor)
             }
         } catch (_: Exception) {
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
@@ -288,7 +298,7 @@ class TaskRepository(
                             put(
                                 alternateType,
                                 buildJsonObject {
-                                    put("name", newStatus)
+                                    put("name", trimmedStatus)
                                 },
                             )
                         },
@@ -304,12 +314,12 @@ class TaskRepository(
                     updatedPage.properties.getSelectColor(propStatusName)
                 }
                 if (finalStatusColor != null) {
-                    taskDao.updateTaskStatusLocal(pageId, newStatus, finalStatusColor)
+                    taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor)
                 }
             } catch (_: Exception) {
                 // オフラインまたは通信エラー時はキューに保存して次回自動リトライする
                 val actionPayload = buildJsonObject {
-                    put("newStatus", newStatus)
+                    put("newStatus", trimmedStatus)
                 }.toString()
                 pendingSyncActionDao.insertPendingAction(
                     PendingSyncActionEntity(
@@ -334,23 +344,25 @@ class TaskRepository(
         statusColor: String? = null,
         categoryColor: String? = null,
     ) = syncMutex.withLock {
+        val trimmedStatus = status.trim()
+        val trimmedCategory = category.trim()
         // 楽観的な UI/ローカルの更新
         val currentLocalTask = taskDao.getTaskById(pageId)
-        val finalStatusColor = statusColor ?: if (currentLocalTask?.status == status) {
+        val finalStatusColor = statusColor ?: if (currentLocalTask?.status == trimmedStatus) {
             currentLocalTask.statusColor
         } else {
-            taskDao.getStatusColorForStatus(status)
+            taskDao.getStatusColorForStatus(trimmedStatus)
         }
-        val finalCategoryColor = categoryColor ?: if (currentLocalTask?.category == category) {
+        val finalCategoryColor = categoryColor ?: if (currentLocalTask?.category == trimmedCategory) {
             currentLocalTask.categoryColor
         } else {
-            taskDao.getCategoryColorForCategory(category)
+            taskDao.getCategoryColorForCategory(trimmedCategory)
         }
         val updatedLocalRef = TaskEntity(
             id = pageId,
             title = title,
-            status = status,
-            category = category,
+            status = trimmedStatus,
+            category = trimmedCategory,
             dueDate = dueDate,
             scheduledDate = scheduledDate,
             statusColor = finalStatusColor,
@@ -384,7 +396,7 @@ class TaskRepository(
                 put(
                     sType,
                     buildJsonObject {
-                        put("name", status)
+                        put("name", trimmedStatus)
                     },
                 )
             }
@@ -393,7 +405,7 @@ class TaskRepository(
                 put(
                     "select",
                     buildJsonObject {
-                        put("name", category)
+                        put("name", trimmedCategory)
                     },
                 )
             }
@@ -484,17 +496,19 @@ class TaskRepository(
         statusColor: String? = null,
         categoryColor: String? = null,
     ) = syncMutex.withLock {
+        val trimmedStatus = status.trim()
+        val trimmedCategory = category.trim()
         val authHeader = "Bearer $token"
         
         fun buildCreatePayload(sType: String): NotionCreateRequest {
             val properties = mutableMapOf<String, PropertyUpdate>()
             properties[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
             properties[propStatusName] = if (sType == "select") {
-                PropertyUpdate(select = SelectValue(name = status))
+                PropertyUpdate(select = SelectValue(name = trimmedStatus))
             } else {
-                PropertyUpdate(status = StatusValue(name = status))
+                PropertyUpdate(status = StatusValue(name = trimmedStatus))
             }
-            properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+            properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
             
             if (!dueDate.isNullOrBlank()) {
                 properties[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
@@ -524,8 +538,8 @@ class TaskRepository(
             val localEntity = TaskEntity(
                 id = createdPage.id,
                 title = title,
-                status = status,
-                category = category,
+                status = trimmedStatus,
+                category = trimmedCategory,
                 dueDate = dueDate,
                 scheduledDate = scheduledDate,
                 statusColor = apiStatusColor ?: statusColor,
@@ -549,8 +563,8 @@ class TaskRepository(
                 val localEntity = TaskEntity(
                     id = createdPage.id,
                     title = title,
-                    status = status,
-                    category = category,
+                    status = trimmedStatus,
+                    category = trimmedCategory,
                     dueDate = dueDate,
                     scheduledDate = scheduledDate,
                     statusColor = apiStatusColor ?: statusColor,
@@ -563,8 +577,8 @@ class TaskRepository(
                 val localEntity = TaskEntity(
                     id = tempId,
                     title = title,
-                    status = status,
-                    category = category,
+                    status = trimmedStatus,
+                    category = trimmedCategory,
                     dueDate = dueDate,
                     scheduledDate = scheduledDate,
                     statusColor = statusColor,
@@ -574,8 +588,8 @@ class TaskRepository(
 
                 val actionPayload = buildJsonObject {
                     put("title", title)
-                    put("status", status)
-                    put("category", category)
+                    put("status", trimmedStatus)
+                    put("category", trimmedCategory)
                     dueDate?.let { put("dueDate", it) }
                     scheduledDate?.let { put("scheduledDate", it) }
                 }.toString()

@@ -81,6 +81,9 @@ fun SettingsScreen(
     initialPropTitle: String,
     initialPropStatus: String,
     initialPropStatusType: String,
+    initialPropStatusUnstarted: String,
+    initialPropStatusInProgress: String,
+    initialPropStatusCompleted: String,
     initialPropCategory: String,
     initialPropScheduled: String,
     initialPropDue: String,
@@ -105,6 +108,9 @@ fun SettingsScreen(
         mTitle: String,
         mStatus: String,
         mStatusType: String,
+        mStatusUnstarted: String,
+        mStatusInProgress: String,
+        mStatusCompleted: String,
         mCategory: String,
         mScheduled: String,
         mDue: String,
@@ -132,6 +138,9 @@ fun SettingsScreen(
     var propTitle by remember { mutableStateOf(initialPropTitle) }
     var propStatus by remember { mutableStateOf(initialPropStatus) }
     var propStatusType by remember { mutableStateOf(initialPropStatusType) }
+    var propStatusUnstarted by remember { mutableStateOf(initialPropStatusUnstarted) }
+    var propStatusInProgress by remember { mutableStateOf(initialPropStatusInProgress) }
+    var propStatusCompleted by remember { mutableStateOf(initialPropStatusCompleted) }
     var propCategory by remember { mutableStateOf(initialPropCategory) }
     var propScheduled by remember { mutableStateOf(initialPropScheduled) }
     var propDue by remember { mutableStateOf(initialPropDue) }
@@ -180,7 +189,7 @@ fun SettingsScreen(
 
             onSave(
                 token, dbId, morningTime, eveningTime, morningEnabled, eveningEnabled, themeMode,
-                propTitle, propStatus, propStatusType, propCategory, propScheduled, propDue,
+                propTitle, propStatus, propStatusType, propStatusUnstarted, propStatusInProgress, propStatusCompleted, propCategory, propScheduled, propDue,
                 catOptions, statOptions, themeColor, dynamicColorEnabled, devModeEnabled, devCompleteButtonEnabled,
             )
             Toast.makeText(context, "設定を保存しました", Toast.LENGTH_SHORT).show()
@@ -228,6 +237,9 @@ fun SettingsScreen(
                                 detected["title"]?.let { propTitle = it }
                                 detected["status"]?.let { propStatus = it }
                                 detected["statusType"]?.let { propStatusType = it }
+                                detected["statusUnstarted"]?.let { propStatusUnstarted = it }
+                                detected["statusInProgress"]?.let { propStatusInProgress = it }
+                                detected["statusCompleted"]?.let { propStatusCompleted = it }
                                 detected["category"]?.let { propCategory = it }
                                 detected["scheduled"]?.let { propScheduled = it }
                                 detected["due"]?.let { propDue = it }
@@ -244,6 +256,9 @@ fun SettingsScreen(
                     propTitle = propTitle, onTitleChange = { propTitle = it },
                     propStatus = propStatus, onStatusChange = { propStatus = it },
                     propStatusType = propStatusType, onStatusTypeChange = { propStatusType = it },
+                    propStatusUnstarted = propStatusUnstarted, onStatusUnstartedChange = { propStatusUnstarted = it },
+                    propStatusInProgress = propStatusInProgress, onStatusInProgressChange = { propStatusInProgress = it },
+                    propStatusCompleted = propStatusCompleted, onStatusCompletedChange = { propStatusCompleted = it },
                     propCategory = propCategory, onCategoryChange = { propCategory = it },
                     propScheduled = propScheduled, onScheduledChange = { propScheduled = it },
                     propDue = propDue, onDueChange = { propDue = it },
@@ -400,6 +415,9 @@ fun MappingSettingsSection(
     propTitle: String, onTitleChange: (String) -> Unit,
     propStatus: String, onStatusChange: (String) -> Unit,
     propStatusType: String, onStatusTypeChange: (String) -> Unit,
+    propStatusUnstarted: String, onStatusUnstartedChange: (String) -> Unit,
+    propStatusInProgress: String, onStatusInProgressChange: (String) -> Unit,
+    propStatusCompleted: String, onStatusCompletedChange: (String) -> Unit,
     propCategory: String, onCategoryChange: (String) -> Unit,
     propScheduled: String, onScheduledChange: (String) -> Unit,
     propDue: String, onDueChange: (String) -> Unit,
@@ -414,6 +432,25 @@ fun MappingSettingsSection(
             }
             Box(Modifier.weight(1.2f)) {
                 TypeDropdown("タイプ", propStatusType, onStatusTypeChange)
+            }
+        }
+
+        // ステータスマッピング詳細
+        val statusOptions = if (propStatusType == "status") {
+            metadata?.properties?.get(propStatus)?.status?.options?.map { it.name } ?: emptyList()
+        } else {
+            metadata?.properties?.get(propStatus)?.select?.options?.map { it.name } ?: emptyList()
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ステータス値のマッピング", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                PropertyDropdown("「未着手」とみなす値", propStatusUnstarted, statusOptions, onStatusUnstartedChange)
+                PropertyDropdown("「進行中」とみなす値", propStatusInProgress, statusOptions, onStatusInProgressChange)
+                PropertyDropdown("「完了」とみなす値", propStatusCompleted, statusOptions, onStatusCompletedChange)
             }
         }
 

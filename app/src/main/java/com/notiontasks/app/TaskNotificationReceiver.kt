@@ -55,7 +55,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 val allTasks = database.taskDao.getAllTasksFlow().first()
                 
                 val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val completedStatus = getStatusOptions(context).getOrNull(2)?.name ?: "完了"
+                val completedStatus = getSecurePreferences(context).getString("mapping_status_completed", "完了") ?: "完了"
                 
                 when (type) {
                     "MORNING" -> {
@@ -211,20 +211,6 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
         fun getSecurePreferences(context: Context): SharedPreferences {
             return SecurityUtils.getSecurePreferences(context)
-        }
-
-        fun getStatusOptions(context: Context): List<NotionOptionInfo> {
-            val json = getSecurePreferences(context).getString(
-                "status_options_v2",
-                null
-            )
-            if (json == null) return emptyList()
-            
-            return try {
-                Json.decodeFromString<List<NotionOptionInfo>>(json)
-            } catch (_: Exception) {
-                emptyList()
-            }
         }
 
         /**

@@ -164,6 +164,9 @@ class MainActivity : ComponentActivity() {
             val propTitle = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_title", "") ?: "") }
             val propStatus = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_status", "") ?: "") }
             val propStatusType = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_status_type", "status") ?: "status") }
+            val propStatusUnstarted = remember { mutableStateOf(sharedPreferences.getString("mapping_status_unstarted", "未着手") ?: "未着手") }
+            val propStatusInProgress = remember { mutableStateOf(sharedPreferences.getString("mapping_status_in_progress", "進行中") ?: "進行中") }
+            val propStatusCompleted = remember { mutableStateOf(sharedPreferences.getString("mapping_status_completed", "完了") ?: "完了") }
             val propCategory = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_category", "") ?: "") }
             val propScheduled = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_scheduled_date", "") ?: "") }
             val propDue = remember { mutableStateOf(sharedPreferences.getString("mapping_prop_due_date", "") ?: "") }
@@ -172,7 +175,7 @@ class MainActivity : ComponentActivity() {
             val statusOptions by viewModel.statusOptions.collectAsState()
 
             // 初期化時または更新時にプロパティマッピングを同期する
-            LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propCategory.value, propScheduled.value, propDue.value) {
+            LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propStatusUnstarted.value, propStatusInProgress.value, propStatusCompleted.value, propCategory.value, propScheduled.value, propDue.value) {
                 val currentToken = sharedPreferences.getString("notion_token", "") ?: ""
                 val currentDbId = sharedPreferences.getString("database_id", "") ?: ""
                 viewModel.updateCredentials(
@@ -181,6 +184,9 @@ class MainActivity : ComponentActivity() {
                     title = propTitle.value,
                     status = propStatus.value,
                     statusType = propStatusType.value,
+                    statusUnstarted = propStatusUnstarted.value,
+                    statusInProgress = propStatusInProgress.value,
+                    statusCompleted = propStatusCompleted.value,
                     category = propCategory.value,
                     scheduledDate = propScheduled.value,
                     dueDate = propDue.value
@@ -210,6 +216,9 @@ class MainActivity : ComponentActivity() {
                     initialPropTitle = propTitle.value,
                     initialPropStatus = propStatus.value,
                     initialPropStatusType = propStatusType.value,
+                    initialPropStatusUnstarted = propStatusUnstarted.value,
+                    initialPropStatusInProgress = propStatusInProgress.value,
+                    initialPropStatusCompleted = propStatusCompleted.value,
                     initialPropCategory = propCategory.value,
                     initialPropScheduled = propScheduled.value,
                     initialPropDue = propDue.value,
@@ -239,7 +248,7 @@ class MainActivity : ComponentActivity() {
                         }
                         viewModel.updateCategoryOptions(newOrder)
                     }
-                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
+                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mStatusUnstarted, mStatusInProgress, mStatusCompleted, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
@@ -257,6 +266,9 @@ class MainActivity : ComponentActivity() {
                         putString("mapping_prop_title", mTitle)
                         putString("mapping_prop_status", mStatus)
                         putString("mapping_prop_status_type", mStatusType)
+                        putString("mapping_status_unstarted", mStatusUnstarted)
+                        putString("mapping_status_in_progress", mStatusInProgress)
+                        putString("mapping_status_completed", mStatusCompleted)
                         putString("mapping_prop_category", mCategory)
                         putString("mapping_prop_scheduled_date", mScheduled)
                         putString("mapping_prop_due_date", mDue)
@@ -273,6 +285,9 @@ class MainActivity : ComponentActivity() {
                     propTitle.value = mTitle
                     propStatus.value = mStatus
                     propStatusType.value = mStatusType
+                    propStatusUnstarted.value = mStatusUnstarted.trim()
+                    propStatusInProgress.value = mStatusInProgress.trim()
+                    propStatusCompleted.value = mStatusCompleted.trim()
                     propCategory.value = mCategory
                     propScheduled.value = mScheduled
                     propDue.value = mDue
@@ -288,6 +303,9 @@ class MainActivity : ComponentActivity() {
                         title = mTitle,
                         status = mStatus,
                         statusType = mStatusType,
+                        statusUnstarted = mStatusUnstarted.trim(),
+                        statusInProgress = mStatusInProgress.trim(),
+                        statusCompleted = mStatusCompleted.trim(),
                         category = mCategory,
                         scheduledDate = mScheduled,
                         dueDate = mDue

@@ -433,9 +433,10 @@ class PomodoroService : Service() {
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
         if (currentMode == "work") {
             if (isRunning || isPaused) {
-                // タスクが変更される場合、現在のセッション（の累積時間）を確定させ、新しいセッションIDを発行する
+                // タスクが変更される、または解除される場合、現在のセッション（の累積時間）を確定させる
                 if (associatedTaskId != taskId) {
                     commitFocusSession()
+                    // 別のタスクに切り替わる、または解除される場合は新しいセッションIDを発行する
                     currentSessionId = "pomo_session_${UUID.randomUUID()}"
                     sessionAccumulatedMs = 0L
                 }
@@ -459,25 +460,15 @@ class PomodoroService : Service() {
 
         taskMonitoringJob = serviceScope.launch {
             val database = com.notiontasks.app.data.local.TaskDatabase.getInstance(this@PomodoroService)
-            // 暗号化された SharedPreferences を取得（SecurityUtils を使用）
-            val prefs = com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
-            val statJson = prefs.getString("status_options_v2", null)
-            val completedStatus = if (!statJson.isNullOrBlank()) {
-                try {
-                    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-                    val options = json.decodeFromString<List<com.notiontasks.app.data.remote.dto.NotionOptionInfo>>(statJson)
-                    options.getOrNull(2)?.name ?: "完了"
-                } catch (_: Exception) {
-                    "完了"
-                }
-            } else {
-                "完了"
-            }
-
+            
             database.taskDao.getTaskFlowById(taskId)
                 .distinctUntilChanged()
                 .collect { task ->
-                    if (task?.status == completedStatus && isRunning) {
+                    // 判定の都度最新の完了ステータス名を取得
+                    val prefs = com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+                    val completedStatus = prefs.getString("mapping_status_completed", "完了") ?: "完了"
+                    
+                    if (task?.status?.trim() == completedStatus.trim() && isRunning) {
                         pauseTimer()
                     }
                 }

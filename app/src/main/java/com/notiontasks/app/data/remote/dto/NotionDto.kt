@@ -43,7 +43,16 @@ data class NotionSelectMeta(
 
 @Serializable
 data class NotionStatusMeta(
-    @SerialName("options") val options: List<NotionOptionInfo> = emptyList()
+    @SerialName("options") val options: List<NotionOptionInfo> = emptyList(),
+    @SerialName("groups") val groups: List<NotionStatusGroup> = emptyList()
+)
+
+@Serializable
+data class NotionStatusGroup(
+    @SerialName("id") val id: String = "",
+    @SerialName("name") val name: String,
+    @SerialName("color") val color: String = "",
+    @SerialName("option_ids") val optionIds: List<String> = emptyList()
 )
 
 @Serializable

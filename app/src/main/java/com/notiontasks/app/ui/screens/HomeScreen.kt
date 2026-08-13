@@ -42,6 +42,9 @@ fun HomeScreen(
     isSearchActive: Boolean = false
 ) {
     val uiState by viewModel.tasksState.collectAsState()
+    val unstartedStatus by viewModel.statusUnstarted.collectAsState()
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
+    val statusCompleted by viewModel.statusCompleted.collectAsState()
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -77,8 +80,6 @@ fun HomeScreen(
                 val todayStr = remember {
                     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 }
-                val unstartedStatus = remember(statusOptions) { statusOptions.getOrNull(0)?.name ?: "未着手" }
-                val inProgressStatus = remember(statusOptions) { statusOptions.getOrNull(1)?.name ?: "進行中" }
 
                 val homeTasksData = remember(state.tasks, homeFilter, searchQuery, statusOptions, todayStr, unstartedStatus, inProgressStatus) {
                     val sortedTasks = state.tasks.sortedWith(
@@ -86,7 +87,7 @@ fun HomeScreen(
                             .thenBy(nullsLast(naturalOrder())) { it.dueDate }
                     )
 
-                    val active = sortedTasks.filter { (it.status == unstartedStatus) || (it.status == inProgressStatus) }
+                    val active = sortedTasks.filter { (it.status.trim() == unstartedStatus.trim()) || (it.status.trim() == inProgressStatus.trim()) }
 
                     fun filterBySearch(tasks: List<TaskModel>): List<TaskModel> {
                         if (searchQuery.isBlank()) return tasks
@@ -107,8 +108,8 @@ fun HomeScreen(
 
                     val filtered = if (homeFilter == "today") todayFiltered else allFiltered
 
-                    val unstarted = filtered.filter { it.status == unstartedStatus }
-                    val inProgress = filtered.filter { it.status == inProgressStatus }
+                    val unstarted = filtered.filter { it.status.trim() == unstartedStatus.trim() }
+                    val inProgress = filtered.filter { it.status.trim() == inProgressStatus.trim() }
 
                     HomeTasksData(
                         totalActiveCount = active.size,
@@ -336,7 +337,8 @@ fun HomeScreen(
                                 items(inProgressTasks) { task ->
                                     TaskItemCard(
                                         task = task,
-                                        statusOptions = statusOptions,
+                                        inProgressStatus = inProgressStatus,
+                                        completedStatus = statusCompleted,
                                         onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
                                         onEditClick = { onEditTask(task) }
                                     )
@@ -357,7 +359,8 @@ fun HomeScreen(
                                 items(unstartedTasks) { task ->
                                     TaskItemCard(
                                         task = task,
-                                        statusOptions = statusOptions,
+                                        inProgressStatus = inProgressStatus,
+                                        completedStatus = statusCompleted,
                                         onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
                                         onEditClick = { onEditTask(task) }
                                     )

@@ -96,6 +96,8 @@ fun AchievementsScreen(
     onEditTask: (TaskModel) -> Unit,
 ) {
     val uiState by viewModel.tasksState.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
     var subPage by remember { mutableStateOf("main") }
 
     Surface(
@@ -122,7 +124,6 @@ fun AchievementsScreen(
                 val todayStr = remember {
                     java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
                 }
-                val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
                 val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
                 val startOfWeekCal = remember {
@@ -176,8 +177,9 @@ fun AchievementsScreen(
                     state.tasks, todayStr, completedStatus,
                     startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
                 ) {
-                    val overdueCountVal = state.tasks.count { (it.status != completedStatus) && (it.dueDate != null) && (it.dueDate < todayStr) }
-                    val carriedOverCountVal = state.tasks.count { (it.status != completedStatus) && (it.scheduledDate != null) && (it.scheduledDate < todayStr) }
+                    val completedStatusTrimmed = completedStatus.trim()
+                    val overdueCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.dueDate != null) && (it.dueDate < todayStr) }
+                    val carriedOverCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.scheduledDate != null) && (it.scheduledDate < todayStr) }
 
                     val weekTasksVal = state.tasks.filter {
                         val sched = it.scheduledDate
@@ -185,7 +187,7 @@ fun AchievementsScreen(
                         ((sched != null) && (sched >= startOfWeekStr) && (sched <= endOfWeekStr)) ||
                         ((due != null) && (due >= startOfWeekStr) && (due <= endOfWeekStr))
                     }
-                    val completedWeekCountVal = weekTasksVal.count { it.status == completedStatus }
+                    val completedWeekCountVal = weekTasksVal.count { it.status.trim() == completedStatusTrimmed }
                     val weekRateVal = if (weekTasksVal.isNotEmpty()) (completedWeekCountVal * 100) / weekTasksVal.size else 0
 
                     val monthTasksVal = state.tasks.filter {
@@ -194,11 +196,11 @@ fun AchievementsScreen(
                         ((sched != null) && (sched >= startOfMonthStr) && (sched <= endOfMonthStr)) ||
                         ((due != null) && (due >= startOfMonthStr) && (due <= endOfMonthStr))
                     }
-                    val completedMonthCountVal = monthTasksVal.count { it.status == completedStatus }
+                    val completedMonthCountVal = monthTasksVal.count { it.status.trim() == completedStatusTrimmed }
                     val monthRateVal = if (monthTasksVal.isNotEmpty()) (completedMonthCountVal * 100) / monthTasksVal.size else 0
 
                     val warningTasksVal = state.tasks.asSequence().filter {
-                        (it.status != completedStatus) && (
+                        (it.status.trim() != completedStatusTrimmed) && (
                             ((it.dueDate != null) && (it.dueDate < todayStr)) ||
                             ((it.scheduledDate != null) && (it.scheduledDate < todayStr))
                         )
@@ -587,7 +589,8 @@ fun AchievementsScreen(
                                     items(warningTasks) { task ->
                                         TaskItemCard(
                                             task = task,
-                                            statusOptions = statusOptions,
+                                            inProgressStatus = inProgressStatus,
+                                            completedStatus = completedStatus,
                                             onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) }
                                         ) { onEditTask(task) }
                                     }
@@ -608,7 +611,8 @@ fun AchievementsScreen(
                         }
                         else -> {
                             // 完了したタスクのリスト表示サブページ
-                            val completedTasks = state.tasks.filter { it.status == completedStatus }
+                            val completedStatusTrimmed = completedStatus.trim()
+                            val completedTasks = state.tasks.filter { it.status.trim() == completedStatusTrimmed }
 
                             if (completedTasks.isEmpty()) {
                                 Box(
@@ -651,7 +655,8 @@ fun AchievementsScreen(
                                     items(completedTasks) { task ->
                                         TaskItemCard(
                                             task = task,
-                                            statusOptions = statusOptions,
+                                            inProgressStatus = inProgressStatus,
+                                            completedStatus = completedStatus,
                                             onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) }
                                         ) { onEditTask(task) }
                                     }

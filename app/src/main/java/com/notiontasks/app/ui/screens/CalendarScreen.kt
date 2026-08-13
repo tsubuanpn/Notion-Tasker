@@ -40,6 +40,8 @@ fun CalendarScreen(
     onEditTask: (TaskModel) -> Unit
 ) {
     val uiState by viewModel.tasksState.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
+    val inProgressStatus by viewModel.statusInProgress.collectAsState()
 
     var focusYear by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)) }
     var focusMonth by remember { mutableIntStateOf(java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)) } // 0-indexed
@@ -60,7 +62,6 @@ fun CalendarScreen(
     val isSystemDark = remember(backgroundColor) {
         backgroundColor.luminance() < 0.5f
     }
-    val completedStatus = statusOptions.getOrNull(2)?.name ?: "完了"
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -270,7 +271,7 @@ fun CalendarScreen(
                                                 ) {
                                                     cellTasks.take(3).forEach { task ->
                                                         // ドットの色を決定します
-                                                        val dotColor = if (task.status == completedStatus) {
+                                                        val dotColor = if (task.status.trim() == completedStatus.trim()) {
                                                             MaterialTheme.colorScheme.outlineVariant
                                                         } else {
                                                             getNotionCategoryColors(task.categoryColor, isSystemDark).second
@@ -382,7 +383,8 @@ fun CalendarScreen(
                             selectedTasks.forEach { task ->
                                 TaskItemCard(
                                     task = task,
-                                    statusOptions = statusOptions,
+                                    inProgressStatus = inProgressStatus,
+                                    completedStatus = completedStatus,
                                     onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) },
                                     onEditClick = { onEditTask(task) }
                                 )
