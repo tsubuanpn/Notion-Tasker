@@ -304,7 +304,7 @@ fun CalendarScreen(
                         selectedDate
                     }
 
-                    var selectedTab by remember { mutableIntStateOf(0) } // 0: 予定日, 1: 締め切り
+                    var selectedTab by remember { mutableStateOf(0) } // 0: 予定日, 1: 締め切り
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

@@ -235,7 +235,7 @@ fun PomodoroScreen(
                         Toast.makeText(context, "集中セッション完了！素晴らしいです！短い休憩をとりましょう。", Toast.LENGTH_LONG).show()
                     }
                     else -> {
-                        Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさまでした！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "集中セッション${POMODOROS_BEFORE_LONG_BREAK}回お疲れさました！長めの休憩をとりましょう。", Toast.LENGTH_LONG).show()
                     }
                 }
                 

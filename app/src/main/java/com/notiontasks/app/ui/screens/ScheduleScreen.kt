@@ -44,6 +44,8 @@ import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.ScheduleExporter
+import android.content.Intent
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -186,7 +188,6 @@ fun ScheduleScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = {
@@ -203,51 +204,75 @@ fun ScheduleScreen(
                 val parsedDateForPicker = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
                 val dateCalendar = Calendar.getInstance().apply { time = parsedDateForPicker }
 
-                Row(
-                    modifier = Modifier
-                        .clickable {
-                            android.app.DatePickerDialog(
-                                context,
-                                { _, year, month, dayOfMonth ->
-                                    val newCal = Calendar.getInstance().apply {
-                                        set(Calendar.YEAR, year)
-                                        set(Calendar.MONTH, month)
-                                        set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                                    }
-                                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
-                                },
-                                dateCalendar.get(Calendar.YEAR),
-                                dateCalendar.get(Calendar.MONTH),
-                                dateCalendar.get(Calendar.DAY_OF_MONTH)
-                            ).show()
-                        }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Icon(
-                        imageVector = Icons.Default.CalendarToday,
-                        contentDescription = "日付選択",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .clickable {
+                                android.app.DatePickerDialog(
+                                    context,
+                                    { _, year, month, dayOfMonth ->
+                                        val newCal = Calendar.getInstance().apply {
+                                            set(Calendar.YEAR, year)
+                                            set(Calendar.MONTH, month)
+                                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                                        }
+                                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
+                                    },
+                                    dateCalendar.get(Calendar.YEAR),
+                                    dateCalendar.get(Calendar.MONTH),
+                                    dateCalendar.get(Calendar.DAY_OF_MONTH)
+                                ).show()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "日付選択",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
 
-                IconButton(onClick = {
-                    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                    val cal = Calendar.getInstance().apply { 
-                        time = parsed
-                        add(Calendar.DATE, 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = {
+                        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
+                        val cal = Calendar.getInstance().apply { 
+                            time = parsed
+                            add(Calendar.DATE, 1)
+                        }
+                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+                    }) {
+                        Icon(Icons.Default.ChevronRight, "翌日")
                     }
-                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
-                }) {
-                    Icon(Icons.Default.ChevronRight, "翌日")
+
+                    IconButton(onClick = {
+                        val text = ScheduleExporter.exportToText(displayName, dayBlocks)
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, text)
+                            type = "text/plain"
+                        }
+                        val shareIntent = Intent.createChooser(sendIntent, null)
+                        context.startActivity(shareIntent)
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "共有",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }

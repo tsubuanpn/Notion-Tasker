@@ -30,36 +30,14 @@ import com.notiontasks.app.ui.components.AddTaskDialog
 import com.notiontasks.app.ui.components.EditTaskDialog
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.screens.*
+import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen(
     viewModel: TaskViewModel,
-    initialMorningTime: String,
-    initialEveningTime: String,
-    initialMorningEnabled: Boolean,
-    initialEveningEnabled: Boolean,
-    initialThemeMode: String,
-    initialThemeColor: String,
-    initialDynamicColorEnabled: Boolean,
-    initialPropTitle: String,
-    initialPropStatus: String,
-    initialPropStatusType: String,
-    initialPropStatusUnstarted: String,
-    initialPropStatusInProgress: String,
-    initialPropStatusCompleted: String,
-    initialPropCategory: String,
-    initialPropScheduled: String,
-    initialPropDue: String,
-    initialCategoryTabEnabled: Boolean,
-    initialCalendarTabEnabled: Boolean,
-    initialScheduleTabEnabled: Boolean,
-    initialPomodoroTabEnabled: Boolean,
-    initialAchievementsTabEnabled: Boolean,
-    initialDevModeEnabled: Boolean,
-    initialDevCompleteButtonEnabled: Boolean,
-    onTabToggle: (String, Boolean) -> Unit,
+    settingsViewModel: SettingsViewModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
     onUpdateCategoryOptions: (List<NotionOptionInfo>) -> Unit,
@@ -91,6 +69,7 @@ fun MainAppScreen(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val isSettingsRoute = currentRoute?.startsWith("settings") == true
 
     val notionToken by viewModel.notionToken.collectAsState()
     val databaseId by viewModel.databaseId.collectAsState()
@@ -161,13 +140,21 @@ fun MainAppScreen(
         }
     }
 
-    LaunchedEffect(initialCategoryTabEnabled, initialCalendarTabEnabled, initialScheduleTabEnabled, initialPomodoroTabEnabled, initialAchievementsTabEnabled, currentRoute) {
+    val categoryTabEnabled by settingsViewModel.categoryTabEnabled.collectAsState()
+    val calendarTabEnabled by settingsViewModel.calendarTabEnabled.collectAsState()
+    val scheduleTabEnabled by settingsViewModel.scheduleTabEnabled.collectAsState()
+    val pomodoroTabEnabled by settingsViewModel.pomodoroTabEnabled.collectAsState()
+    val achievementsTabEnabled by settingsViewModel.achievementsTabEnabled.collectAsState()
+    val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
+    val devCompleteButtonEnabled by settingsViewModel.devCompleteButtonEnabled.collectAsState()
+
+    LaunchedEffect(categoryTabEnabled, calendarTabEnabled, scheduleTabEnabled, pomodoroTabEnabled, achievementsTabEnabled, currentRoute) {
         val isCurrentRouteDisabled = when (currentRoute) {
-            Screen.Category.route -> !initialCategoryTabEnabled
-            Screen.Calendar.route -> !initialCalendarTabEnabled
-            Screen.Schedule.route -> !initialScheduleTabEnabled
-            Screen.Pomodoro.route -> !initialPomodoroTabEnabled
-            Screen.Achievements.route -> !initialAchievementsTabEnabled
+            Screen.Category.route -> !categoryTabEnabled
+            Screen.Calendar.route -> !calendarTabEnabled
+            Screen.Schedule.route -> !scheduleTabEnabled
+            Screen.Pomodoro.route -> !pomodoroTabEnabled
+            Screen.Achievements.route -> !achievementsTabEnabled
             else -> false
         }
         if (isCurrentRouteDisabled) {
@@ -182,53 +169,55 @@ fun MainAppScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("NotionTasker", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    if ((currentRoute == Screen.Settings.route) && notionToken.isNotBlank() && databaseId.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                navController.popBackStack()
-                            },
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                actions = {
-                    if (currentRoute == Screen.Home.route) {
-                        IconButton(onClick = { isSearchActive = !isSearchActive }) {
-                            Icon(
-                                imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = if (isSearchActive) "検索を閉じる" else "検索"
-                            )
-                        }
-                    }
-                    if ((currentRoute == Screen.Home.route) || (currentRoute == Screen.Category.route) || (currentRoute == Screen.Calendar.route) || (currentRoute == Screen.Schedule.route) || (currentRoute == Screen.Achievements.route)) {
-                        IconButton(
-                            onClick = { viewModel.syncWithNotion() },
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "同期")
-                        }
-                    }
-                    if (currentRoute != Screen.Settings.route) {
-                        IconButton(onClick = {
-                            navController.navigate(Screen.Settings.route) {
-                                launchSingleTop = true
+            if (currentRoute == Screen.Settings.route || !isSettingsRoute) {
+                TopAppBar(
+                    title = { Text("NotionTasker", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        if (isSettingsRoute && notionToken.isNotBlank() && databaseId.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    navController.popBackStack()
+                                },
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
                             }
-                        }) {
-                            Icon(Icons.Default.Settings, contentDescription = "設定")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    actions = {
+                        if (currentRoute == Screen.Home.route) {
+                            IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                                Icon(
+                                    imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = if (isSearchActive) "検索を閉じる" else "検索"
+                                )
+                            }
+                        }
+                        if ((currentRoute == Screen.Home.route) || (currentRoute == Screen.Category.route) || (currentRoute == Screen.Calendar.route) || (currentRoute == Screen.Schedule.route) || (currentRoute == Screen.Achievements.route)) {
+                            IconButton(
+                                onClick = { viewModel.syncWithNotion() },
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "同期")
+                            }
+                        }
+                        if (!isSettingsRoute) {
+                            IconButton(onClick = {
+                                navController.navigate(Screen.Settings.route) {
+                                    launchSingleTop = true
+                                }
+                            }) {
+                                Icon(Icons.Default.Settings, contentDescription = "設定")
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         },
         bottomBar = {
-            if (currentRoute != Screen.Settings.route) {
+            if (!isSettingsRoute) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface
                 ) {
@@ -242,11 +231,11 @@ fun MainAppScreen(
                     ).filter { screen ->
                         when (screen) {
                             is Screen.Home -> true
-                            is Screen.Category -> initialCategoryTabEnabled
-                            is Screen.Calendar -> initialCalendarTabEnabled
-                            is Screen.Schedule -> initialScheduleTabEnabled
-                            is Screen.Pomodoro -> initialPomodoroTabEnabled
-                            is Screen.Achievements -> initialAchievementsTabEnabled
+                            is Screen.Category -> categoryTabEnabled
+                            is Screen.Calendar -> calendarTabEnabled
+                            is Screen.Schedule -> scheduleTabEnabled
+                            is Screen.Pomodoro -> pomodoroTabEnabled
+                            is Screen.Achievements -> achievementsTabEnabled
                             else -> true
                         }
                     }
@@ -287,7 +276,7 @@ fun MainAppScreen(
             }
         },
         floatingActionButton = {
-            if ((currentRoute != Screen.Settings.route) && (currentRoute != Screen.Achievements.route)) {
+            if (!isSettingsRoute && (currentRoute != Screen.Achievements.route)) {
                 FloatingActionButton(
                     onClick = { showAddDialogState.value = true },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -330,8 +319,8 @@ fun MainAppScreen(
                 PomodoroScreen(
                     viewModel = viewModel,
                     boundService = boundService,
-                    devModeEnabled = initialDevModeEnabled,
-                    devCompleteButtonEnabled = initialDevCompleteButtonEnabled
+                    devModeEnabled = devModeEnabled,
+                    devCompleteButtonEnabled = devCompleteButtonEnabled
                 )
             }
             composable(Screen.Achievements.route) {
@@ -352,37 +341,39 @@ fun MainAppScreen(
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(
-                    viewModel = viewModel,
-                    initialToken = notionToken,
-                    initialDbId = databaseId,
-                    initialMorningTime = initialMorningTime,
-                    initialEveningTime = initialEveningTime,
-                    initialMorningEnabled = initialMorningEnabled,
-                    initialEveningEnabled = initialEveningEnabled,
-                    initialThemeMode = initialThemeMode,
-                    initialThemeColor = initialThemeColor,
-                    initialDynamicColorEnabled = initialDynamicColorEnabled,
-                    initialPropTitle = initialPropTitle,
-                    initialPropStatus = initialPropStatus,
-                    initialPropStatusType = initialPropStatusType,
-                    initialPropStatusUnstarted = initialPropStatusUnstarted,
-                    initialPropStatusInProgress = initialPropStatusInProgress,
-                    initialPropStatusCompleted = initialPropStatusCompleted,
-                    initialPropCategory = initialPropCategory,
-                    initialPropScheduled = initialPropScheduled,
-                    initialPropDue = initialPropDue,
-                    initialCategoryTabEnabled = initialCategoryTabEnabled,
-                    initialCalendarTabEnabled = initialCalendarTabEnabled,
-                    initialScheduleTabEnabled = initialScheduleTabEnabled,
-                    initialPomodoroTabEnabled = initialPomodoroTabEnabled,
-                    initialAchievementsTabEnabled = initialAchievementsTabEnabled,
-                    initialDevModeEnabled = initialDevModeEnabled,
-                    initialDevCompleteButtonEnabled = initialDevCompleteButtonEnabled,
-                    onTabToggle = onTabToggle,
-                    initialCategoryOptions = categoryOptions,
-                    initialStatusOptions = statusOptions,
-                    onSave = onSaveCredentials
+                    settingsViewModel = settingsViewModel,
+                    navController = navController
                 )
+            }
+            composable(Screen.SettingsNotion.route) {
+                NotionSettingsScreen(viewModel, settingsViewModel, navController, onSaveCredentials)
+            }
+            composable(Screen.SettingsMapping.route) {
+                MappingSettingsScreen(viewModel, settingsViewModel, navController, onSaveCredentials)
+            }
+            composable(Screen.SettingsNotifications.route) {
+                NotificationsSettingsScreen(settingsViewModel, navController)
+            }
+            composable(Screen.SettingsTheme.route) {
+                ThemeSettingsScreen(settingsViewModel, navController)
+            }
+            composable(Screen.SettingsPomodoro.route) {
+                PomodoroSettingsScreen(settingsViewModel, navController)
+            }
+            composable(Screen.SettingsLifeActivity.route) {
+                LifeActivitySettingsScreen(viewModel, navController)
+            }
+            composable(Screen.SettingsTabs.route) {
+                TabsSettingsScreen(settingsViewModel, navController)
+            }
+            composable(Screen.SettingsStats.route) {
+                StatsManagementScreen(viewModel, navController)
+            }
+            composable(Screen.SettingsAbout.route) {
+                AboutScreen(settingsViewModel, navController, onSaveCredentials)
+            }
+            composable(Screen.SettingsDeveloper.route) {
+                DeveloperSettingsScreen(settingsViewModel, navController, onSaveCredentials)
             }
         }
     }
