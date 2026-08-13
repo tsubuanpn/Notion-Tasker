@@ -19,13 +19,12 @@ import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
-import com.notiontasks.app.data.loadPomodoroLogs
 import com.notiontasks.app.data.insertPomodoroLog
-import com.notiontasks.app.data.deletePomodoroLogById
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -53,6 +52,12 @@ class PomodoroService : Service() {
     var associatedTaskCategoryColor: String? = null
     var focusStartLeftMs: Long = 0L
     var currentSessionId: String? = null
+
+    // タスクのステータス監視用 Job
+    private var taskMonitoringJob: Job? = null
+
+    // セッション内での累積作業時間（ミリ秒）
+    private var sessionAccumulatedMs: Long = 0L
 
     private fun getDurationMsForMode(mode: String): Long {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
@@ -204,14 +209,8 @@ class PomodoroService : Service() {
         if (isRunning) return
         
         if (!isPaused || currentSessionId == null) {
-            currentSessionId = UUID.randomUUID().toString()
-        } else {
-            currentSessionId?.let { sessionId ->
-                serviceScope.launch {
-                    val targetId = "pomo_paused_$sessionId"
-                    deletePomodoroLogById(this@PomodoroService, targetId)
-                }
-            }
+            currentSessionId = "pomo_session_${UUID.randomUUID()}"
+            sessionAccumulatedMs = 0L
         }
         
         isRunning = true
@@ -220,6 +219,7 @@ class PomodoroService : Service() {
         
         if (currentMode == "work") {
             focusStartLeftMs = timeLeftMs
+            startTaskMonitoring(associatedTaskId)
         }
         
         // Android 14 以降では、特別な用途や短いサービスのタイプに対して即座に startForeground を呼び出す必要があります
@@ -249,7 +249,7 @@ class PomodoroService : Service() {
         isPaused = false
         onStateChangedListener?.invoke(false)
 
-        commitFocusSession(isTemporary = false)
+        commitFocusSession()
 
         val completedMode = currentMode
         transitionToNextMode()
@@ -291,7 +291,8 @@ class PomodoroService : Service() {
 
     private fun pauseTimer() {
         if (!isRunning) return
-        commitFocusSession(isTemporary = true)
+        taskMonitoringJob?.cancel()
+        commitFocusSession()
         countDownTimer?.cancel()
         countDownTimer = null
         isRunning = false
@@ -304,7 +305,8 @@ class PomodoroService : Service() {
     }
 
     private fun stopTimer() {
-        commitFocusSession(isTemporary = false)
+        taskMonitoringJob?.cancel()
+        commitFocusSession()
         countDownTimer?.cancel()
         countDownTimer = null
         isRunning = false
@@ -354,7 +356,8 @@ class PomodoroService : Service() {
     private fun skipToNext() {
         val wasRunning = isRunning
         if (wasRunning) {
-            commitFocusSession(isTemporary = false)
+            taskMonitoringJob?.cancel()
+            commitFocusSession()
             countDownTimer?.cancel()
             countDownTimer = null
             isRunning = false
@@ -381,16 +384,19 @@ class PomodoroService : Service() {
         }
     }
 
-    fun commitFocusSession(isTemporary: Boolean = false) {
+    fun commitFocusSession() {
         if (currentMode != "work") return
         val elapsedMs = focusStartLeftMs - timeLeftMs
-        if (elapsedMs < 1000L) return // 1秒未満の極めて短い時間は記録しない
+        
+        // 1秒未満の作業かつ過去の累積もない場合は記録しない
+        if (elapsedMs < 1000L && sessionAccumulatedMs == 0L) return 
 
-        // 1秒以上作業していれば、端数を切り上げて（最低1分として）記録。テストや短い作業でも確実にログが残る。
-        val elapsedSeconds = elapsedMs / 1000.0
-        val elapsedMins = ceil(elapsedSeconds / 60.0).toInt()
+        sessionAccumulatedMs += elapsedMs
 
-        if (elapsedMins > 0) {
+        // 累積ミリ秒から合計分を算出（切り上げ）
+        val totalMinutes = ceil(sessionAccumulatedMs / 60000.0).toInt()
+
+        if (totalMinutes > 0) {
             val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
             val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
@@ -401,11 +407,8 @@ class PomodoroService : Service() {
                 "default"
             }
 
-            val logId = if (isTemporary && currentSessionId != null) {
-                "pomo_paused_$currentSessionId"
-            } else {
-                "pomo_${UUID.randomUUID()}"
-            }
+            // セッションIDをベースにした固定IDを使用（Upsertにより上書き更新される）
+            val logId = currentSessionId ?: "pomo_${UUID.randomUUID()}"
 
             val newLog = PomodoroLog(
                 id = logId,
@@ -414,16 +417,11 @@ class PomodoroService : Service() {
                 category = categoryVal,
                 categoryColor = categoryColorVal,
                 date = todayStr,
-                minutes = elapsedMins,
+                minutes = totalMinutes,
                 timestamp = System.currentTimeMillis(),
             )
 
             serviceScope.launch {
-                // 本登録するときに、既に同じセッションの一時的なログがあればそれを削除して新しく追加する
-                if (!isTemporary && currentSessionId != null) {
-                    deletePomodoroLogById(this@PomodoroService, "pomo_paused_$currentSessionId")
-                }
-
                 insertPomodoroLog(this@PomodoroService, newLog)
             }
         }
@@ -432,28 +430,15 @@ class PomodoroService : Service() {
         focusStartLeftMs = timeLeftMs
     }
 
-    private fun promoteTemporarySession() {
-        val sessionId = currentSessionId ?: return
-        val targetId = "pomo_paused_$sessionId"
-        serviceScope.launch {
-            val currentLogs = loadPomodoroLogs(this@PomodoroService)
-            val tempLog = currentLogs.find { it.id == targetId }
-            if (tempLog != null) {
-                val promotedLog = tempLog.copy(id = "pomo_${UUID.randomUUID()}")
-                deletePomodoroLogById(this@PomodoroService, targetId)
-                insertPomodoroLog(this@PomodoroService, promotedLog)
-            }
-        }
-        currentSessionId = null
-    }
-
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
         if (currentMode == "work") {
-            if (isRunning) {
-                commitFocusSession(isTemporary = false)
-                currentSessionId = System.currentTimeMillis().toString()
-            } else if (isPaused) {
-                promoteTemporarySession()
+            if (isRunning || isPaused) {
+                // タスクが変更される場合、現在のセッション（の累積時間）を確定させ、新しいセッションIDを発行する
+                if (associatedTaskId != taskId) {
+                    commitFocusSession()
+                    currentSessionId = "pomo_session_${UUID.randomUUID()}"
+                    sessionAccumulatedMs = 0L
+                }
             }
         }
 
@@ -464,6 +449,38 @@ class PomodoroService : Service() {
 
         if (currentMode == "work" && isRunning) {
             focusStartLeftMs = timeLeftMs
+            startTaskMonitoring(associatedTaskId)
+        }
+    }
+
+    private fun startTaskMonitoring(taskId: String?) {
+        taskMonitoringJob?.cancel()
+        if (taskId == null || currentMode != "work") return
+
+        taskMonitoringJob = serviceScope.launch {
+            val database = com.notiontasks.app.data.local.TaskDatabase.getInstance(this@PomodoroService)
+            // 暗号化された SharedPreferences を取得（SecurityUtils を使用）
+            val prefs = com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+            val statJson = prefs.getString("status_options_v2", null)
+            val completedStatus = if (!statJson.isNullOrBlank()) {
+                try {
+                    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    val options = json.decodeFromString<List<com.notiontasks.app.data.remote.dto.NotionOptionInfo>>(statJson)
+                    options.getOrNull(2)?.name ?: "完了"
+                } catch (_: Exception) {
+                    "完了"
+                }
+            } else {
+                "完了"
+            }
+
+            database.taskDao.getTaskFlowById(taskId)
+                .distinctUntilChanged()
+                .collect { task ->
+                    if (task?.status == completedStatus && isRunning) {
+                        pauseTimer()
+                    }
+                }
         }
     }
 

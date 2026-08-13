@@ -33,7 +33,14 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         if ((intent.action == Intent.ACTION_BOOT_COMPLETED) || 
             (intent.action == "android.intent.action.BOOT_COMPLETED") || 
             (intent.action == "android.intent.action.QUICKBOOT_POWERON")) {
-            rescheduleAlarms(context)
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    rescheduleAlarmsInternal(context)
+                } finally {
+                    pendingResult.finish()
+                }
+            }
             return
         }
 
@@ -192,10 +199,11 @@ class TaskNotificationReceiver : BroadcastReceiver() {
     companion object {
         fun createNotificationChannel(context: Context) {
             val name = "Notionタスク通知"
-            val descriptionText = "朝と夜のタスク通知用チャネル"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            val descriptionText = "朝夜および時間割の通知用チャネル"
+            val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel("notion_tasks_channel", name, importance).apply {
                 description = descriptionText
+                enableVibration(true)
             }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -219,7 +227,17 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             }
         }
 
+        /**
+         * すべてのアラーム（朝夜通知および時間割）を再スケジュールします。
+         */
         fun rescheduleAlarms(context: Context) {
+            CoroutineScope(Dispatchers.IO).launch {
+                rescheduleAlarmsInternal(context)
+            }
+        }
+
+        private suspend fun rescheduleAlarmsInternal(context: Context) {
+            // 1. 朝と夜の定期通知をスケジュール
             val prefs = getSecurePreferences(context)
             val morningEnabled = prefs.getBoolean("morning_notif_enabled", true)
             val eveningEnabled = prefs.getBoolean("evening_notif_enabled", true)
@@ -237,6 +255,31 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 scheduleNotification(context, "EVENING", eveningTime)
             } else {
                 cancelNotification(context, "EVENING")
+            }
+
+            // 2. データベースから未来の時間割（タイムブロック）を再スケジュール
+            try {
+                val database = TaskDatabase.getInstance(context.applicationContext)
+                val blocks = database.scheduleBlockDao.getAllBlocks()
+                val today = LocalDate.now()
+                
+                blocks.forEach { entity ->
+                    val blockDate = try { LocalDate.parse(entity.date) } catch(_: Exception) { null }
+                    if (blockDate != null && !blockDate.isBefore(today)) {
+                        scheduleBlockAlarm(context, TimeBlock(
+                            id = entity.id,
+                            type = entity.type,
+                            title = entity.title,
+                            associatedId = entity.associatedId,
+                            startTime = entity.startTime,
+                            endTime = entity.endTime,
+                            color = entity.color,
+                            date = entity.date
+                        ))
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
 
@@ -301,11 +344,19 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
             val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                millis,
-                pendingIntent
-            )
+            setExactAlarm(alarmManager, millis, pendingIntent)
+        }
+
+        private fun setExactAlarm(alarmManager: AlarmManager, millis: Long, pendingIntent: PendingIntent) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
+                } else {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
+                }
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
+            }
         }
 
         fun scheduleBlockAlarm(context: Context, block: TimeBlock) {
@@ -340,11 +391,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
             val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                millis,
-                pendingIntent
-            )
+            setExactAlarm(alarmManager, millis, pendingIntent)
         }
 
         fun cancelBlockAlarm(context: Context, blockId: String) {

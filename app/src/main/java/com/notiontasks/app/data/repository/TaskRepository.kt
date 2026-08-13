@@ -140,6 +140,23 @@ class TaskRepository(
         }
         .flowOn(Dispatchers.Default)
 
+    fun getTaskFlowById(id: String): Flow<TaskModel?> = taskDao.getTaskFlowById(id)
+        .map { entity ->
+            entity?.let {
+                TaskModel(
+                    id = it.id,
+                    title = it.title,
+                    status = it.status,
+                    category = it.category,
+                    dueDate = it.dueDate,
+                    scheduledDate = it.scheduledDate,
+                    statusColor = it.statusColor,
+                    categoryColor = it.categoryColor,
+                )
+            }
+        }
+        .flowOn(Dispatchers.Default)
+
     suspend fun getDatabaseMetadata(token: String, databaseId: String): NotionDatabaseResponse {
         val authHeader = "Bearer $token"
         val meta = notionApi.getDatabase(token = authHeader, databaseId = databaseId)

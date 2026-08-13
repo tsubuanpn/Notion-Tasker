@@ -1,6 +1,9 @@
 @file:Suppress("DEPRECATION")
 package com.notiontasks.app
 
+import android.app.AlarmManager
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -51,6 +54,21 @@ class MainActivity : ComponentActivity() {
                 ) != android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
                 requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun checkAndRequestExactAlarmPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (!alarmManager.canScheduleExactAlarms()) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    startActivity(intent)
+                    Toast.makeText(this, "時間割通報の正確性を向上させるため、アラーム権限を許可してください。", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    // 設定画面が開けない場合のフォールバック
+                }
             }
         }
     }
@@ -122,6 +140,7 @@ class MainActivity : ComponentActivity() {
         val hasRequestedLaunch = sharedPreferences.getBoolean("has_req_notif_launch_v2", false)
         if (!hasRequestedLaunch) {
             checkAndRequestNotificationPermission()
+            checkAndRequestExactAlarmPermission()
             sharedPreferences.edit { putBoolean("has_req_notif_launch_v2", true) }
         }
 
