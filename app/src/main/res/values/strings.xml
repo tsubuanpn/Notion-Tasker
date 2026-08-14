@@ -15,8 +15,8 @@
     <string name="settings_mapping_subtitle">Notion側のカラム名と同期属性を定義します</string>
     <string name="settings_notifications_title">通知スケジュール設定</string>
     <string name="settings_notifications_subtitle">今日期限タスクを知らせる通知タイマー</string>
-    <string name="settings_stats_title">統計データ管理</string>
-    <string name="settings_stats_subtitle">作業ログの保存期間設定と一括削除</string>
+    <string name="settings_stats_title">データ管理</string>
+    <string name="settings_stats_subtitle">タスク・統計データの保持制限と削除</string>
     <string name="settings_life_activity_title">生活習慣設定</string>
     <string name="settings_life_activity_subtitle">時間割に自動表示するデフォルト時刻やプリセット</string>
     <string name="settings_pomodoro_title">ポモドーロタイマー設定</string>
@@ -84,8 +84,19 @@
     <string name="settings_alarm_play">再生</string>
     <string name="settings_alarm_stop">停止</string>
 
+    <!-- Data Management Settings -->
+    <string name="settings_data_completed_tasks_title">完了済みタスクの保持制限</string>
+    <string name="settings_data_keep_type_date">日付で制限</string>
+    <string name="settings_data_keep_type_count">件数で制限</string>
+    <string name="settings_data_keep_count_label">最大保持件数</string>
+    <string name="settings_data_delete_stats_btn">統計データを削除...</string>
+    <string name="settings_data_delete_select_period">削除する期間を選択</string>
+    <string name="settings_data_delete_confirm_title">最終確認</string>
+    <string name="settings_data_help_notion_remains">※ここでの削除はアプリ内のみです。Notion側のデータは削除されません。</string>
+    <string name="settings_data_reset_sync">全データを再同期（リセット）</string>
+
     <!-- Stats Settings -->
-    <string name="settings_stats_duration">統計の保存期間設定</string>
+    <string name="settings_stats_duration">統計（ポモドーロ）の保持期間</string>
     <string name="settings_stats_delete_title">データの一括削除</string>
     <string name="settings_stats_delete_confirm">データの削除</string>
     <string name="settings_stats_delete_msg">%1$sの統計データを削除しますか？\nこの操作は取り消せません。</string>

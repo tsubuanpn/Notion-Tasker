@@ -15,6 +15,7 @@ data class TaskEntity(
     val scheduledDate: String?,
     val statusColor: String? = null,
     val categoryColor: String? = null,
+    val lastEditedTime: Long = 0L,
 )
 
 @Entity(tableName = "pomodoro_logs")
@@ -102,6 +103,15 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     fun getTaskFlowById(id: String): Flow<TaskEntity?>
+
+    @Query("DELETE FROM tasks WHERE status = :completedStatus AND ( (dueDate IS NOT NULL AND dueDate < :date) OR (scheduledDate IS NOT NULL AND scheduledDate < :date) OR (dueDate IS NULL AND scheduledDate IS NULL) )")
+    suspend fun deleteOldCompletedTasksByDate(completedStatus: String, date: String)
+
+    @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)")
+    suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int)
+
+    @Query("SELECT MAX(lastEditedTime) FROM tasks")
+    suspend fun getLastSyncTimestamp(): Long?
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: String)
@@ -209,7 +219,7 @@ interface PendingSyncActionDao {
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -229,6 +239,12 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN lastEditedTime INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): TaskDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -236,7 +252,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     TaskDatabase::class.java,
                     "notion_tasks_cache.db",
                 )
-                .addMigrations(MIGRATION_4_5)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration(dropAllTables = false)
                 .build().also {
                     INSTANCE = it

@@ -17,6 +17,7 @@ data class NotionQueryResponse(
 @Serializable
 data class NotionPage(
     @SerialName("id") val id: String,
+    @SerialName("last_edited_time") val lastEditedTime: String? = null,
     @SerialName("properties") val properties: Map<String, JsonElement>,
 )
 

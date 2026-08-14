@@ -240,7 +240,6 @@ fun AchievementsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // タブセレクター
-                    val completedTasksCount = state.tasks.count { it.status == completedStatus }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -259,7 +258,7 @@ fun AchievementsScreen(
                         listOf(
                             "main" to "🏆 目標進捗",
                             "stats" to "📈 作業統計",
-                            "completed" to "✅ 完了タスク (${completedTasksCount}件)",
+                            "completed" to "✅ 完了タスク",
                         ).forEach { (page, label) ->
                             val isSelected = subPage == page
                             Box(

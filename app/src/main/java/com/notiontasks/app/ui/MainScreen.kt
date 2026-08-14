@@ -367,7 +367,7 @@ fun MainAppScreen(
                 TabsSettingsScreen(settingsViewModel, navController)
             }
             composable(Screen.SettingsStats.route) {
-                StatsManagementScreen(viewModel, navController)
+                StatsManagementScreen(viewModel, settingsViewModel, navController)
             }
             composable(Screen.SettingsAbout.route) {
                 AboutScreen(settingsViewModel, navController, onSaveCredentials)

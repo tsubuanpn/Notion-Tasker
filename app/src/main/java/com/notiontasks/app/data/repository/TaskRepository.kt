@@ -182,14 +182,13 @@ class TaskRepository(
     }
 
     // リモートの Notion DB からタスクのキャッシュを更新し、保留中のオフラインアクションを同期する
-    suspend fun syncTasks(token: String, databaseId: String) = syncMutex.withLock {
+    suspend fun syncTasks(token: String, databaseId: String, incremental: Boolean = true) = syncMutex.withLock {
         val authHeader = "Bearer $token"
         
         // 1. まずオフライン中の変更があれば順次処理を試みる
         try {
             processPendingSyncActionsInternal(token, databaseId)
         } catch (e: Exception) {
-            // Pending sync actions failure is logged but we still try to sync tasks
             e.printStackTrace()
         }
 
@@ -199,14 +198,27 @@ class TaskRepository(
             var hasMore = true
             var nextCursor: String? = null
             
-            // サーバー側で予定日・締め切り順にソートして取得することで、同期の優先順位を確保する
-            val sorts = listOf(
-                NotionSort(property = propScheduledDateName, direction = "ascending"),
-                NotionSort(property = propDueDateName, direction = "ascending")
-            )
+            // 前回の最終同期時刻を取得（差分同期用）
+            val lastSync = if (incremental) taskDao.getLastSyncTimestamp() ?: 0L else 0L
 
             while (hasMore) {
+                // 差分同期用のフィルタ構築
+                val filter = if (lastSync > 0) {
+                    buildJsonObject {
+                        put("timestamp", "last_edited_time")
+                        put("last_edited_time", buildJsonObject {
+                            put("after", java.time.Instant.ofEpochMilli(lastSync).toString())
+                        })
+                    }
+                } else null
+
+                val sorts = listOf(
+                    NotionSort(property = propScheduledDateName, direction = "ascending"),
+                    NotionSort(property = propDueDateName, direction = "ascending")
+                )
+
                 val request = NotionQueryRequest(
+                    filter = filter,
                     sorts = sorts,
                     startCursor = nextCursor,
                     pageSize = 100
@@ -226,6 +238,10 @@ class TaskRepository(
                         ?: page.properties.getSelectColor(propStatusName)
                     val categoryColorVal = page.properties.getSelectColor(propCategoryName)
 
+                    val editedTime = try {
+                        page.lastEditedTime?.let { java.time.Instant.parse(it).toEpochMilli() } ?: 0L
+                    } catch (_: Exception) { 0L }
+
                     TaskEntity(
                         id = page.id,
                         title = title,
@@ -235,19 +251,53 @@ class TaskRepository(
                         scheduledDate = page.properties.getDateValue(propScheduledDateName),
                         statusColor = statusColorVal,
                         categoryColor = categoryColorVal,
+                        lastEditedTime = editedTime
                     )
                 }
                 allFetchedEntities.addAll(pageEntities)
                 
                 hasMore = response.hasMore
                 nextCursor = response.nextCursor
+
+                // レート制限 (3回/秒) を考慮したディレイ挿入
+                if (hasMore) {
+                    kotlinx.coroutines.delay(350)
+                }
             }
 
-            // 3. トランザクションを用いて差分更新（Upsert + 不要データの削除）
-            // 全件取得後に行うことで、100件制限による意図しない削除を防止する
-            taskDao.syncTasksTransactionally(allFetchedEntities)
+            // 3. トランザクションを用いて更新
+            // 差分同期の場合は upsert のみを行い、フル同期の場合のみ不要データを削除する
+            if (incremental && lastSync > 0) {
+                taskDao.upsertTasks(allFetchedEntities)
+            } else {
+                taskDao.syncTasksTransactionally(allFetchedEntities)
+            }
         } catch (e: Exception) {
             throw IOException("Network synchronization failed: ${e.message}", e)
+        }
+    }
+
+    /**
+     * ローカルの完了済みタスクをクリーンアップします。
+     * @param keepType "date" または "count"
+     * @param keepValue 期間(月) または 最大保持件数
+     */
+    suspend fun cleanupCompletedTasks(keepType: String, keepValue: Int) {
+        val completed = propStatusCompletedName
+        when (keepType) {
+            "date" -> {
+                if (keepValue > 0) {
+                    val cal = java.util.Calendar.getInstance()
+                    cal.add(java.util.Calendar.MONTH, -keepValue)
+                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(cal.time)
+                    taskDao.deleteOldCompletedTasksByDate(completed, dateStr)
+                }
+            }
+            "count" -> {
+                if (keepValue > 0) {
+                    taskDao.keepOnlyLatestCompletedTasks(completed, keepValue)
+                }
+            }
         }
     }
 

@@ -509,7 +509,7 @@ class TaskViewModel(
     }
 
     // 状態更新を伴うメインの同期トリガーコールバック
-    fun syncWithNotion() {
+    fun syncWithNotion(incremental: Boolean = true) {
         loadCredentialsAndMappings()
         val token = _notionToken.value
         val dbId = _databaseId.value
@@ -520,9 +520,34 @@ class TaskViewModel(
 
         viewModelScope.launch {
             try {
-                repository.syncTasks(token, dbId)
+                repository.syncTasks(token, dbId, incremental = incremental)
+                // 同期後に完了済みタスクのクリーンアップを実行
+                cleanupData()
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private suspend fun cleanupData() {
+        val keepType = sharedPrefs.getString("data_keep_type", "date") ?: "date"
+        val keepVal = if (keepType == "date") {
+            sharedPrefs.getInt("data_keep_months", 0)
+        } else {
+            sharedPrefs.getInt("data_keep_count", 1000)
+        }
+        repository.cleanupCompletedTasks(keepType, keepVal)
+        cleanupOldPomodoroLogs()
+    }
+
+    fun deletePomodoroLogsByMonths(months: Int) {
+        viewModelScope.launch {
+            if (months == -1) {
+                pomodoroRepository.clearAllLogs()
+            } else {
+                val calendar = Calendar.getInstance()
+                calendar.add(Calendar.MONTH, -months)
+                pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
             }
         }
     }
@@ -552,70 +577,65 @@ class TaskViewModel(
      */
     fun autoDetectMapping(meta: NotionDatabaseResponse): Map<String, String> {
         val detected = mutableMapOf<String, String>()
-        meta.properties.forEach { (pName, pVal) ->
-            when {
-                pVal.title != null -> detected["title"] = pName
-                pVal.status != null -> {
-                    detected["status"] = pName
-                    detected["statusType"] = "status"
-                    
-                    // ステータスグループから推論
-                    pVal.status.groups.forEach { group ->
-                        when (group.name.lowercase()) {
-                            "to do", "未着手", "todo" -> {
-                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
-                                    detected["statusUnstarted"] = it.name
-                                }
-                            }
-                            "in progress", "進行中", "doing" -> {
-                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
-                                    detected["statusInProgress"] = it.name
-                                }
-                            }
-                            "complete", "完了", "done" -> {
-                                pVal.status.options.find { it.id == group.optionIds.firstOrNull() }?.let {
-                                    detected["statusCompleted"] = it.name
-                                }
-                            }
-                        }
+        val props = meta.properties
+
+        // 1. タイトル (名前) の検知
+        detected["title"] = props.entries.find { it.value.title != null }?.key 
+            ?: props.keys.find { it.contains("名前") || it.contains("タスク") || it.contains("Title", ignoreCase = true) || it.contains("Name", ignoreCase = true) }
+            ?: ""
+
+        // 2. ステータスの検知 (Status型を最優先)
+        val statusProp = props.entries.find { it.value.status != null }
+            ?: props.entries.find { it.value.select != null && (it.key.contains("状態") || it.key.contains("ステータス") || it.key.contains("Status", ignoreCase = true) || it.key.contains("Progress", ignoreCase = true)) }
+        
+        if (statusProp != null) {
+            val pName = statusProp.key
+            val pVal = statusProp.value
+            detected["status"] = pName
+            detected["statusType"] = if (pVal.status != null) "status" else "select"
+            
+            val options = pVal.status?.options ?: pVal.select?.options ?: emptyList()
+            
+            // ステータス値の推論 (グループ情報がある場合は優先使用)
+            if (pVal.status != null) {
+                pVal.status.groups.forEach { group ->
+                    val firstOption = options.find { it.id == group.optionIds.firstOrNull() }?.name
+                    when (group.name.lowercase()) {
+                        "to do", "未着手", "todo" -> detected["statusUnstarted"] = firstOption ?: ""
+                        "in progress", "進行中", "doing" -> detected["statusInProgress"] = firstOption ?: ""
+                        "complete", "完了", "done" -> detected["statusCompleted"] = firstOption ?: ""
                     }
                 }
-                (pVal.select != null) && (pName.contains("状態") || pName.lowercase().contains("status")) -> {
-                    if (!detected.containsKey("status")) {
-                        detected["status"] = pName
-                        detected["statusType"] = "select"
-                    }
-                }
-                (pVal.select != null) && (pName.contains("種類") || pName.contains("カテゴリ") || pName.lowercase().contains("category")) -> {
-                    detected["category"] = pName
-                }
-                (pVal.date != null) && (pName.contains("予定") || pName.lowercase().contains("scheduled")) -> {
-                    detected["scheduled"] = pName
-                }
-                (pVal.date != null) && (pName.contains("締切") || pName.contains("期限") || pName.lowercase().contains("due")) -> {
-                    detected["due"] = pName
-                }
+            }
+            
+            // グループで見つからない、または Select 型の場合のキーワード補完
+            if (detected["statusUnstarted"].isNullOrBlank()) {
+                detected["statusUnstarted"] = options.find { it.name.contains("未着手") || it.name.contains("待機") || it.name.contains("Todo", ignoreCase = true) || it.name.contains("Backlog", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(0)?.name ?: ""
+            }
+            if (detected["statusInProgress"].isNullOrBlank()) {
+                detected["statusInProgress"] = options.find { it.name.contains("進行") || it.name.contains("作業") || it.name.contains("進捗") || it.name.contains("Doing", ignoreCase = true) || it.name.contains("Progress", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(1)?.name ?: ""
+            }
+            if (detected["statusCompleted"].isNullOrBlank()) {
+                detected["statusCompleted"] = options.find { it.name.contains("完了") || it.name.contains("済") || it.name.contains("Done", ignoreCase = true) || it.name.contains("Finished", ignoreCase = true) || it.name.contains("Complete", ignoreCase = true) }?.name 
+                    ?: options.getOrNull(2)?.name ?: ""
             }
         }
-        
-        // キーワードによる追加補完（グループから見つからなかった場合や Select 型の場合）
-        val statusPropName = detected["status"]
-        if (statusPropName != null) {
-            val options = meta.properties[statusPropName]?.let { it.status?.options ?: it.select?.options } ?: emptyList()
-            if (!detected.containsKey("statusUnstarted")) {
-                detected["statusUnstarted"] = options.find { it.name.contains("未着手") || it.name.contains("Todo", ignoreCase = true) }?.name 
-                    ?: options.getOrNull(0)?.name ?: "未着手"
-            }
-            if (!detected.containsKey("statusInProgress")) {
-                detected["statusInProgress"] = options.find { it.name.contains("進行中") || it.name.contains("Doing", ignoreCase = true) || it.name.contains("Progress", ignoreCase = true) }?.name 
-                    ?: options.getOrNull(1)?.name ?: "進行中"
-            }
-            if (!detected.containsKey("statusCompleted")) {
-                detected["statusCompleted"] = options.find { it.name.contains("完了") || it.name.contains("Done", ignoreCase = true) || it.name.contains("Finished", ignoreCase = true) }?.name 
-                    ?: options.getOrNull(2)?.name ?: "完了"
-            }
-        }
-        
+
+        // 3. カテゴリの検知 (Select型)
+        detected["category"] = props.entries.find { it.value.select != null && (it.key.contains("カテゴリ") || it.key.contains("種類") || it.key.contains("分類") || it.key.contains("Category", ignoreCase = true) || it.key.contains("Type", ignoreCase = true) || it.key.contains("Tag", ignoreCase = true)) }?.key 
+            ?: ""
+
+        // 4. 予定日の検知 (Date型)
+        detected["scheduled"] = props.entries.find { it.value.date != null && (it.key.contains("予定") || it.key.contains("実施") || it.key.contains("Scheduled", ignoreCase = true) || it.key.contains("Start", ignoreCase = true)) }?.key 
+            ?: props.entries.find { it.value.date != null }?.key 
+            ?: ""
+
+        // 5. 締め切りの検知 (Date型)
+        detected["due"] = props.entries.find { it.value.date != null && it.key != detected["scheduled"] && (it.key.contains("締切") || it.key.contains("期限") || it.key.contains("Due", ignoreCase = true) || it.key.contains("End", ignoreCase = true) || it.key.contains("Deadline", ignoreCase = true)) }?.key 
+            ?: ""
+
         return detected
     }
 

@@ -49,6 +49,9 @@ import android.content.Intent
 import java.text.SimpleDateFormat
 import java.util.*
 
+private const val TIME_SNAP_MINUTES = 5
+private const val GRID_SNAP_MINUTES = 15
+
 @Composable
 fun ScheduleScreen(
     viewModel: TaskViewModel
@@ -341,7 +344,7 @@ fun ScheduleScreen(
                                     .height(20.dp)
                                     .offset(y = 20.dp)
                                     .clickable {
-                                        clickedTimeMinutes = hour * 60 + 15
+                                        clickedTimeMinutes = hour * 60 + GRID_SNAP_MINUTES
                                         editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
@@ -364,7 +367,7 @@ fun ScheduleScreen(
                                     .height(20.dp)
                                     .offset(y = 40.dp)
                                     .clickable {
-                                        clickedTimeMinutes = hour * 60 + 30
+                                        clickedTimeMinutes = hour * 60 + (GRID_SNAP_MINUTES * 2)
                                         editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
@@ -385,7 +388,7 @@ fun ScheduleScreen(
                                     .height(20.dp)
                                     .offset(y = 60.dp)
                                     .clickable {
-                                        clickedTimeMinutes = hour * 60 + 45
+                                        clickedTimeMinutes = hour * 60 + (GRID_SNAP_MINUTES * 3)
                                         editingBlock = null
                                         selectedPresetTask = null
                                         selectedPresetActivity = null
@@ -442,7 +445,7 @@ fun ScheduleScreen(
                     val displayStartMinutes = if (isThisBlockDragging) {
                         val deltaMinutes = ((dragBlockDeltaYPx / hourHeightPx) * 60).toInt()
                         val rawMinutes = dragBlockStartMinutes + deltaMinutes
-                        val snapped = ((rawMinutes + 7) / 15) * 15
+                        val snapped = ((rawMinutes + (TIME_SNAP_MINUTES / 2)) / TIME_SNAP_MINUTES) * TIME_SNAP_MINUTES
                         snapped.coerceIn(0, 1440 - dragBlockDuration)
                     } else {
                         block.startTime
@@ -479,7 +482,7 @@ fun ScheduleScreen(
                                         draggingBlockId?.let { _ ->
                                             val deltaMinutes = ((dragBlockDeltaYPx / hourHeightPx) * 60).toInt()
                                             val rawMinutes = dragBlockStartMinutes + deltaMinutes
-                                            var newStart = ((rawMinutes + 7) / 15) * 15
+                                            var newStart = ((rawMinutes + (TIME_SNAP_MINUTES / 2)) / TIME_SNAP_MINUTES) * TIME_SNAP_MINUTES
                                             newStart = newStart.coerceIn(0, 1440 - dragBlockDuration)
                                             val newEnd = newStart + dragBlockDuration
 
@@ -841,9 +844,9 @@ fun ScheduleScreen(
                                                                         val totalYPx = relativeYPx + scrollState.value
                                                                         val totalYDp = with(density) { totalYPx.toDp().value }
                                                                         var minutes = ((totalYDp / 80f) * 60).toInt()
-                                                                        minutes = ((minutes + 7) / 15) * 15
+                                                                        minutes = ((minutes + (TIME_SNAP_MINUTES / 2)) / TIME_SNAP_MINUTES) * TIME_SNAP_MINUTES
                                                                         if (minutes < 0) minutes = 0
-                                                                        if (minutes > 1425) minutes = 1425
+                                                                        if (minutes > 1440 - 15) minutes = 1440 - 15 // デフォルト15分枠を考慮
                                                                         
                                                                         clickedTimeMinutes = minutes
                                                                         selectedPresetTask = task
@@ -1012,9 +1015,11 @@ fun ScheduleScreen(
                                                                         val totalYPx = relativeYPx + scrollState.value
                                                                         val totalYDp = with(density) { totalYPx.toDp().value }
                                                                         var minutes = ((totalYDp / 80f) * 60).toInt()
-                                                                        minutes = ((minutes + 7) / 15) * 15
+                                                                        minutes = ((minutes + (TIME_SNAP_MINUTES / 2)) / TIME_SNAP_MINUTES) * TIME_SNAP_MINUTES
                                                                         if (minutes < 0) minutes = 0
-                                                                        if (minutes > 1425) minutes = 1425
+                                                                        if (minutes > 1440 - activity.durationMinutes) {
+                                                                            minutes = 1440 - activity.durationMinutes
+                                                                        }
                                                                         
                                                                         clickedTimeMinutes = minutes
                                                                         selectedPresetActivity = activity
@@ -1262,7 +1267,7 @@ fun ScheduleScreen(
             )
         }
 
-        // 時間を 15 分刻みにスナップ（固定）
+        // 選択された時間（スナップ済み）を初期値として使用
         val defaultStart = clickedTimeMinutes ?: editingBlock?.startTime ?: 480 // 8:00
         val defaultDuration = selectedPresetActivity?.durationMinutes ?: (editingBlock?.let { it.endTime - it.startTime } ?: 60)
         

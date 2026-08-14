@@ -58,6 +58,16 @@ class SettingsViewModel(
     private val _achievementsTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_achievements_enabled", true))
     val achievementsTabEnabled = _achievementsTabEnabled.asStateFlow()
 
+    // --- Data Management Settings ---
+    private val _completedTaskKeepType = MutableStateFlow(sharedPrefs.getString("data_keep_type", "date") ?: "date")
+    val completedTaskKeepType = _completedTaskKeepType.asStateFlow()
+
+    private val _completedTaskKeepDateMonths = MutableStateFlow(sharedPrefs.getInt("data_keep_months", 0))
+    val completedTaskKeepDateMonths = _completedTaskKeepDateMonths.asStateFlow()
+
+    private val _completedTaskKeepCount = MutableStateFlow(sharedPrefs.getInt("data_keep_count", 1000))
+    val completedTaskKeepCount = _completedTaskKeepCount.asStateFlow()
+
     // --- Developer Settings ---
     private val _devModeEnabled = MutableStateFlow(sharedPrefs.getBoolean("dev_mode_enabled", false))
     val devModeEnabled = _devModeEnabled.asStateFlow()
@@ -131,5 +141,21 @@ class SettingsViewModel(
     fun toggleDevCompleteButton(enabled: Boolean) {
         _devCompleteButtonEnabled.value = enabled
         sharedPrefs.edit { putBoolean("dev_complete_button_enabled", enabled) }
+    }
+
+    // --- Data Management Actions ---
+    fun updateCompletedTaskKeepType(type: String) {
+        _completedTaskKeepType.value = type
+        sharedPrefs.edit { putString("data_keep_type", type) }
+    }
+
+    fun updateCompletedTaskKeepDateMonths(months: Int) {
+        _completedTaskKeepDateMonths.value = months
+        sharedPrefs.edit { putInt("data_keep_months", months) }
+    }
+
+    fun updateCompletedTaskKeepCount(count: Int) {
+        _completedTaskKeepCount.value = count
+        sharedPrefs.edit { putInt("data_keep_count", count) }
     }
 }

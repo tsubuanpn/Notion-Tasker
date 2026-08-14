@@ -342,6 +342,22 @@ fun MappingSettingsScreen(
             viewModel.fetchDatabaseProperties(token, dbId, onSuccess = { metadata = it }, onFailure = {})
         }
     }
+    
+    // 初回かつ未設定の場合に自動検知を試行
+    LaunchedEffect(metadata) {
+        if (metadata != null && propTitle.isBlank() && propStatus.isBlank()) {
+            val detected = viewModel.autoDetectMapping(metadata!!)
+            detected["title"]?.let { if (it.isNotBlank()) propTitle = it }
+            detected["status"]?.let { if (it.isNotBlank()) propStatus = it }
+            detected["statusType"]?.let { if (it.isNotBlank()) propStatusType = it }
+            detected["statusUnstarted"]?.let { if (it.isNotBlank()) propStatusUnstarted = it }
+            detected["statusInProgress"]?.let { if (it.isNotBlank()) propStatusInProgress = it }
+            detected["statusCompleted"]?.let { if (it.isNotBlank()) propStatusCompleted = it }
+            detected["category"]?.let { if (it.isNotBlank()) propCategory = it }
+            detected["scheduled"]?.let { if (it.isNotBlank()) propScheduled = it }
+            detected["due"]?.let { if (it.isNotBlank()) propDue = it }
+        }
+    }
 
     SettingsSubPageScaffold(stringResource(R.string.settings_mapping_title), navController) {
         PropertyDropdown("名前 (タスクタイトル)", propTitle, metadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList()) { propTitle = it }
@@ -379,7 +395,46 @@ fun MappingSettingsScreen(
         PropertyDropdown("締め切り", propDue, metadata?.properties?.filter { it.value.date != null }?.keys?.toList() ?: emptyList()) { propDue = it }
 
         Spacer(Modifier.height(16.dp))
-        
+
+        if (metadata != null) {
+            Button(
+                onClick = {
+                    metadata?.let { meta ->
+                        val detected = viewModel.autoDetectMapping(meta)
+                        detected["title"]?.let { if (it.isNotBlank()) propTitle = it }
+                        detected["status"]?.let { if (it.isNotBlank()) propStatus = it }
+                        detected["statusType"]?.let { if (it.isNotBlank()) propStatusType = it }
+                        detected["statusUnstarted"]?.let { if (it.isNotBlank()) propStatusUnstarted = it }
+                        detected["statusInProgress"]?.let { if (it.isNotBlank()) propStatusInProgress = it }
+                        detected["statusCompleted"]?.let { if (it.isNotBlank()) propStatusCompleted = it }
+                        detected["category"]?.let { if (it.isNotBlank()) propCategory = it }
+                        detected["scheduled"]?.let { if (it.isNotBlank()) propScheduled = it }
+                        detected["due"]?.let { if (it.isNotBlank()) propDue = it }
+                        Toast.makeText(context, "プロパティを自動検知しました", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.AutoFixHigh, null)
+                Spacer(Modifier.width(8.dp))
+                Text("プロパティを自動設定する", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        val isAllMapped = propTitle.isNotBlank() && 
+                          propStatus.isNotBlank() && 
+                          propStatusUnstarted.isNotBlank() && 
+                          propStatusInProgress.isNotBlank() && 
+                          propStatusCompleted.isNotBlank() && 
+                          propCategory.isNotBlank() && 
+                          propScheduled.isNotBlank() && 
+                          propDue.isNotBlank()
+
         Button(
             onClick = {
                 val chosenCatProp = metadata?.properties?.get(propCategory)
@@ -409,6 +464,7 @@ fun MappingSettingsScreen(
                 )
                 navController.popBackStack()
             },
+            enabled = isAllMapped,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
@@ -728,9 +784,9 @@ fun TabsSettingsScreen(settingsViewModel: SettingsViewModel, navController: NavC
 }
 
 @Composable
-fun StatsManagementScreen(viewModel: TaskViewModel, navController: NavController) {
+fun StatsManagementScreen(viewModel: TaskViewModel, settingsViewModel: SettingsViewModel, navController: NavController) {
     SettingsSubPageScaffold(stringResource(R.string.settings_stats_title), navController) {
-        StatsManagementSection(viewModel)
+        DataManagementSection(viewModel, settingsViewModel)
     }
 }
 
@@ -906,73 +962,272 @@ fun borderStroke() = androidx.compose.foundation.BorderStroke(
 )
 
 @Composable
-fun StatsManagementSection(viewModel: TaskViewModel) {
-    val duration by viewModel.statsStorageDuration.collectAsState()
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+fun DataManagementSection(viewModel: TaskViewModel, settingsViewModel: SettingsViewModel) {
+    val statsDuration by viewModel.statsStorageDuration.collectAsState()
+    val keepType by settingsViewModel.completedTaskKeepType.collectAsState()
+    val keepMonths by settingsViewModel.completedTaskKeepDateMonths.collectAsState()
+    val keepCount by settingsViewModel.completedTaskKeepCount.collectAsState()
+
+    var showDeletePeriodDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var deleteTargetMonths by remember { mutableIntStateOf(0) }
-    
-    val durationOptions = listOf(0 to "無制限", 1 to "1ヶ月", 3 to "3ヶ月", 6 to "6ヶ月", 12 to "1年")
-    
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(stringResource(R.string.settings_stats_duration), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+    val durationOptions = listOf(1 to "1ヶ月", 3 to "3ヶ月", 6 to "6ヶ月", 12 to "1年", 0 to "無制限")
+
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        // --- 完了済みタスクの保持制限 ---
+        Text(
+            stringResource(R.string.settings_data_completed_tasks_title),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // 制限タイプ選択
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        onClick = { settingsViewModel.updateCompletedTaskKeepType("date") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (keepType == "date") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        border = if (keepType == "date") null else borderStroke()
+                    ) {
+                        Row(
+                            Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Event, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.settings_data_keep_type_date), style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+
+                    Surface(
+                        onClick = { settingsViewModel.updateCompletedTaskKeepType("count") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (keepType == "count") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        border = if (keepType == "count") null else borderStroke()
+                    ) {
+                        Row(
+                            Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Numbers, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.settings_data_keep_type_count), style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                if (keepType == "date") {
+                    // 日付制限の選択肢 (バー形式)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        durationOptions.forEach { (months, label) ->
+                            val isSelected = keepMonths == months
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .background(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { settingsViewModel.updateCompletedTaskKeepDateMonths(months) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // 件数制限の入力
+                    var countText by remember(keepCount) { mutableStateOf(keepCount.toString()) }
+                    OutlinedTextField(
+                        value = countText,
+                        onValueChange = { v ->
+                            v.filter { it.isDigit() }.let {
+                                if (it.length <= 5) {
+                                    countText = it
+                                    it.toIntOrNull()?.let { n -> settingsViewModel.updateCompletedTaskKeepCount(n) }
+                                }
+                            }
+                        },
+                        label = { Text(stringResource(R.string.settings_data_keep_count_label)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            }
+        }
+
+        // --- 統計データ（ポモドーロ）の保持期間 ---
+        Text(
+            stringResource(R.string.settings_stats_duration),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                durationOptions.forEach { (months, label) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable { viewModel.setStatsStorageDuration(months) }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(selected = duration == months, onClick = { viewModel.setStatsStorageDuration(months) })
-                        Text(label, modifier = Modifier.padding(start = 8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    durationOptions.forEach { (months, label) ->
+                        val isSelected = statsDuration == months
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .background(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { viewModel.setStatsStorageDuration(months) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                fontSize = 10.sp
+                            )
+                        }
                     }
                 }
             }
         }
 
-        Text(stringResource(R.string.settings_stats_delete_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-        val deleteOptions = listOf(1 to "1ヶ月以上前の記録", 3 to "3ヶ月以上前の記録", 6 to "6ヶ月以上前の記録", 12 to "1年以上前の記録", -1 to "すべての記録")
-        
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f))
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                deleteOptions.forEach { (months, label) ->
-                    OutlinedButton(
-                        onClick = { deleteTargetMonths = months; showDeleteConfirm = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text(label)
-                    }
-                }
+        // --- データ削除・メンテナンス ---
+        Text(
+            "データのメンテナンス",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.error
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { showDeletePeriodDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.DeleteForever, null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.settings_data_delete_stats_btn))
             }
+
+            OutlinedButton(
+                onClick = { viewModel.syncWithNotion(incremental = false) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Refresh, null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.settings_data_reset_sync))
+            }
+
+            Text(
+                stringResource(R.string.settings_data_help_notion_remains),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
         }
     }
 
-    if (showDeleteConfirm) {
-        val target = when(deleteTargetMonths) {
+    // --- ダイアログ ---
+
+    // 1. 削除期間選択ダイアログ
+    if (showDeletePeriodDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeletePeriodDialog = false },
+            title = { Text(stringResource(R.string.settings_data_delete_select_period)) },
+            text = {
+                val deleteOptions = listOf(1 to "1ヶ月以上前の記録", 3 to "3ヶ月以上前の記録", 6 to "6ヶ月以上前の記録", 12 to "1年以上前の記録", -1 to "すべての記録")
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    deleteOptions.forEach { (months, label) ->
+                        TextButton(
+                            onClick = {
+                                deleteTargetMonths = months
+                                showDeletePeriodDialog = false
+                                showDeleteConfirmDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDeletePeriodDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
+
+    // 2. 最終確認ダイアログ
+    if (showDeleteConfirmDialog) {
+        val targetLabel = when (deleteTargetMonths) {
             -1 -> "すべて"
             else -> "${deleteTargetMonths}ヶ月以上前"
         }
         AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text(stringResource(R.string.settings_stats_delete_confirm)) },
-            text = { Text(stringResource(R.string.settings_stats_delete_msg, target)) },
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text(stringResource(R.string.settings_data_delete_confirm_title), color = MaterialTheme.colorScheme.error) },
+            text = { Text(stringResource(R.string.settings_stats_delete_msg, targetLabel)) },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.deletePomodoroLogsOlderThan(deleteTargetMonths)
-                        showDeleteConfirm = false
+                        viewModel.deletePomodoroLogsByMonths(deleteTargetMonths)
+                        showDeleteConfirmDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text(stringResource(R.string.settings_stats_delete_action)) }
+                ) {
+                    Text(stringResource(R.string.settings_stats_delete_action))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("キャンセル") }
+                TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("キャンセル") }
             }
         )
     }
