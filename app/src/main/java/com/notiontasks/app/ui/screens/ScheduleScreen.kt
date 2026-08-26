@@ -27,6 +27,8 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +68,23 @@ fun ScheduleScreen(
     // 日付セレクターの状態
     var selectedDateStr by remember {
         mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
+    }
+
+    // 現在時刻の状態管理（1分ごとに更新）
+    var currentTime by remember { mutableStateOf(Calendar.getInstance()) }
+    val isToday = remember(selectedDateStr, currentTime) {
+        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        selectedDateStr == todayStr
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = Calendar.getInstance()
+            currentTime = now
+            // 次の00秒まで待機して1分間隔を維持
+            val secondsToNextMinute = 60 - now.get(Calendar.SECOND)
+            kotlinx.coroutines.delay(secondsToNextMinute * 1000L)
+        }
     }
 
     LaunchedEffect(selectedDateStr) {
@@ -289,9 +308,16 @@ fun ScheduleScreen(
             // 24時間表示のスクロール可能なスケジュール列（全幅）
             val scrollState = rememberScrollState()
             
-            // 初期ロード時に午前7時に自動スクロールして、使い心地を良くする
-            LaunchedEffect(Unit) {
-                scrollState.scrollTo(with(density) { (7 * 80).dp.roundToPx() })
+            // 初期ロード時または「今日」選択時に現在時刻または午前7時に自動スクロール
+            LaunchedEffect(isToday) {
+                val scrollTargetMinutes = if (isToday) {
+                    val now = Calendar.getInstance()
+                    // 現在時刻が画面中央に来るようにオフセット（例：3時間分引く）
+                    (now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE) - 180).coerceAtLeast(0)
+                } else {
+                    7 * 60
+                }
+                scrollState.scrollTo(with(density) { (scrollTargetMinutes * (80f / 60f)).dp.roundToPx() })
             }
 
             Box(
@@ -583,6 +609,52 @@ fun ScheduleScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                // 現在時刻インジケーター（今日の日付の時のみ表示 - スケジュールブロックの上に重ねる）
+                if (isToday) {
+                    val now = currentTime
+                    val currentMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+                    val indicatorTopDp = 80.dp * (currentMinutes / 60f)
+                    val indicatorColor = MaterialTheme.colorScheme.error
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(y = indicatorTopDp - 4.dp) // ドットの中心を線に合わせる
+                    ) {
+                        // 左側のドット（不透明）
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 52.dp)
+                                .size(8.dp)
+                                .background(indicatorColor, RoundedCornerShape(50))
+                        )
+                        
+                        // 現在時刻の線（破線 + 透過）
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .padding(start = 56.dp)
+                                .align(Alignment.CenterStart)
+                        ) {
+                            val strokeWidth = 1.dp.toPx()
+                            val dashWidth = 4.dp.toPx()
+                            val dashGap = 4.dp.toPx()
+                            
+                            drawLine(
+                                color = indicatorColor.copy(alpha = 0.5f),
+                                start = Offset(0f, size.height / 2),
+                                end = Offset(size.width, size.height / 2),
+                                strokeWidth = strokeWidth,
+                                pathEffect = PathEffect.dashPathEffect(
+                                    intervals = floatArrayOf(dashWidth, dashGap),
+                                    phase = 0f
+                                )
+                            )
                         }
                     }
                 }
