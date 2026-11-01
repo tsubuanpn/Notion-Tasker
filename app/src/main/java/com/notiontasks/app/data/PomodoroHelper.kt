@@ -15,6 +15,8 @@ data class PomodoroLog(
     val date: String,
     val minutes: Int,
     val timestamp: Long,
+    /** "pomodoro", "timer", or "stopwatch". */
+    val sessionType: String = "pomodoro",
 )
 
 // CategoryStats 用のデータクラス

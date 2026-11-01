@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <include domain="sharedpref" path="." />
+    <!-- Notion API token and mappings are stored in this encrypted preferences file. -->
+    <exclude domain="sharedpref" path="notion_tasks_secure_prefs.xml" />
 </full-backup-content>

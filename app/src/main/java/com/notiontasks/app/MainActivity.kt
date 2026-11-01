@@ -28,7 +28,6 @@ import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 
 class MainActivity : ComponentActivity() {
@@ -82,12 +81,8 @@ class MainActivity : ComponentActivity() {
         val sharedPreferences = SecurityUtils.getSecurePreferences(this)
 
         // API のセットアップ
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
-        }
-        val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .build()
+        // 認証ヘッダーとタスク内容を端末ログへ出力しない。
+        val client = OkHttpClient.Builder().build()
 
         val contentType = "application/json".toMediaType()
         val retrofit = Retrofit.Builder()

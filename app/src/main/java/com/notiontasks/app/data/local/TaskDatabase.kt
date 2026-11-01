@@ -28,6 +28,7 @@ data class PomodoroLogEntity(
     val date: String,
     val minutes: Int,
     val timestamp: Long,
+    val sessionType: String = "pomodoro",
 )
 
 // スケジュールのタイムブロック用エンティティ
@@ -89,8 +90,8 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    @Query("UPDATE tasks SET status = :status, statusColor = :statusColor WHERE id = :id")
-    suspend fun updateTaskStatusLocal(id: String, status: String, statusColor: String?)
+    @Query("UPDATE tasks SET status = :status, statusColor = :statusColor, lastEditedTime = :lastEditedTime WHERE id = :id")
+    suspend fun updateTaskStatusLocal(id: String, status: String, statusColor: String?, lastEditedTime: Long)
 
     @Query("SELECT statusColor FROM tasks WHERE status = :status AND statusColor IS NOT NULL LIMIT 1")
     suspend fun getStatusColorForStatus(status: String): String?
@@ -104,8 +105,8 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     fun getTaskFlowById(id: String): Flow<TaskEntity?>
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND ( (dueDate IS NOT NULL AND dueDate < :date) OR (scheduledDate IS NOT NULL AND scheduledDate < :date) OR (dueDate IS NULL AND scheduledDate IS NULL) )")
-    suspend fun deleteOldCompletedTasksByDate(completedStatus: String, date: String)
+    @Query("DELETE FROM tasks WHERE status = :completedStatus AND lastEditedTime < :cutoffTimestamp")
+    suspend fun deleteCompletedTasksBefore(completedStatus: String, cutoffTimestamp: Long)
 
     @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)")
     suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int)
@@ -206,6 +207,9 @@ interface PendingSyncActionDao {
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
 
+    @Query("DELETE FROM pending_sync_actions WHERE actionType = :actionType AND taskId = :taskId")
+    suspend fun deletePendingActionsForTask(actionType: String, taskId: String)
+
     @Query("DELETE FROM pending_sync_actions")
     suspend fun clearAllPendingActions()
 }
@@ -219,7 +223,7 @@ interface PendingSyncActionDao {
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -245,6 +249,12 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pomodoro_logs ADD COLUMN sessionType TEXT NOT NULL DEFAULT 'pomodoro'")
+            }
+        }
+
         fun getInstance(context: Context): TaskDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -252,8 +262,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     TaskDatabase::class.java,
                     "notion_tasks_cache.db",
                 )
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
-                .fallbackToDestructiveMigration(dropAllTables = false)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build().also {
                     INSTANCE = it
                 }

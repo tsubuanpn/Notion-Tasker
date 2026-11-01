@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="sharedpref" path="." />
+        <!-- Never export Notion API tokens through cloud backup. -->
+        <exclude domain="sharedpref" path="notion_tasks_secure_prefs.xml" />
     </cloud-backup>
     <device-transfer>
-        <include domain="sharedpref" path="." />
+        <!-- Device transfer must not carry credentials to another device. -->
+        <exclude domain="sharedpref" path="notion_tasks_secure_prefs.xml" />
     </device-transfer>
 </data-extraction-rules>

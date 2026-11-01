@@ -164,13 +164,16 @@ class TaskRepositoryTest {
         val pageId = "id"
         val newStatus = "Done"
         
-        coEvery { notionApi.updatePage(any(), any(), any(), any()) } returns mockk()
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } returns NotionPage(
+            id = pageId,
+            properties = emptyMap(),
+        )
 
         // Act
         repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
-        coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any()) }
+        coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
         coVerify { notionApi.updatePage(any(), any(), pageId, any()) }
     }
 
@@ -187,7 +190,7 @@ class TaskRepositoryTest {
         repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
-        coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any()) }
+        coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
         coVerify { 
             pendingSyncActionDao.insertPendingAction(match { action ->
                 action.actionType == "UPDATE_STATUS" &&
@@ -195,6 +198,7 @@ class TaskRepositoryTest {
                 action.payloadJson.contains("Done")
             })
         }
+        coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId) }
     }
 
     @Test

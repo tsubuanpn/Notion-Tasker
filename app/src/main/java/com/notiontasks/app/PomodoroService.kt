@@ -10,6 +10,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.CountDownTimer
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -46,6 +47,8 @@ class PomodoroService : Service() {
     var durationMs: Long = 25 * 60 * 1000L
         private set
     var currentMode = "work" // "work" (作業), "shortBreak" (短い休憩), "longBreak" (長い休憩)
+    var focusType = FOCUS_TYPE_POMODORO
+        private set
     var associatedTaskId: String? = null
     var associatedTaskTitle: String? = null
     var associatedTaskCategory: String? = null
@@ -58,6 +61,10 @@ class PomodoroService : Service() {
 
     // セッション内での累積作業時間（ミリ秒）
     private var sessionAccumulatedMs: Long = 0L
+    private var stopwatchSegmentStartedAtMs: Long? = null
+
+    private fun isFocusWorkSession(): Boolean =
+        focusType != FOCUS_TYPE_POMODORO || currentMode == "work"
 
     private fun getDurationMsForMode(mode: String): Long {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
@@ -150,13 +157,21 @@ class PomodoroService : Service() {
             val taskCategory = intent.getStringExtra(EXTRA_TASK_CATEGORY) ?: associatedTaskCategory
             val taskCategoryColor = intent.getStringExtra(EXTRA_TASK_CATEGORY_COLOR) ?: associatedTaskCategoryColor
             val mode = intent.getStringExtra(EXTRA_MODE)
+            val requestedFocusType = intent.getStringExtra(EXTRA_FOCUS_TYPE)
             
             associatedTaskTitle = taskTitle
             associatedTaskId = taskId
             associatedTaskCategory = taskCategory
             associatedTaskCategoryColor = taskCategoryColor
             
-            if (mode != null) {
+            if (!requestedFocusType.isNullOrBlank() && !isRunning && !isPaused) {
+                focusType = requestedFocusType
+                if (focusType != FOCUS_TYPE_POMODORO) {
+                    currentMode = "work"
+                }
+            }
+
+            if (mode != null && focusType == FOCUS_TYPE_POMODORO) {
                 updateModeAndDuration(mode)
             }
 
@@ -164,11 +179,15 @@ class PomodoroService : Service() {
                 ACTION_START_OR_RESUME -> {
                     val durationMinutes = intent.getIntExtra(EXTRA_DURATION_MINUTES, -1)
                     
-                    if (durationMinutes > 0 && !isRunning) {
+                    if (focusType == FOCUS_TYPE_TIMER && durationMinutes > 0 && !isRunning) {
                         if (!isPaused) {
                             durationMs = durationMinutes * 60 * 1000L
                             timeLeftMs = durationMs
                         }
+                    }
+                    if (focusType == FOCUS_TYPE_STOPWATCH && !isRunning && !isPaused) {
+                        durationMs = 0L
+                        timeLeftMs = 0L
                     }
 
                     // 前回のタイマー終了時のアラームが再生中の場合、新しいタイマーを開始する際に停止させる
@@ -217,7 +236,7 @@ class PomodoroService : Service() {
         isPaused = false
         onStateChangedListener?.invoke(true)
         
-        if (currentMode == "work") {
+        if (isFocusWorkSession()) {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
@@ -227,6 +246,22 @@ class PomodoroService : Service() {
             startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, createNotification(formatTime(timeLeftMs)))
+        }
+
+        if (focusType == FOCUS_TYPE_STOPWATCH) {
+            stopwatchSegmentStartedAtMs = SystemClock.elapsedRealtime()
+            countDownTimer = object : CountDownTimer(Long.MAX_VALUE / 2, 1000) {
+                override fun onTick(millisUntilFinished: Long) {
+                    val segmentStartedAt = stopwatchSegmentStartedAtMs ?: return
+                    timeLeftMs = sessionAccumulatedMs + (SystemClock.elapsedRealtime() - segmentStartedAt)
+                    val timeStr = formatTime(timeLeftMs)
+                    onTickListener?.invoke(timeLeftMs, timeStr)
+                    updateNotification(timeStr)
+                }
+
+                override fun onFinish() = Unit
+            }.start()
+            return
         }
 
         countDownTimer = object : CountDownTimer(timeLeftMs, 1000) {
@@ -252,7 +287,9 @@ class PomodoroService : Service() {
         commitFocusSession()
 
         val completedMode = currentMode
-        transitionToNextMode()
+        if (focusType == FOCUS_TYPE_POMODORO) {
+            transitionToNextMode()
+        }
 
         onFinishedListener?.invoke()
         // アラーム音を再生：pomodoro_prefs に保存されているユーザー選択の URI を優先する
@@ -311,7 +348,7 @@ class PomodoroService : Service() {
         countDownTimer = null
         isRunning = false
         isPaused = false
-        timeLeftMs = durationMs
+        timeLeftMs = if (focusType == FOCUS_TYPE_STOPWATCH) 0L else durationMs
         onStateChangedListener?.invoke(false)
         
         stopRingtonePlayback()
@@ -338,7 +375,7 @@ class PomodoroService : Service() {
     }
 
     private fun completeSession() {
-        if (currentMode == "work") {
+        if (focusType == FOCUS_TYPE_POMODORO && currentMode == "work") {
             // 開発者モード用：現在のセッションを強制的に完了させ、セッション全時間を記録する
             // 全時間分を一度に記録するため、開始時間を durationMs に、残り時間を 0 に設定する
             focusStartLeftMs = durationMs
@@ -354,6 +391,10 @@ class PomodoroService : Service() {
     }
 
     private fun skipToNext() {
+        if (focusType != FOCUS_TYPE_POMODORO) {
+            stopTimer()
+            return
+        }
         val wasRunning = isRunning
         if (wasRunning) {
             taskMonitoringJob?.cancel()
@@ -385,8 +426,14 @@ class PomodoroService : Service() {
     }
 
     fun commitFocusSession() {
-        if (currentMode != "work") return
-        val elapsedMs = focusStartLeftMs - timeLeftMs
+        if (!isFocusWorkSession()) return
+        val elapsedMs = if (focusType == FOCUS_TYPE_STOPWATCH) {
+            val segmentStartedAt = stopwatchSegmentStartedAtMs ?: return
+            stopwatchSegmentStartedAtMs = null
+            SystemClock.elapsedRealtime() - segmentStartedAt
+        } else {
+            focusStartLeftMs - timeLeftMs
+        }
         
         // 1秒未満の作業かつ過去の累積もない場合は記録しない
         if (elapsedMs < 1000L && sessionAccumulatedMs == 0L) return 
@@ -419,6 +466,7 @@ class PomodoroService : Service() {
                 date = todayStr,
                 minutes = totalMinutes,
                 timestamp = System.currentTimeMillis(),
+                sessionType = focusType,
             )
 
             serviceScope.launch {
@@ -427,11 +475,13 @@ class PomodoroService : Service() {
         }
 
         // 次のチャンクのために focusStartLeftMs を現在の timeLeftMs にリセットする
-        focusStartLeftMs = timeLeftMs
+        if (focusType != FOCUS_TYPE_STOPWATCH) {
+            focusStartLeftMs = timeLeftMs
+        }
     }
 
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
-        if (currentMode == "work") {
+        if (isFocusWorkSession()) {
             if (isRunning || isPaused) {
                 // タスクが変更される、または解除される場合、現在のセッション（の累積時間）を確定させる
                 if (associatedTaskId != taskId) {
@@ -448,7 +498,7 @@ class PomodoroService : Service() {
         associatedTaskCategory = category
         associatedTaskCategoryColor = categoryColor
 
-        if (currentMode == "work" && isRunning) {
+        if (isFocusWorkSession() && isRunning) {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
@@ -456,7 +506,7 @@ class PomodoroService : Service() {
 
     private fun startTaskMonitoring(taskId: String?) {
         taskMonitoringJob?.cancel()
-        if (taskId == null || currentMode != "work") return
+        if (taskId == null || !isFocusWorkSession()) return
 
         taskMonitoringJob = serviceScope.launch {
             val database = com.notiontasks.app.data.local.TaskDatabase.getInstance(this@PomodoroService)
@@ -521,17 +571,21 @@ class PomodoroService : Service() {
                 .build()
         }
 
-        val title = when (currentMode) {
-            "work" -> "【集中セッション中】"
-            "shortBreak" -> "【短い休憩中】"
-            "longBreak" -> "【長い休憩中】"
-            else -> "【ポモドーロタイマー】"
+        val title = when (focusType) {
+            FOCUS_TYPE_TIMER -> "【自由タイマーで集中中】"
+            FOCUS_TYPE_STOPWATCH -> "【ストップウォッチで集中中】"
+            else -> when (currentMode) {
+                "work" -> "【集中セッション中】"
+                "shortBreak" -> "【短い休憩中】"
+                "longBreak" -> "【長い休憩中】"
+                else -> "【ポモドーロタイマー】"
+            }
         }
         
         val contentText = if (associatedTaskTitle != null) {
-            "タスク: $associatedTaskTitle | 残り $timeStr"
+            "タスク: $associatedTaskTitle | ${if (focusType == FOCUS_TYPE_STOPWATCH) "経過" else "残り"} $timeStr"
         } else {
-            "一般の集中作業中 | 残り $timeStr"
+            "一般の集中作業中 | ${if (focusType == FOCUS_TYPE_STOPWATCH) "経過" else "残り"} $timeStr"
         }
 
         // アクションボタン用のインテントを設定する
@@ -572,8 +626,11 @@ class PomodoroService : Service() {
             .setOngoing(isRunning || isPaused)
             .setOnlyAlertOnce(true)
             .addAction(playPauseIcon, playPauseActionText, pendingPauseIntent)
-            .addAction(android.R.drawable.ic_media_next, "スキップ", pendingSkipIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "終了", pendingStopIntent)
+
+        if (focusType == FOCUS_TYPE_POMODORO) {
+            builder.addAction(android.R.drawable.ic_media_next, "スキップ", pendingSkipIntent)
+        }
 
         return builder.build()
     }
@@ -581,13 +638,15 @@ class PomodoroService : Service() {
     private fun showCompletionNotification(completedMode: String) {
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         
-        val title = when (completedMode) {
-            "work" -> "🎉 集中完了！"
+        val title = when {
+            focusType != FOCUS_TYPE_POMODORO -> "🎉 集中記録を保存しました！"
+            completedMode == "work" -> "🎉 集中完了！"
             else -> "☕ 休憩時間終了！"
         }
         
-        val message = when (completedMode) {
-            "work" -> "素晴らしいですね！ ここでリフレッシュ休憩をとりましょう。"
+        val message = when {
+            focusType != FOCUS_TYPE_POMODORO -> "記録は集中ログに追加されています。"
+            completedMode == "work" -> "素晴らしいですね！ ここでリフレッシュ休憩をとりましょう。"
             else -> "次のフォーカスを始めましょう！素晴らしい一日のために。"
         }
 
@@ -681,5 +740,10 @@ class PomodoroService : Service() {
         const val EXTRA_TASK_CATEGORY_COLOR = "extra_task_category_color"
         const val EXTRA_MODE = "extra_mode"
         const val EXTRA_DURATION_MINUTES = "extra_duration_minutes"
+        const val EXTRA_FOCUS_TYPE = "extra_focus_type"
+
+        const val FOCUS_TYPE_POMODORO = "pomodoro"
+        const val FOCUS_TYPE_TIMER = "timer"
+        const val FOCUS_TYPE_STOPWATCH = "stopwatch"
     }
 }
