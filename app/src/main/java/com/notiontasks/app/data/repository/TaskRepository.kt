@@ -31,6 +31,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.IOException
+import java.util.concurrent.CancellationException
+import retrofit2.HttpException
+
+private const val FULL_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
 // 動的な JSON 解析用の拡張機能
 fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
@@ -97,6 +101,30 @@ class TaskRepository(
     // 非同期処理およびリレーショナル整合性のための Mutex 排他制御
     private val syncMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
+    private var lastFullSyncAt = 0L
+
+    private fun Throwable.isRetryableSyncFailure(): Boolean = when (this) {
+        is IOException -> true
+        is HttpException -> code() == 429 || code() >= 500
+        else -> false
+    }
+
+    private suspend fun enqueuePendingAction(
+        actionType: String,
+        taskId: String,
+        payloadJson: String,
+    ) {
+        // 同じ操作は最新の状態だけを残し、オフライン中の連打でキューを肥大化させない。
+        pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId)
+        pendingSyncActionDao.insertPendingAction(
+            PendingSyncActionEntity(
+                actionType = actionType,
+                taskId = taskId,
+                payloadJson = payloadJson,
+                timestamp = System.currentTimeMillis(),
+            ),
+        )
+    }
 
     // 設定画面から構成された動的なマッピングキー
     var propTitleName: String = "名前"
@@ -186,11 +214,7 @@ class TaskRepository(
         val authHeader = "Bearer $token"
         
         // 1. まずオフライン中の変更があれば順次処理を試みる
-        try {
-            processPendingSyncActionsInternal(token, databaseId)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        processPendingSyncActionsInternal(token, databaseId)
 
         // 2. リモートから最新データを取得
         try {
@@ -198,8 +222,11 @@ class TaskRepository(
             var hasMore = true
             var nextCursor: String? = null
             
-            // 前回の最終同期時刻を取得（差分同期用）
-            val lastSync = if (incremental) taskDao.getLastSyncTimestamp() ?: 0L else 0L
+            // 起動直後と6時間ごとには全件同期し、Notion側で削除・アーカイブされた
+            // タスクもローカルキャッシュから確実に除去する。
+            val now = System.currentTimeMillis()
+            val performFullSync = !incremental || now - lastFullSyncAt >= FULL_SYNC_INTERVAL_MS
+            val lastSync = if (performFullSync) 0L else taskDao.getLastSyncTimestamp() ?: 0L
 
             while (hasMore) {
                 // 差分同期用のフィルタ構築
@@ -266,12 +293,15 @@ class TaskRepository(
             }
 
             // 3. トランザクションを用いて更新
-            // 差分同期の場合は upsert のみを行い、フル同期の場合のみ不要データを削除する
-            if (incremental && lastSync > 0) {
+            // 差分同期の場合は upsert のみを行い、全件同期の場合のみ不要データを削除する
+            if (!performFullSync && lastSync > 0) {
                 taskDao.upsertTasks(allFetchedEntities)
             } else {
                 taskDao.syncTasksTransactionally(allFetchedEntities)
+                lastFullSyncAt = now
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw IOException("Network synchronization failed: ${e.message}", e)
         }
@@ -289,8 +319,7 @@ class TaskRepository(
                 if (keepValue > 0) {
                     val cal = java.util.Calendar.getInstance()
                     cal.add(java.util.Calendar.MONTH, -keepValue)
-                    val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(cal.time)
-                    taskDao.deleteOldCompletedTasksByDate(completed, dateStr)
+                    taskDao.deleteCompletedTasksBefore(completed, cal.timeInMillis)
                 }
             }
             "count" -> {
@@ -313,7 +342,8 @@ class TaskRepository(
         val trimmedStatus = newStatus.trim()
         // 楽観的な UI/ローカルの更新
         val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(trimmedStatus)
-        taskDao.updateTaskStatusLocal(pageId, trimmedStatus, statusColor)
+        val localEditTime = System.currentTimeMillis()
+        taskDao.updateTaskStatusLocal(pageId, trimmedStatus, statusColor, localEditTime)
 
         // リモートの Patch 呼び出しを実行する
         val authHeader = "Bearer $token"
@@ -336,9 +366,10 @@ class TaskRepository(
             // APIからの最新の色情報を反映させる（Notion側での変更を追従）
             val finalStatusColor = updatedPage.properties.getStatusColor(propStatusName)
             if (finalStatusColor != null) {
-                taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor)
+                taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor, localEditTime)
             }
-        } catch (_: Exception) {
+        } catch (firstFailure: Exception) {
+            if (firstFailure is CancellationException) throw firstFailure
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
@@ -364,21 +395,17 @@ class TaskRepository(
                     updatedPage.properties.getSelectColor(propStatusName)
                 }
                 if (finalStatusColor != null) {
-                    taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor)
+                    taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor, localEditTime)
                 }
-            } catch (_: Exception) {
-                // オフラインまたは通信エラー時はキューに保存して次回自動リトライする
+            } catch (retryFailure: Exception) {
+                if (retryFailure is CancellationException) throw retryFailure
+                if (!retryFailure.isRetryableSyncFailure()) throw retryFailure
+
+                // 一時的な通信・サーバー障害だけをキューに保存して次回自動リトライする。
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                pendingSyncActionDao.insertPendingAction(
-                    PendingSyncActionEntity(
-                        actionType = "UPDATE_STATUS",
-                        taskId = pageId,
-                        payloadJson = actionPayload,
-                        timestamp = System.currentTimeMillis()
-                    )
-                )
+                enqueuePendingAction("UPDATE_STATUS", pageId, actionPayload)
             }
         }
     }
@@ -417,6 +444,7 @@ class TaskRepository(
             scheduledDate = scheduledDate,
             statusColor = finalStatusColor,
             categoryColor = finalCategoryColor,
+            lastEditedTime = System.currentTimeMillis(),
         )
         taskDao.upsertTasks(listOf(updatedLocalRef))
 
@@ -516,7 +544,10 @@ class TaskRepository(
                 )
                 taskDao.upsertTasks(listOf(refreshedEntity))
             }
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            if (failure is CancellationException) throw failure
+            if (!failure.isRetryableSyncFailure()) throw failure
+
             val actionPayload = buildJsonObject {
                 put("title", title)
                 put("status", status)
@@ -524,14 +555,7 @@ class TaskRepository(
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
-            pendingSyncActionDao.insertPendingAction(
-                PendingSyncActionEntity(
-                    actionType = "UPDATE_TASK",
-                    taskId = pageId,
-                    payloadJson = actionPayload,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
+            enqueuePendingAction("UPDATE_TASK", pageId, actionPayload)
         }
     }
 
@@ -593,10 +617,12 @@ class TaskRepository(
                 dueDate = dueDate,
                 scheduledDate = scheduledDate,
                 statusColor = apiStatusColor ?: statusColor,
-                categoryColor = apiCategoryColor ?: categoryColor
+                categoryColor = apiCategoryColor ?: categoryColor,
+                lastEditedTime = System.currentTimeMillis(),
             )
             taskDao.upsertTasks(listOf(localEntity))
-        } catch (_: Exception) {
+        } catch (firstFailure: Exception) {
+            if (firstFailure is CancellationException) throw firstFailure
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val request = buildCreatePayload(alternateType)
@@ -618,11 +644,15 @@ class TaskRepository(
                     dueDate = dueDate,
                     scheduledDate = scheduledDate,
                     statusColor = apiStatusColor ?: statusColor,
-                    categoryColor = apiCategoryColor ?: categoryColor
+                    categoryColor = apiCategoryColor ?: categoryColor,
+                    lastEditedTime = System.currentTimeMillis(),
                 )
                 taskDao.upsertTasks(listOf(localEntity))
-            } catch (_: Exception) {
-                // オフライン時等：ローカルダミーIDでとりあえず保存し、キューに入れる
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (!failure.isRetryableSyncFailure()) throw failure
+
+                // 一時的な通信・サーバー障害時のみローカルダミーIDで保存し、キューに入れる。
                 val tempId = "pending_" + System.currentTimeMillis()
                 val localEntity = TaskEntity(
                     id = tempId,
@@ -632,7 +662,8 @@ class TaskRepository(
                     dueDate = dueDate,
                     scheduledDate = scheduledDate,
                     statusColor = statusColor,
-                    categoryColor = categoryColor
+                    categoryColor = categoryColor,
+                    lastEditedTime = System.currentTimeMillis(),
                 )
                 taskDao.upsertTasks(listOf(localEntity))
 
@@ -644,14 +675,7 @@ class TaskRepository(
                     scheduledDate?.let { put("scheduledDate", it) }
                 }.toString()
 
-                pendingSyncActionDao.insertPendingAction(
-                    PendingSyncActionEntity(
-                        actionType = "CREATE_TASK",
-                        taskId = tempId,
-                        payloadJson = actionPayload,
-                        timestamp = System.currentTimeMillis()
-                    )
-                )
+                enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
             }
         }
     }
@@ -674,7 +698,8 @@ class TaskRepository(
                 
                 when (action.actionType) {
                     "UPDATE_STATUS" -> {
-                        val newStatus = payloadObj["newStatus"]?.jsonPrimitive?.content ?: continue
+                        val newStatus = payloadObj["newStatus"]?.jsonPrimitive?.content
+                            ?: throw IllegalArgumentException("UPDATE_STATUS action is missing newStatus")
                         val request = NotionUpdateRequest(
                             properties = mapOf(
                                 propStatusName to buildJsonObject {
@@ -749,17 +774,25 @@ class TaskRepository(
                                 status = status,
                                 category = category,
                                 dueDate = dueDate,
-                                scheduledDate = scheduledDate
+                                scheduledDate = scheduledDate,
+                                lastEditedTime = System.currentTimeMillis(),
                             )
                         ))
                     }
+                    else -> throw IllegalArgumentException("Unknown pending action type: ${action.actionType}")
                 }
                 // 成功した場合のみアクションを削除
                 pendingSyncActionDao.deletePendingActionById(action.id)
-            } catch (e: Exception) {
-                // 通信エラー等はログ出力して次へ。ただし、深刻なネットワークエラーの場合はループを抜ける
-                e.printStackTrace()
-                if (e is IOException) break 
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (failure.isRetryableSyncFailure()) {
+                    // 古い操作を追い越さないよう、通信・サーバー障害時は次の同期まで待つ。
+                    break
+                }
+
+                // 認証・バリデーション・破損したペイロードは再試行しても成功しないため、
+                // キューを詰まらせないよう破棄する。
+                pendingSyncActionDao.deletePendingActionById(action.id)
             }
         }
     }

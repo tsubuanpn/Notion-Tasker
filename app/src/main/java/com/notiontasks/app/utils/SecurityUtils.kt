@@ -18,14 +18,9 @@ object SecurityUtils {
         return try {
             createPrefs(appContext, mainKey)
         } catch (e: Exception) {
-            e.printStackTrace()
-            // 破損している可能性があるため、一度削除して再作成を試みる
-            try {
-                appContext.deleteSharedPreferences(PREFS_NAME)
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-            }
-            createPrefs(appContext, mainKey)
+            // 復号失敗時に認証情報を含む設定を消去しない。安全な復旧はユーザーが
+            // 明示的に設定をリセットする操作に限定する。
+            throw IllegalStateException("暗号化された設定を読み込めません。", e)
         }
     }
 

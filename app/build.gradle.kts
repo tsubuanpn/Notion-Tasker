@@ -94,11 +94,11 @@ dependencies {
 tasks.register("unitTestClasses") {
     description = "すべてのバリアントでユニットテストのコンパイル出力をアセンブルします"
     group = "verification"
-    dependsOn(tasks.matching { it.name.endsWith("UnitTestSources") || it.name.contains("UnitTestKotlin") })
+    dependsOn("assembleUnitTest")
 }
 
 tasks.register("androidTestClasses") {
     description = "すべてのバリアントで Android テストのコンパイル出力をアセンブルします"
     group = "verification"
-    dependsOn(tasks.matching { it.name.contains("AndroidTest") || it.name.contains("AndroidTestKotlin") })
+    dependsOn("assembleAndroidTest")
 }

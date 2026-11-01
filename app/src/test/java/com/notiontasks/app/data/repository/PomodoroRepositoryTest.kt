@@ -51,6 +51,7 @@ class PomodoroRepositoryTest {
             date = "2026-08-02",
             minutes = 25,
             timestamp = 1722596400000L,
+            sessionType = "timer",
         )
         every { pomodoroLogDao.getAllLogsFlow() } returns flowOf(listOf(entity))
         repository = createRepository()
@@ -61,6 +62,7 @@ class PomodoroRepositoryTest {
             assertEquals(1, result.size)
             assertEquals("Work Task", result[0].taskTitle)
             assertEquals(25, result[0].minutes)
+            assertEquals("timer", result[0].sessionType)
             awaitComplete()
         }
     }
@@ -78,6 +80,7 @@ class PomodoroRepositoryTest {
             date = "2026-08-02",
             minutes = 50,
             timestamp = 1722596400000L,
+            sessionType = "stopwatch",
         )
 
         // Act
@@ -87,7 +90,7 @@ class PomodoroRepositoryTest {
         coVerify { 
             pomodoroLogDao.insertLog(
                 match { 
-                    (it.id == "log_new") && (it.taskTitle == "Study") && (it.minutes == 50)
+                    (it.id == "log_new") && (it.taskTitle == "Study") && (it.minutes == 50) && (it.sessionType == "stopwatch")
                 },
             )
         }

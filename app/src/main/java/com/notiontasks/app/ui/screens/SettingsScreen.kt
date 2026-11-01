@@ -51,6 +51,7 @@ import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.theme.AppThemePalettes
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
+import com.notiontasks.app.utils.SecurityUtils
 
 @Composable
 fun SettingsScreen(
@@ -321,7 +322,7 @@ fun MappingSettingsScreen(
     ) -> Unit
 ) {
     val context = LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("notion_tasks_secure_prefs", Context.MODE_PRIVATE) }
+    val sharedPrefs = remember { SecurityUtils.getSecurePreferences(context) }
     
     var propTitle by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_title", "") ?: "") }
     var propStatus by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_status", "") ?: "") }

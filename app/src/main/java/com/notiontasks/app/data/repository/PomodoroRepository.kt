@@ -53,6 +53,7 @@ class PomodoroRepository(
         date = date,
         minutes = minutes,
         timestamp = timestamp,
+        sessionType = sessionType,
     )
 
     private fun PomodoroLog.toEntity() = PomodoroLogEntity(
@@ -64,5 +65,6 @@ class PomodoroRepository(
         date = date,
         minutes = minutes,
         timestamp = timestamp,
+        sessionType = sessionType,
     )
 }
