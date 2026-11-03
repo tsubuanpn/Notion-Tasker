@@ -281,15 +281,17 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private fun createDatabase(context: Context, name: String): TaskDatabase =
+            Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .build()
+
+        /** 本番と同じ移行設定を使う、名前を分離したインストルメンテーションテスト用DB。 */
+        internal fun createForTesting(context: Context, name: String): TaskDatabase = createDatabase(context, name)
+
         fun getInstance(context: Context): TaskDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    TaskDatabase::class.java,
-                    "notion_tasks_cache.db",
-                )
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
-                .build().also {
+                INSTANCE ?: createDatabase(context, "notion_tasks_cache.db").also {
                     INSTANCE = it
                 }
             }
