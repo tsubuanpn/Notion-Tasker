@@ -369,11 +369,10 @@ fun SettingsSubPageScaffold(
 @Composable
 fun NotionSetupScreen(
     viewModel: TaskViewModel,
-    onConnectionVerified: (token: String, databaseId: String, dataSourceId: String) -> Unit,
+    onConnectionVerified: (token: String, databaseId: String) -> Unit,
 ) {
     var token by remember { mutableStateOf("") }
     var databaseId by remember { mutableStateOf("") }
-    var dataSourceId by remember { mutableStateOf("") }
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -438,16 +437,6 @@ fun NotionSetupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
             )
-            OutlinedTextField(
-                value = dataSourceId,
-                onValueChange = { dataSourceId = it; errorMessage = null },
-                label = { Text("データソース ID（複数データソース時のみ）") },
-                supportingText = { Text("通常は空欄のままで自動検出されます") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-            )
-
             if (errorMessage != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -469,10 +458,9 @@ fun NotionSetupScreen(
                     viewModel.fetchDatabaseProperties(
                         token = token.trim(),
                         dbId = databaseId.trim(),
-                        dataSourceId = dataSourceId.trim(),
                         onSuccess = {
                             isLoading = false
-                            onConnectionVerified(token.trim(), databaseId.trim(), dataSourceId.trim())
+                            onConnectionVerified(token.trim(), databaseId.trim())
                         },
                         onFailure = {
                             isLoading = false
@@ -522,10 +510,8 @@ fun NotionSettingsScreen(
 ) {
     val token by settingsViewModel.notionToken.collectAsState()
     val dbId by settingsViewModel.databaseId.collectAsState()
-    val dataSourceId by settingsViewModel.dataSourceId.collectAsState()
     var draftToken by remember(token) { mutableStateOf(token) }
     var draftDbId by remember(dbId) { mutableStateOf(dbId) }
-    var draftDataSourceId by remember(dataSourceId) { mutableStateOf(dataSourceId) }
     var isLoadingSchema by remember { mutableStateOf(false) }
     var isTokenVisible by rememberSaveable { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -590,22 +576,12 @@ fun NotionSettingsScreen(
                 value = draftDbId,
                 onValueChange = {
                     draftDbId = it
-                    draftDataSourceId = ""
                     errorMessage = null
                 },
                 label = { Text(stringResource(R.string.settings_db_id_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             )
-            OutlinedTextField(
-                value = draftDataSourceId,
-                onValueChange = { draftDataSourceId = it; errorMessage = null },
-                label = { Text("データソース ID（複数データソース時のみ）") },
-                supportingText = { Text("単一データソースのDBでは空欄のままで構いません") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-            )
-            
             errorMessage?.let { message ->
                 Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                     Text(message, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
@@ -617,12 +593,10 @@ fun NotionSettingsScreen(
                     viewModel.fetchDatabaseProperties(
                         draftToken,
                         draftDbId,
-                        draftDataSourceId,
                         onSuccess = {
                             isLoadingSchema = false
                             settingsViewModel.updateNotionToken(draftToken)
                             settingsViewModel.updateDatabaseId(draftDbId)
-                            settingsViewModel.updateDataSourceId(draftDataSourceId)
                             settingsViewModel.markSetupIncomplete()
                             navController.navigate(Screen.SettingsMapping.route)
                         },
@@ -688,7 +662,6 @@ fun MappingSettingsScreen(
             viewModel.fetchDatabaseProperties(
                 token = token,
                 dbId = dbId,
-                dataSourceId = settingsViewModel.dataSourceId.value,
                 onSuccess = {
                     metadata = it
                     isMetadataLoading = false

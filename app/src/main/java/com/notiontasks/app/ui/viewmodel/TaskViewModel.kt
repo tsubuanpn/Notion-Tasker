@@ -92,9 +92,6 @@ class TaskViewModel(
     private val _databaseId = MutableStateFlow("")
     val databaseId: StateFlow<String> = _databaseId.asStateFlow()
 
-    private val _dataSourceId = MutableStateFlow("")
-    val dataSourceId: StateFlow<String> = _dataSourceId.asStateFlow()
-
     // 統計データの保存期間設定 (0 = 無制限, 1, 3, 6, 12 = ヶ月)
     private val _statsStorageDuration = MutableStateFlow(sharedPrefs.getInt("pomodoro_stats_duration_months", 0))
     val statsStorageDuration: StateFlow<Int> = _statsStorageDuration.asStateFlow()
@@ -452,7 +449,6 @@ class TaskViewModel(
     fun fetchDatabaseProperties(
         token: String,
         dbId: String,
-        dataSourceId: String = "",
         onSuccess: (NotionDatabaseResponse) -> Unit,
         onFailure: (String) -> Unit,
     ) {
@@ -462,7 +458,7 @@ class TaskViewModel(
                     onFailure("トークン、またはデータベースIDが入力されていません")
                     return@launch
                 }
-                repository.updateDataSourceId(dataSourceId)
+                repository.updateDataSourceId("")
                 val meta = repository.getDatabaseMetadata(token, dbId)
                 onSuccess(meta)
             } catch (e: Exception) {
@@ -474,7 +470,6 @@ class TaskViewModel(
     fun loadCredentialsAndMappings() {
         val token = sharedPrefs.getString("notion_token", "") ?: ""
         val dbId = sharedPrefs.getString("database_id", "") ?: ""
-        val dataSourceId = sharedPrefs.getString("notion_data_source_id", "") ?: ""
         val title = sharedPrefs.getString("mapping_prop_title", "")?.ifBlank { "名前" } ?: "名前"
         val status = sharedPrefs.getString("mapping_prop_status", "")?.ifBlank { "状態" } ?: "状態"
         val statusType = sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status"
@@ -487,7 +482,6 @@ class TaskViewModel(
 
         _notionToken.value = token
         _databaseId.value = dbId
-        _dataSourceId.value = dataSourceId
         if (token.isBlank() || dbId.isBlank()) {
             _syncPhase.value = SyncUiState.NotConfigured
         }
@@ -505,14 +499,13 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
-        repository.updateDataSourceId(dataSourceId)
+        repository.updateDataSourceId("")
     }
 
     // アクティビティのロードフック
     fun updateCredentials(
         token: String,
         dbId: String,
-        dataSourceId: String = "",
         title: String = "名前",
         status: String = "状態",
         statusType: String = "status",
@@ -529,7 +522,6 @@ class TaskViewModel(
         
         _notionToken.value = token
         _databaseId.value = dbId
-        _dataSourceId.value = dataSourceId.trim()
         if (token.isBlank() || dbId.isBlank()) {
             _syncPhase.value = SyncUiState.NotConfigured
         }
@@ -547,7 +539,7 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
-        repository.updateDataSourceId(dataSourceId)
+        repository.updateDataSourceId("")
     }
 
     // 状態更新を伴うメインの同期トリガーコールバック

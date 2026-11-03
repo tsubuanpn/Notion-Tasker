@@ -372,11 +372,10 @@ fun MainAppScreen(
             composable(Screen.Setup.route) {
                 NotionSetupScreen(
                     viewModel = viewModel,
-                    onConnectionVerified = { token, dbId, dataSourceId ->
+                    onConnectionVerified = { token, dbId ->
                         settingsViewModel.updateNotionToken(token)
                         settingsViewModel.updateDatabaseId(dbId)
-                        settingsViewModel.updateDataSourceId(dataSourceId)
-                        viewModel.updateCredentials(token, dbId, dataSourceId = dataSourceId)
+                        viewModel.updateCredentials(token, dbId)
                         navController.navigate(Screen.SettingsMapping.route) {
                             launchSingleTop = true
                         }

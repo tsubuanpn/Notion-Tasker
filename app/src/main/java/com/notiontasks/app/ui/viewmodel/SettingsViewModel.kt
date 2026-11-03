@@ -12,6 +12,11 @@ class SettingsViewModel(
     private val sharedPrefs: SharedPreferences
 ) : ViewModel() {
 
+    init {
+        // データソースはデータベースから自動検出するため、旧版の手入力値は移行時に破棄する。
+        sharedPrefs.edit { remove("notion_data_source_id") }
+    }
+
     private val legacySetupComplete = sharedPrefs.getString("notion_token", "").orEmpty().isNotBlank() &&
         sharedPrefs.getString("database_id", "").orEmpty().isNotBlank() &&
         sharedPrefs.getString("mapping_prop_title", "").orEmpty().isNotBlank() &&
@@ -32,9 +37,6 @@ class SettingsViewModel(
 
     private val _databaseId = MutableStateFlow(sharedPrefs.getString("database_id", "") ?: "")
     val databaseId: StateFlow<String> = _databaseId.asStateFlow()
-
-    private val _dataSourceId = MutableStateFlow(sharedPrefs.getString("notion_data_source_id", "") ?: "")
-    val dataSourceId: StateFlow<String> = _dataSourceId.asStateFlow()
 
     // --- Notification Settings ---
     private val _morningNotifEnabled = MutableStateFlow(sharedPrefs.getBoolean("morning_notif_enabled", true))
@@ -86,11 +88,6 @@ class SettingsViewModel(
     fun updateDatabaseId(dbId: String) {
         _databaseId.value = dbId
         sharedPrefs.edit { putString("database_id", dbId) }
-    }
-
-    fun updateDataSourceId(dataSourceId: String) {
-        _dataSourceId.value = dataSourceId.trim()
-        sharedPrefs.edit { putString("notion_data_source_id", dataSourceId.trim()) }
     }
 
     fun markSetupCompleted() {

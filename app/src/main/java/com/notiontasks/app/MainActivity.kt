@@ -132,11 +132,9 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(propTitle.value, propStatus.value, propStatusType.value, propStatusUnstarted.value, propStatusInProgress.value, propStatusCompleted.value, propCategory.value, propScheduled.value, propDue.value) {
                 val currentToken = settingsViewModel.notionToken.value
                 val currentDbId = settingsViewModel.databaseId.value
-                val currentDataSourceId = settingsViewModel.dataSourceId.value
                 viewModel.updateCredentials(
                     token = currentToken,
                     dbId = currentDbId,
-                    dataSourceId = currentDataSourceId,
                     title = propTitle.value,
                     status = propStatus.value,
                     statusType = propStatusType.value,
@@ -212,7 +210,6 @@ class MainActivity : ComponentActivity() {
                     viewModel.updateCredentials(
                         token = token,
                         dbId = dbId,
-                        dataSourceId = settingsViewModel.dataSourceId.value,
                         title = mTitle,
                         status = mStatus,
                         statusType = mStatusType,
