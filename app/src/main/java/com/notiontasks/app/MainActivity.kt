@@ -200,13 +200,6 @@ class MainActivity : ComponentActivity() {
                     settingsViewModel = settingsViewModel,
                     categoryOptions = categoryOptions,
                     statusOptions = statusOptions,
-                    onUpdateCategoryOptions = { newOrder ->
-                        val catJson = try { json.encodeToString<List<NotionOptionInfo>>(newOrder) } catch(_: Exception) { "" }
-                        if (catJson.isNotBlank()) {
-                            sharedPreferences.edit { putString("category_options_v2", catJson) }
-                        }
-                        viewModel.updateCategoryOptions(newOrder)
-                    }
                 ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mStatusUnstarted, mStatusInProgress, mStatusCompleted, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }

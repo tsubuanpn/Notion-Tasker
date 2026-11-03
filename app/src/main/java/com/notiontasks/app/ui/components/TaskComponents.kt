@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -23,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.theme.*
@@ -255,20 +259,21 @@ fun EmptyStateView(
 fun AddTaskDialog(
     initialCategory: String,
     categoryOptions: List<NotionOptionInfo>,
+    statusOptions: List<NotionOptionInfo>,
     initialScheduledDate: String = "",
     onDismiss: () -> Unit,
-    onConfirm: (title: String, category: String, dueDate: String?, scheduledDate: String?) -> Unit
+    onConfirm: (title: String, category: String, status: String?, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(initialCategory) }
+    var status by remember { mutableStateOf(statusOptions.firstOrNull()?.name.orEmpty()) }
     var dueDate by remember { mutableStateOf("") }
     var scheduledDate by remember { mutableStateOf(initialScheduledDate) }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
+    var isStatusDropdownExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
     val calendar = Calendar.getInstance()
-
     val dueDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -280,7 +285,6 @@ fun AddTaskDialog(
         calendar.get(Calendar.MONTH),
         calendar.get(Calendar.DAY_OF_MONTH)
     )
-
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -293,108 +297,99 @@ fun AddTaskDialog(
         calendar.get(Calendar.DAY_OF_MONTH)
     )
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("新しいタスクを追加", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("タスク名 (必須)") },
-                    placeholder = { Text("例: 課題の提出") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                // カテゴリ選択
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = category,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("種類 (カテゴリ)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            IconButton(onClick = { isCategoryDropdownExpanded = true }) {
-                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "種類選択")
-                            }
-                        }
-                    )
-                    DropdownMenu(
-                        expanded = isCategoryDropdownExpanded,
-                        onDismissRequest = { isCategoryDropdownExpanded = false }
-                    ) {
-                        categoryOptions.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { Text(cat.name) },
-                                onClick = {
-                                    category = cat.name
-                                    isCategoryDropdownExpanded = false
-                                }
-                            )
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("タスクを追加", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Clear, contentDescription = "閉じる") }
+            }
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                placeholder = { Text("タスク名を入力") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier.weight(1f)) {
+                    QuickAddChoice("状態", status.ifBlank { "未着手" }, Modifier.fillMaxWidth()) { isStatusDropdownExpanded = true }
+                    DropdownMenu(expanded = isStatusDropdownExpanded, onDismissRequest = { isStatusDropdownExpanded = false }) {
+                        statusOptions.forEach { option ->
+                            DropdownMenuItem(text = { Text(option.name) }, onClick = { status = option.name; isStatusDropdownExpanded = false })
                         }
                     }
                 }
-
-                OutlinedTextField(
-                    value = dueDate,
-                    onValueChange = { dueDate = it },
-                    label = { Text("締め切り (任意)") },
-                    placeholder = { Text("タップして日付を選択") },
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focusState ->
-                            if (focusState.isFocused) {
-                                dueDatePickerDialog.show()
-                                focusManager.clearFocus()
-                            }
-                        },
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = scheduledDate,
-                    onValueChange = { scheduledDate = it },
-                    label = { Text("予定日 (任意)") },
-                    placeholder = { Text("タップして日付を選択") },
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focusState ->
-                            if (focusState.isFocused) {
-                                scheduledDatePickerDialog.show()
-                                focusManager.clearFocus()
-                            }
-                        },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (title.isNotBlank()) {
-                        onConfirm(title, category, dueDate.ifBlank { null }, scheduledDate.ifBlank { null })
+                Box(modifier = Modifier.weight(1f)) {
+                    QuickAddChoice("種類", category.ifBlank { "未設定" }, Modifier.fillMaxWidth()) { isCategoryDropdownExpanded = true }
+                    DropdownMenu(expanded = isCategoryDropdownExpanded, onDismissRequest = { isCategoryDropdownExpanded = false }) {
+                        categoryOptions.forEach { option ->
+                            DropdownMenuItem(text = { Text(option.name) }, onClick = { category = option.name; isCategoryDropdownExpanded = false })
+                        }
                     }
-                },
-                enabled = title.isNotBlank()
-            ) {
-                Text("追加")
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("キャンセル")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                QuickAddChoice(
+                    label = "予定",
+                    value = scheduledDate.ifBlank { "予定なし" },
+                    modifier = Modifier.weight(1f),
+                    onClick = { scheduledDatePickerDialog.show() },
+                )
+                QuickAddChoice(
+                    label = "締切",
+                    value = dueDate.ifBlank { "未設定" },
+                    modifier = Modifier.weight(1f),
+                    onClick = { dueDatePickerDialog.show() },
+                )
+            }
+            Button(
+                onClick = { if (title.isNotBlank()) onConfirm(title, category, status.ifBlank { null }, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                enabled = title.isNotBlank(),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("追加する", fontWeight = FontWeight.Bold) }
+            Text("保存後にNotionへ同期されます", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun QuickAddChoice(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    onClear: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier.height(56.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(value, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                if (onClear != null) {
+                    IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Clear, contentDescription = "$label を解除", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "$label を変更", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -442,158 +437,80 @@ fun EditTaskDialog(
         calendar.get(Calendar.DAY_OF_MONTH)
     )
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("タスクを編集", fontWeight = FontWeight.Bold) },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Clear, contentDescription = "閉じる") }
+                    Text("タスクを編集", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = { if (title.isNotBlank()) onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                        enabled = title.isNotBlank(),
+                    ) { Text("保存", fontWeight = FontWeight.Bold) }
+                }
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("タスク名 (必須)") },
-                    placeholder = { Text("例: 課題の提出") },
+                    placeholder = { Text("タスク名") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    shape = RoundedCornerShape(16.dp),
                 )
-
-                // カテゴリ選択
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = category,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("種類 (カテゴリ)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            IconButton(onClick = { isCategoryDropdownExpanded = true }) {
-                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "種類選択")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        QuickAddChoice("状態", status, Modifier.fillMaxWidth()) { isStatusDropdownExpanded = true }
+                        DropdownMenu(expanded = isStatusDropdownExpanded, onDismissRequest = { isStatusDropdownExpanded = false }) {
+                            statusOptions.forEach { option ->
+                                DropdownMenuItem(text = { Text(option.name) }, onClick = { status = option.name; isStatusDropdownExpanded = false })
                             }
                         }
-                    )
-                    DropdownMenu(
-                        expanded = isCategoryDropdownExpanded,
-                        onDismissRequest = { isCategoryDropdownExpanded = false }
-                    ) {
-                        categoryOptions.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { Text(cat.name) },
-                                onClick = {
-                                    category = cat.name
-                                    isCategoryDropdownExpanded = false
-                                }
-                            )
-                        }
                     }
-                }
-
-                // ステータス選択
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = status,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("状態") },
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            IconButton(onClick = { isStatusDropdownExpanded = true }) {
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = "状態選択")
+                    Box(modifier = Modifier.weight(1f)) {
+                        QuickAddChoice("種類", category.ifBlank { "未設定" }, Modifier.fillMaxWidth()) { isCategoryDropdownExpanded = true }
+                        DropdownMenu(expanded = isCategoryDropdownExpanded, onDismissRequest = { isCategoryDropdownExpanded = false }) {
+                            categoryOptions.forEach { option ->
+                                DropdownMenuItem(text = { Text(option.name) }, onClick = { category = option.name; isCategoryDropdownExpanded = false })
                             }
                         }
-                    )
-                    DropdownMenu(
-                        expanded = isStatusDropdownExpanded,
-                        onDismissRequest = { isStatusDropdownExpanded = false }
-                    ) {
-                        statusOptions.forEach { stat ->
-                            DropdownMenuItem(
-                                text = { Text(stat.name) },
-                                onClick = {
-                                    status = stat.name
-                                    isStatusDropdownExpanded = false
-                                }
-                            )
-                        }
                     }
                 }
-
-                Row(
+                Text("日付", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    QuickAddChoice(
+                        "予定",
+                        scheduledDate.ifBlank { "予定なし" },
+                        Modifier.weight(1f),
+                        onClear = scheduledDate.takeIf { it.isNotBlank() }?.let { { scheduledDate = "" } },
+                    ) { scheduledDatePickerDialog.show() }
+                    QuickAddChoice(
+                        "締切",
+                        dueDate.ifBlank { "未設定" },
+                        Modifier.weight(1f),
+                        onClear = dueDate.takeIf { it.isNotBlank() }?.let { { dueDate = "" } },
+                    ) { dueDatePickerDialog.show() }
+                }
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f),
                 ) {
-                    OutlinedTextField(
-                        value = dueDate,
-                        onValueChange = { dueDate = it },
-                        label = { Text("締め切り (任意)") },
-                        placeholder = { Text("タップして選択") },
-                        readOnly = true,
-                        modifier = Modifier
-                            .weight(1f)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    dueDatePickerDialog.show()
-                                    focusManager.clearFocus()
-                                }
-                            },
-                        singleLine = true
-                    )
-                    if (dueDate.isNotBlank()) {
-                        IconButton(onClick = { dueDate = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "クリア")
-                        }
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text("保存後にNotionへ反映します。オフライン時は次回同期します", modifier = Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = scheduledDate,
-                        onValueChange = { scheduledDate = it },
-                        label = { Text("予定日 (任意)") },
-                        placeholder = { Text("タップして選択") },
-                        readOnly = true,
-                        modifier = Modifier
-                            .weight(1f)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    scheduledDatePickerDialog.show()
-                                    focusManager.clearFocus()
-                                }
-                            },
-                        singleLine = true
-                    )
-                    if (scheduledDate.isNotBlank()) {
-                        IconButton(onClick = { scheduledDate = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "クリア")
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (title.isNotBlank()) {
-                        onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null })
-                    }
-                },
-                enabled = title.isNotBlank()
-            ) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("キャンセル")
+                Spacer(Modifier.height(20.dp))
             }
         }
-    )
+    }
 }

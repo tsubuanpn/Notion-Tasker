@@ -198,6 +198,9 @@ interface LifeActivityDao {
 
 @Dao
 interface PendingSyncActionDao {
+    @Query("SELECT COUNT(*) FROM pending_sync_actions")
+    fun pendingActionCountFlow(): Flow<Int>
+
     @Query("SELECT * FROM pending_sync_actions ORDER BY timestamp ASC")
     suspend fun getAllPendingActions(): List<PendingSyncActionEntity>
 

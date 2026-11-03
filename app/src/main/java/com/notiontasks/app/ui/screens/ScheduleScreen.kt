@@ -56,7 +56,8 @@ private const val GRID_SNAP_MINUTES = 15
 
 @Composable
 fun ScheduleScreen(
-    viewModel: TaskViewModel
+    viewModel: TaskViewModel,
+    onOpenCalendar: () -> Unit,
 ) {
     val context = LocalContext.current
     val timeBlocks by viewModel.timeBlocks.collectAsState()
@@ -131,6 +132,10 @@ fun ScheduleScreen(
     val dayBlocks = remember(timeBlocks, selectedDateStr) {
         timeBlocks.filter { it.date == selectedDateStr }.sortedBy { it.startTime }
     }
+    val unassignedTasks = remember(todayTasks, dayBlocks) {
+        val assignedTaskIds = dayBlocks.mapNotNull { it.associatedId }.toSet()
+        todayTasks.filterNot { it.id in assignedTaskIds }
+    }
 
     // ブロックの作成/編集用のダイアログ状態
     var showAddDialog by remember { mutableStateOf(false) }
@@ -139,14 +144,18 @@ fun ScheduleScreen(
     var selectedPresetActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var clickedTimeMinutes by remember { mutableStateOf<Int?>(null) }
 
-    // 有効（未着手・進行中）なタスク一覧を取得
-    val activeTasks = remember(tasksState, unstartedStatus, inProgressStatus, editingBlock) {
-        val unstartedTrimmed = unstartedStatus.trim()
-        val inProgressTrimmed = inProgressStatus.trim()
-        val allTasks = when (val state = tasksState) {
+    val allTasks = remember(tasksState) {
+        when (val state = tasksState) {
             is TasksUiState.Success -> state.tasks
             else -> emptyList()
         }
+    }
+    val taskById = remember(allTasks) { allTasks.associateBy { it.id } }
+
+    // 有効（未着手・進行中）なタスク一覧を取得
+    val activeTasks = remember(allTasks, unstartedStatus, inProgressStatus, editingBlock) {
+        val unstartedTrimmed = unstartedStatus.trim()
+        val inProgressTrimmed = inProgressStatus.trim()
         val baseList = allTasks.filter { 
             val st = it.status.trim()
             st == unstartedTrimmed || st == inProgressTrimmed 
@@ -186,7 +195,7 @@ fun ScheduleScreen(
     // ボトムトレイ UI 用のトレイ拡張可能状態 (Approach C)
     var isTrayExpanded by remember { mutableStateOf(false) }
     val trayHeight by animateDpAsState(
-        targetValue = if (isTrayExpanded && !isDragging) 380.dp else 72.dp,
+        targetValue = if (isTrayExpanded && !isDragging) 344.dp else 76.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "TrayHeight"
     )
@@ -196,6 +205,12 @@ fun ScheduleScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        PlanModeTabs(
+            calendarSelected = false,
+            onOpenCalendar = onOpenCalendar,
+            onOpenSchedule = {},
+        )
+
         // 毎日の日付ナビゲーションヘッダー
         Card(
             modifier = Modifier
@@ -462,6 +477,12 @@ fun ScheduleScreen(
                     val blockColors = remember(block.color, isSystemDark) {
                         getColorPairFromHex(block.color, isSystemDark)
                     }
+                    val linkedTask = block.associatedId?.let { taskById[it] }
+                    val categoryLabel = linkedTask?.category?.takeIf { it.isNotBlank() }
+                        ?: if (block.type == "life") "生活習慣" else "タスク"
+                    val categoryColors = remember(linkedTask?.categoryColor, isSystemDark) {
+                        getNotionCategoryColors(linkedTask?.categoryColor, isSystemDark)
+                    }
                     val bgColor = blockColors.first
                     val accentColor = blockColors.second
 
@@ -537,7 +558,7 @@ fun ScheduleScreen(
                             containerColor = bgColor.copy(alpha = 0.95f),
                             contentColor = MaterialTheme.colorScheme.onSurface
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         elevation = CardDefaults.cardElevation(if (isThisBlockDragging) 8.dp else 0.dp),
                         border = if (isThisBlockDragging) {
                             BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
@@ -546,67 +567,59 @@ fun ScheduleScreen(
                         }
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxSize()
-                                .padding(start = 12.dp),
+                            modifier = Modifier.fillMaxSize(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            // アクセントバー (リストのスタイルに合わせて動的な高さ、角丸)
+                            // 左端の色帯で、スクロール中も予定を追いやすくする。
                             Box(
                                 modifier = Modifier
-                                    .padding(vertical = if (durationMinutes < 30) 4.dp else 8.dp)
-                                    .width(4.dp)
                                     .fillMaxHeight()
+                                    .width(5.dp)
                                     .background(
                                         color = accentColor,
-                                        shape = RoundedCornerShape(2.dp)
+                                        shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
                                     )
                             )
                             
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(top = 2.dp, bottom = 2.dp, end = 10.dp),
+                                    .padding(horizontal = 12.dp, vertical = if (durationMinutes < 30) 5.dp else 10.dp),
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = block.title,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
+                                Text(
+                                    text = block.title,
+                                    fontSize = if (durationMinutes < 30) 13.sp else 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
 
-                                    if (isThisBlockDragging) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "${formatMinutes(displayStartMinutes)}〜${formatMinutes(displayEndMinutes)}",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
+                                if (durationMinutes >= 20) {
+                                    Text(
+                                        text = "${formatMinutes(displayStartMinutes)} – ${formatMinutes(displayEndMinutes)}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = accentColor,
+                                    )
                                 }
 
-                                if (!isThisBlockDragging && durationMinutes >= 20) {
-                                    Text(
-                                        text = "${formatMinutes(displayStartMinutes)}〜${formatMinutes(displayEndMinutes)}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                if (durationMinutes >= 45) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Surface(
+                                        color = categoryColors.first,
+                                        shape = RoundedCornerShape(6.dp),
+                                    ) {
+                                        Text(
+                                            text = categoryLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = categoryColors.second,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -674,11 +687,11 @@ fun ScheduleScreen(
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // ヘッダーハンドル行（常に表示、高さ: 72.dp）
+                    // ヘッダーハンドル行（常に表示）
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(72.dp)
+                            .height(76.dp)
                             .clickable { isTrayExpanded = !isTrayExpanded }
                             .padding(top = 8.dp, bottom = 8.dp),
                         contentAlignment = Alignment.Center
@@ -715,16 +728,16 @@ fun ScheduleScreen(
                                 )
                                 Column {
                                     Text(
-                                        text = if (trayTab == "tasks") "今日やるべきこと" else "生活習慣プリセット",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
+                                        text = if (trayTab == "tasks") "未割当タスク ${unassignedTasks.size}件" else "生活習慣 ${lifeActivities.size}件",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = if (trayTab == "tasks") {
-                                            "未割当のタスク: ${todayTasks.size}件"
+                                            "タップで時間を決める ・ 長押しでドラッグ"
                                         } else {
-                                            "登録可能な習慣: ${lifeActivities.size}件"
+                                            "タップで時間を決める ・ 長押しでドラッグ"
                                         },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -787,7 +800,7 @@ fun ScheduleScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = "今日やるべきこと",
+                                        text = "タスク",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = if (trayTab == "tasks") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -817,7 +830,7 @@ fun ScheduleScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = "生活習慣",
+                                        text = "生活",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = if (trayTab == "life") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -834,7 +847,7 @@ fun ScheduleScreen(
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))
                         ) {
                             if (trayTab == "tasks") {
-                                if (todayTasks.isEmpty()) {
+                                if (unassignedTasks.isEmpty()) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -852,14 +865,14 @@ fun ScheduleScreen(
                                                 modifier = Modifier.size(48.dp)
                                             )
                                             Text(
-                                                text = "今日のタスクはすべて登録済みです！",
+                                                text = "未割当タスクはありません",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                             )
                                             Text(
-                                                text = "すべてのタスクが時間割に組み込まれました。\n素晴らしい1日を過ごしましょう！",
+                                                text = "必要なタスクはすべて時間割へ配置されています。",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -874,7 +887,7 @@ fun ScheduleScreen(
                                             .padding(12.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        todayTasks.forEach { task ->
+                                        unassignedTasks.forEach { task ->
                                             val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                                             val categoryColors = remember(task.categoryColor, isSystemDark) {
                                                 if (task.categoryColor != null) {
@@ -1028,6 +1041,24 @@ fun ScheduleScreen(
                                                                 }
                                                             }
                                                         }
+                                                    }
+
+                                                    IconButton(
+                                                        onClick = {
+                                                            selectedPresetTask = task
+                                                            selectedPresetActivity = null
+                                                            clickedTimeMinutes = null
+                                                            editingBlock = null
+                                                            showAddDialog = true
+                                                        },
+                                                        modifier = Modifier.size(40.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.AddCircle,
+                                                            contentDescription = "${task.title}を時間割に追加",
+                                                            tint = categoryColors.second,
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
                                                     }
                                                 }
                                             }

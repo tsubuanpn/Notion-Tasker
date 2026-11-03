@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -36,10 +37,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -100,7 +98,7 @@ fun PomodoroScreen(
     var isRunning by remember { mutableStateOf(value = false) }
     var mode by remember { mutableStateOf("work") } // "work" (作業), "shortBreak" (短い休憩), "longBreak" (長い休憩)
     var focusType by remember { mutableStateOf(PomodoroService.FOCUS_TYPE_POMODORO) }
-    var showFocusTypeSheet by remember { mutableStateOf(false) }
+    var showPomodoroPhaseSheet by remember { mutableStateOf(false) }
     var freeTimerMinutes by remember { mutableIntStateOf(prefs.getInt("free_timer_duration_min", 30)) }
     var showTimerDurationSheet by remember { mutableStateOf(false) }
     var pendingTimerMinutes by remember { mutableIntStateOf(freeTimerMinutes) }
@@ -120,6 +118,7 @@ fun PomodoroScreen(
         }
     }
     val canEditTimerDuration = !isRunning && boundService?.isPaused != true
+    val isSessionActive = isRunning || boundService?.isPaused == true
 
     fun triggerServiceAction(action: String, durationMinutes: Int = -1) {
         val intent = Intent(context, PomodoroService::class.java).apply {
@@ -144,19 +143,12 @@ fun PomodoroScreen(
     }
 
     fun selectFocusType(type: String) {
-        showFocusTypeSheet = false
         if (focusType != type) {
             focusType = type
             mode = "work"
             timeLeft = selectedDurationSeconds()
             triggerServiceAction(PomodoroService.ACTION_STOP)
         }
-    }
-
-    fun focusTypeLabel(): String = when (focusType) {
-        PomodoroService.FOCUS_TYPE_TIMER -> "タイマー"
-        PomodoroService.FOCUS_TYPE_STOPWATCH -> "ストップウォッチ"
-        else -> "ポモドーロ"
     }
 
     LaunchedEffect(selectedTaskId) {
@@ -322,85 +314,11 @@ fun PomodoroScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // 2. 集中方式の選択。カード外に十分なタップ領域を確保する。
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showFocusTypeSheet = true },
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-            ),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "集中モード",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = focusTypeLabel(),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = "集中方式を変更",
-                    modifier = Modifier.size(32.dp),
-                )
-            }
-        }
-
-        if (focusType == PomodoroService.FOCUS_TYPE_POMODORO) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(50)
-                    )
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                listOf(
-                    Triple("work", "集中", MaterialTheme.colorScheme.primary),
-                    Triple("shortBreak", "休憩", MaterialTheme.colorScheme.secondary),
-                    Triple("longBreak", "長い休憩", MaterialTheme.colorScheme.tertiary),
-                ).forEach { (targetMode, label, activeColor) ->
-                    val isSelected = mode == targetMode
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(
-                                color = if (isSelected) activeColor else Color.Transparent,
-                                shape = RoundedCornerShape(50),
-                            )
-                            .clickable {
-                                mode = targetMode
-                                timeLeft = pomodoroDurationSecondsFor(targetMode, prefs)
-                                triggerServiceAction(PomodoroService.ACTION_STOP)
-                            }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
+        FocusModeTabs(
+            selectedType = focusType,
+            enabled = !isRunning && boundService?.isPaused != true,
+            onSelect = ::selectFocusType,
+        )
 
         Card(
             modifier = Modifier
@@ -419,7 +337,6 @@ fun PomodoroScreen(
                     .padding(vertical = 24.dp, horizontal = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // 背景に薄く大きなタイマーアイコンを表示
                 val modeColor = when (focusType) {
                     PomodoroService.FOCUS_TYPE_TIMER -> MaterialTheme.colorScheme.secondary
                     PomodoroService.FOCUS_TYPE_STOPWATCH -> MaterialTheme.colorScheme.tertiary
@@ -430,53 +347,80 @@ fun PomodoroScreen(
                     }
                 }
 
-                Icon(
-                    imageVector = Icons.Default.Timer,
-                    contentDescription = null,
-                    tint = modeColor.copy(alpha = 0.05f),
-                    modifier = Modifier.size(160.dp)
-                )
-
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-
-                    if (focusType == PomodoroService.FOCUS_TYPE_TIMER) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clickable(enabled = canEditTimerDuration) {
-                                    pendingTimerMinutes = freeTimerMinutes
-                                    showTimerDurationSheet = true
-                                }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        ) {
-                            Text("${freeTimerMinutes}分", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    // 方式ごとに内容は異なっても、タイマー枠のリズムは一定に保つ。
+                    Box(
+                        modifier = Modifier.height(44.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (focusType == PomodoroService.FOCUS_TYPE_POMODORO) {
+                            PomodoroPhaseChip(
+                                mode = mode,
+                                enabled = !isRunning && boundService?.isPaused != true,
+                                onClick = { showPomodoroPhaseSheet = true },
+                            )
+                        } else {
                             Text(
-                                text = "変更",
-                                fontWeight = FontWeight.Bold,
-                                color = if (canEditTimerDuration) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 12.dp),
+                                text = if (focusType == PomodoroService.FOCUS_TYPE_TIMER) "指定時間の集中" else "自由計測",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = modeColor,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
 
-                    // タイマーの数字テキスト
                     val minutes = timeLeft / 60
                     val seconds = timeLeft % 60
                     val timeStr = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
-                    
-                    Text(
-                        text = timeStr,
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        letterSpacing = (-1).sp
-                    )
+                    val configuredDurationSeconds = selectedDurationSeconds()
+                    val progress = if (configuredDurationSeconds > 0) {
+                        ((configuredDurationSeconds - timeLeft).toFloat() / configuredDurationSeconds)
+                            .coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+
+                    Box(
+                        modifier = Modifier.size(216.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (focusType == PomodoroService.FOCUS_TYPE_STOPWATCH && isRunning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(216.dp),
+                                color = modeColor,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                strokeWidth = 10.dp,
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.size(216.dp),
+                                color = modeColor,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                strokeWidth = 10.dp,
+                            )
+                        }
+                        Text(
+                            text = timeStr,
+                            fontSize = 54.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = if (focusType == PomodoroService.FOCUS_TYPE_TIMER && canEditTimerDuration) modeColor else MaterialTheme.colorScheme.onSurface,
+                            letterSpacing = (-1).sp,
+                            modifier = Modifier
+                                .clickable(
+                                    enabled = focusType == PomodoroService.FOCUS_TYPE_TIMER && canEditTimerDuration,
+                                ) {
+                                    pendingTimerMinutes = freeTimerMinutes
+                                    showTimerDurationSheet = true
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
 
                     // 再生 / 一時停止 / リセットボタン
                     Row(
@@ -509,7 +453,7 @@ fun PomodoroScreen(
                             )
                         }
                         
-                        IconButton(
+                        Button(
                             onClick = {
                                 if (isRunning) {
                                     triggerServiceAction(PomodoroService.ACTION_PAUSE)
@@ -536,18 +480,20 @@ fun PomodoroScreen(
                                 }
                             },
                             modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    color = modeColor,
-                                    shape = RoundedCornerShape(50)
-                                )
+                                .height(52.dp),
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = modeColor,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         ) {
                             Icon(
                                 imageVector = if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isRunning) "一時停止" else "開始",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(22.dp),
                             )
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (isRunning) "一時停止" else "開始", fontWeight = FontWeight.Bold)
                         }
 
                         // 開発者モード用: 強制完了ボタン
@@ -604,197 +550,37 @@ fun PomodoroScreen(
                         }
                     }
 
-                    // 統計インジケーター
-                    if (focusType == PomodoroService.FOCUS_TYPE_POMODORO) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 1.dp, modifier = Modifier.padding(top = 4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "今日の完了数:",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${pomodoroCompletedCount}回",
-                            fontSize = 12.sp,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        if (pomodoroCompletedCount > 0) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 4.dp)
-                            ) {
-                                repeat(minOf(pomodoroCompletedCount, 8)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50))
-                                    )
-                                }
-                                if (pomodoroCompletedCount > 8) {
-                                    Text(
-                                        text = "+",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    } else {
-                        Text(
-                            text = if (focusType == PomodoroService.FOCUS_TYPE_STOPWATCH) "経過時間を自由に記録します" else "指定した時間を集中ログに記録します",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        text = when (focusType) {
+                            PomodoroService.FOCUS_TYPE_POMODORO -> "集中と休憩を自動で切り替えます"
+                            PomodoroService.FOCUS_TYPE_STOPWATCH -> "経過時間を自由に記録します"
+                            else -> "指定した時間を集中ログに記録します"
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
 
-        // 4. タスクの紐付けセクション
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 2.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "集中するタスクを紐付ける",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            // カスタムのシンプルなドロップダウン
-            var dropdownExpanded by remember { mutableStateOf(value = false) }
-            val selectedTaskTitle = activeFocusTask?.let { "[${it.category}] ${it.title}" } ?: "-- タスクを選択しない (一般作業) --"
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { dropdownExpanded = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurface
+        if (!isSessionActive) {
+            FocusTaskSelector(
+                selectedTask = activeFocusTask,
+                availableTasks = uncompletedTasks,
+                onSelectTask = { task ->
+                    selectedTaskId = task?.id
+                    boundService?.updateFocusedTask(
+                        taskId = task?.id,
+                        taskTitle = task?.title,
+                        category = task?.category,
+                        categoryColor = task?.categoryColor,
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = selectedTaskTitle,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = "選択")
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = dropdownExpanded,
-                    onDismissRequest = { dropdownExpanded = false },
-                    modifier = Modifier.fillMaxWidth(0.9f)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("-- タスクを選択しない (一般作業) --", fontWeight = FontWeight.Medium, fontSize = 12.sp) },
-                        onClick = {
-                            selectedTaskId = null
-                            dropdownExpanded = false
-                            boundService?.updateFocusedTask(
-                                taskId = null,
-                                taskTitle = null,
-                                category = null,
-                                categoryColor = null
-                            )
-                        }
-                    )
-                    uncompletedTasks.forEach { task ->
-                        val isOverdueDue = task.dueDate != null && task.dueDate < todayStr
-                        val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < todayStr
-                        val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "[${task.category}] ${task.title}",
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            trailingIcon = {
-                                if (isOverdueDue) {
-                                    Text(
-                                        text = "⚠️ 期限",
-                                        color = MaterialTheme.colorScheme.error,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                } else if (isOverdueScheduled) {
-                                    val orangeColor = if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
-                                    Text(
-                                        text = "⚠️ 持ち越し",
-                                        color = orangeColor,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            },
-                            onClick = {
-                                selectedTaskId = task.id
-                                dropdownExpanded = false
-                                boundService?.updateFocusedTask(
-                                    taskId = task.id,
-                                    taskTitle = task.title,
-                                    category = task.category,
-                                    categoryColor = task.categoryColor
-                                )
-                                if (isRunning && (focusType != PomodoroService.FOCUS_TYPE_POMODORO || mode == "work")) {
-                                    val stTrimmed = task.status.trim()
-                                    if (stTrimmed != inProgressStatus.trim() && stTrimmed != completedStatus.trim()) {
-                                        viewModel.updateTask(
-                                             id = task.id,
-                                             title = task.title,
-                                             status = inProgressStatus,
-                                             category = task.category,
-                                             dueDate = task.dueDate,
-                                             scheduledDate = task.scheduledDate
-                                         )
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-            }
+                },
+            )
         }
 
         // 5. フォーカス中のタスクパネルカード
-        activeFocusTask?.let { task ->
+        if (isSessionActive) activeFocusTask?.let { task ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -873,70 +659,39 @@ fun PomodoroScreen(
         }
     }
 
-    if (showFocusTypeSheet) {
+    if (showPomodoroPhaseSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showFocusTypeSheet = false },
+            onDismissRequest = { showPomodoroPhaseSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 8.dp)
-                    .padding(bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = "集中モードを選択",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-                Text(
-                    text = "いつでも切り替えられます",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("フェーズを変更", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+                Text("終了後は、設定されたポモドーロサイクルに従って自動で次のフェーズへ進みます。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 listOf(
-                    Triple(PomodoroService.FOCUS_TYPE_POMODORO, "ポモドーロ", "集中と休憩をリズムよく繰り返す"),
-                    Triple(PomodoroService.FOCUS_TYPE_TIMER, "タイマー", "決めた時間だけ集中する"),
-                    Triple(PomodoroService.FOCUS_TYPE_STOPWATCH, "ストップウォッチ", "自由な作業時間を記録する"),
-                ).forEach { (type, label, description) ->
-                    val selected = focusType == type
+                    Triple("work", "集中", "${pomodoroDurationSecondsFor("work", prefs) / 60}分"),
+                    Triple("shortBreak", "短い休憩", "${pomodoroDurationSecondsFor("shortBreak", prefs) / 60}分"),
+                    Triple("longBreak", "長い休憩", "${pomodoroDurationSecondsFor("longBreak", prefs) / 60}分"),
+                ).forEach { (targetMode, label, duration) ->
+                    val selected = mode == targetMode
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectFocusType(type) },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                            },
-                        ),
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            mode = targetMode
+                            timeLeft = pomodoroDurationSecondsFor(targetMode, prefs)
+                            triggerServiceAction(PomodoroService.ACTION_STOP)
+                            showPomodoroPhaseSheet = false
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-                                Text(
-                                    description,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (selected) {
-                                Text(
-                                    text = "選択中",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                        Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text(if (selected) "選択中" else duration, style = MaterialTheme.typography.labelLarge, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1010,6 +765,174 @@ fun PomodoroScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Text("設定する", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PomodoroPhaseChip(
+    mode: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val (label, color) = when (mode) {
+        "shortBreak" -> "短い休憩" to MaterialTheme.colorScheme.secondary
+        "longBreak" -> "長い休憩" to MaterialTheme.colorScheme.tertiary
+        else -> "集中" to MaterialTheme.colorScheme.primary
+    }
+    Surface(
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
+        color = color.copy(alpha = 0.14f),
+        contentColor = color,
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(10.dp).background(color, RoundedCornerShape(50)))
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = if (enabled) "フェーズを変更" else "集中中はフェーズを変更できません",
+                modifier = Modifier.padding(start = 4.dp).size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FocusModeTabs(
+    selectedType: String,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("集中方式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            if (!enabled) Text("実行中は変更できません", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f), RoundedCornerShape(22.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            listOf(
+                PomodoroService.FOCUS_TYPE_POMODORO to "ポモドーロ",
+                PomodoroService.FOCUS_TYPE_TIMER to "タイマー",
+                PomodoroService.FOCUS_TYPE_STOPWATCH to "計測",
+            ).forEach { (type, label) ->
+                val selected = type == selectedType
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(18.dp))
+                        .clickable(enabled = enabled) { onSelect(type) }
+                        .padding(vertical = 11.dp, horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = when {
+                            selected -> MaterialTheme.colorScheme.primary
+                            enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun FocusTaskSelector(
+    selectedTask: TaskModel?,
+    availableTasks: List<TaskModel>,
+    onSelectTask: (TaskModel?) -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showPicker = true },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("集中するタスク", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    selectedTask?.title ?: "タスクを選択",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selectedTask == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    selectedTask?.category?.ifBlank { "一般作業として記録します" } ?: "選ばなくても集中を開始できます",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("変更", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+
+    if (showPicker) {
+        ModalBottomSheet(onDismissRequest = { showPicker = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("集中するタスク", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                OutlinedButton(
+                    onClick = {
+                        onSelectTask(null)
+                        showPicker = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("タスクを選択しない（一般作業）")
+                }
+                LazyColumn(modifier = Modifier.height(320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(availableTasks, key = { it.id }) { task ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectTask(task)
+                                    showPicker = false
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (task.id == selectedTask?.id) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(task.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(task.category, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
         }

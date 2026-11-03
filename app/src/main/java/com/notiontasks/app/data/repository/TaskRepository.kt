@@ -154,9 +154,11 @@ class TaskRepository(
         propStatusUnstartedName = statusUnstarted.ifBlank { "未着手" }
         propStatusInProgressName = statusInProgress.ifBlank { "進行中" }
         propStatusCompletedName = statusCompleted.ifBlank { "完了" }
-        propCategoryName = category.ifBlank { "種類" }
-        propScheduledDateName = scheduledDate.ifBlank { "予定日" }
-        propDueDateName = dueDate.ifBlank { "締め切り" }
+        // 種類・予定日・締め切りは任意マッピング。空ならNotion APIの
+        // プロパティ操作から完全に除外する。
+        propCategoryName = category.trim()
+        propScheduledDateName = scheduledDate.trim()
+        propDueDateName = dueDate.trim()
     }
 
     // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
@@ -175,6 +177,9 @@ class TaskRepository(
                 )
             }
         }
+        .flowOn(Dispatchers.Default)
+
+    val pendingActionCount: Flow<Int> = pendingSyncActionDao.pendingActionCountFlow()
         .flowOn(Dispatchers.Default)
 
     fun getTaskFlowById(id: String): Flow<TaskModel?> = taskDao.getTaskFlowById(id)
@@ -239,10 +244,10 @@ class TaskRepository(
                     }
                 } else null
 
-                val sorts = listOf(
-                    NotionSort(property = propScheduledDateName, direction = "ascending"),
-                    NotionSort(property = propDueDateName, direction = "ascending")
-                )
+            val sorts = buildList {
+                if (propScheduledDateName.isNotBlank()) add(NotionSort(property = propScheduledDateName, direction = "ascending"))
+                if (propDueDateName.isNotBlank()) add(NotionSort(property = propDueDateName, direction = "ascending"))
+            }
 
                 val request = NotionQueryRequest(
                     filter = filter,
@@ -469,7 +474,7 @@ class TaskRepository(
                     },
                 )
             }
-            
+
             properties[propStatusName] = buildJsonObject {
                 put(
                     sType,
@@ -479,38 +484,34 @@ class TaskRepository(
                 )
             }
             
-            properties[propCategoryName] = buildJsonObject {
-                put(
-                    "select",
-                    buildJsonObject {
-                        put("name", trimmedCategory)
-                    },
-                )
-            }
-            
-            properties[propDueDateName] = buildJsonObject {
-                if (dueDate.isNullOrBlank()) {
-                    put("date", JsonNull)
-                } else {
+            if (propCategoryName.isNotBlank()) {
+                properties[propCategoryName] = buildJsonObject {
                     put(
-                        "date",
+                        "select",
                         buildJsonObject {
-                            put("start", dueDate)
+                            put("name", trimmedCategory)
                         },
                     )
                 }
             }
             
-            properties[propScheduledDateName] = buildJsonObject {
-                if (scheduledDate.isNullOrBlank()) {
-                    put("date", JsonNull)
-                } else {
-                    put(
-                        "date",
-                        buildJsonObject {
-                            put("start", scheduledDate)
-                        },
-                    )
+            if (propDueDateName.isNotBlank()) {
+                properties[propDueDateName] = buildJsonObject {
+                    if (dueDate.isNullOrBlank()) {
+                        put("date", JsonNull)
+                    } else {
+                        put("date", buildJsonObject { put("start", dueDate) })
+                    }
+                }
+            }
+
+            if (propScheduledDateName.isNotBlank()) {
+                properties[propScheduledDateName] = buildJsonObject {
+                    if (scheduledDate.isNullOrBlank()) {
+                        put("date", JsonNull)
+                    } else {
+                        put("date", buildJsonObject { put("start", scheduledDate) })
+                    }
                 }
             }
             return properties
@@ -535,7 +536,7 @@ class TaskRepository(
             } else {
                 updatedPage.properties.getSelectColor(propStatusName)
             }
-            val apiCategoryColor = updatedPage.properties.getSelectColor(propCategoryName)
+            val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { updatedPage.properties.getSelectColor(it) }
             
             if (apiStatusColor != null || apiCategoryColor != null) {
                 val refreshedEntity = updatedLocalRef.copy(
@@ -582,12 +583,14 @@ class TaskRepository(
             } else {
                 PropertyUpdate(status = StatusValue(name = trimmedStatus))
             }
-            properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
+            if (propCategoryName.isNotBlank()) {
+                properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
+            }
             
-            if (!dueDate.isNullOrBlank()) {
+            if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) {
                 properties[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
             }
-            if (!scheduledDate.isNullOrBlank()) {
+            if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) {
                 properties[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
             }
 
@@ -607,7 +610,7 @@ class TaskRepository(
             } else {
                 createdPage.properties.getSelectColor(propStatusName)
             }
-            val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+            val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { createdPage.properties.getSelectColor(it) }
 
             val localEntity = TaskEntity(
                 id = createdPage.id,
@@ -634,7 +637,7 @@ class TaskRepository(
                 } else {
                     createdPage.properties.getSelectColor(propStatusName)
                 }
-                val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+                val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { createdPage.properties.getSelectColor(it) }
 
                 val localEntity = TaskEntity(
                     id = createdPage.id,
@@ -728,14 +731,18 @@ class TaskRepository(
                         properties[propStatusName] = buildJsonObject {
                             put(propStatusType, buildJsonObject { put("name", status) })
                         }
-                        properties[propCategoryName] = buildJsonObject {
-                            put("select", buildJsonObject { put("name", category) })
+                        if (propCategoryName.isNotBlank()) {
+                            properties[propCategoryName] = buildJsonObject { put("select", buildJsonObject { put("name", category) }) }
                         }
-                        properties[propDueDateName] = buildJsonObject {
-                            if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
+                        if (propDueDateName.isNotBlank()) {
+                            properties[propDueDateName] = buildJsonObject {
+                                if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
+                            }
                         }
-                        properties[propScheduledDateName] = buildJsonObject {
-                            if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
+                        if (propScheduledDateName.isNotBlank()) {
+                            properties[propScheduledDateName] = buildJsonObject {
+                                if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
+                            }
                         }
 
                         notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
@@ -750,9 +757,9 @@ class TaskRepository(
                         val propMap = mutableMapOf<String, PropertyUpdate>()
                         propMap[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
                         propMap[propStatusName] = if (propStatusType == "select") PropertyUpdate(select = SelectValue(name = status)) else PropertyUpdate(status = StatusValue(name = status))
-                        propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
-                        if (!dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
-                        if (!scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
+                        if (propCategoryName.isNotBlank()) propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+                        if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
+                        if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
 
                         val request = NotionCreateRequest(
                             parent = DatabaseParent(databaseId = databaseId),

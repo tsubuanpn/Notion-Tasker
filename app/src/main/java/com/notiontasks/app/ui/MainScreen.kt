@@ -7,23 +7,40 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.notiontasks.app.PomodoroService
+import com.notiontasks.app.TaskNotificationReceiver
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.AddTaskDialog
@@ -31,6 +48,7 @@ import com.notiontasks.app.ui.components.EditTaskDialog
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.screens.*
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
+import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,7 +58,6 @@ fun MainAppScreen(
     settingsViewModel: SettingsViewModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
-    onUpdateCategoryOptions: (List<NotionOptionInfo>) -> Unit,
     onSaveCredentials: (
         token: String,
         dbId: String,
@@ -70,10 +87,21 @@ fun MainAppScreen(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val isSettingsRoute = currentRoute?.startsWith("settings") == true
+    val topBarTitle = when (currentRoute) {
+        Screen.Home.route -> "Notion Taker"
+        Screen.Category.route -> Screen.Category.title
+        Screen.Plan.route, Screen.Schedule.route -> Screen.Plan.title
+        Screen.Pomodoro.route -> Screen.Pomodoro.title
+        Screen.Achievements.route -> Screen.Achievements.title
+        Screen.Settings.route -> Screen.Settings.title
+        else -> "NotionTasker"
+    }
 
     val notionToken by viewModel.notionToken.collectAsState()
     val databaseId by viewModel.databaseId.collectAsState()
+    val setupCompleted by settingsViewModel.setupCompleted.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
 
     val context = LocalContext.current
     var boundService by remember { mutableStateOf<PomodoroService?>(null) }
@@ -99,8 +127,8 @@ fun MainAppScreen(
     }
 
     // トークンが既に定義されている場合、起動時に自動同期をトリガーする
-    LaunchedEffect(notionToken, databaseId) {
-        if (notionToken.isNotBlank() && databaseId.isNotBlank()) {
+    LaunchedEffect(notionToken, databaseId, setupCompleted) {
+        if (setupCompleted && notionToken.isNotBlank() && databaseId.isNotBlank()) {
             viewModel.syncWithNotion()
         }
     }
@@ -108,13 +136,7 @@ fun MainAppScreen(
     val showAddDialogState = remember { mutableStateOf(value = false) }
     val editingTaskState = remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
-    var isSearchActive by remember { mutableStateOf(value = false) }
-
-    LaunchedEffect(currentRoute) {
-        if (currentRoute != Screen.Home.route) {
-            isSearchActive = false
-        }
-    }
+    var isTaskSearchActive by rememberSaveable { mutableStateOf(false) }
 
     val activity = context as? ComponentActivity
     LaunchedEffect(activity?.intent) {
@@ -122,7 +144,7 @@ fun MainAppScreen(
         if (intent != null) {
             val dest = intent.getStringExtra("DESTINATION")
             val focusTaskId = intent.getStringExtra("FOCUS_TASK_ID")
-            if (dest == "pomodoro") {
+            if (setupCompleted && dest == "pomodoro") {
                 if (focusTaskId != null) {
                     val pPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
                     pPrefs.edit { putString("selected_task_id", focusTaskId) }
@@ -140,38 +162,34 @@ fun MainAppScreen(
         }
     }
 
-    val categoryTabEnabled by settingsViewModel.categoryTabEnabled.collectAsState()
-    val calendarTabEnabled by settingsViewModel.calendarTabEnabled.collectAsState()
-    val scheduleTabEnabled by settingsViewModel.scheduleTabEnabled.collectAsState()
-    val pomodoroTabEnabled by settingsViewModel.pomodoroTabEnabled.collectAsState()
-    val achievementsTabEnabled by settingsViewModel.achievementsTabEnabled.collectAsState()
     val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
     val devCompleteButtonEnabled by settingsViewModel.devCompleteButtonEnabled.collectAsState()
+    val isSetupRoute = currentRoute == Screen.Setup.route
 
-    LaunchedEffect(categoryTabEnabled, calendarTabEnabled, scheduleTabEnabled, pomodoroTabEnabled, achievementsTabEnabled, currentRoute) {
-        val isCurrentRouteDisabled = when (currentRoute) {
-            Screen.Category.route -> !categoryTabEnabled
-            Screen.Calendar.route -> !calendarTabEnabled
-            Screen.Schedule.route -> !scheduleTabEnabled
-            Screen.Pomodoro.route -> !pomodoroTabEnabled
-            Screen.Achievements.route -> !achievementsTabEnabled
-            else -> false
-        }
-        if (isCurrentRouteDisabled) {
-            navController.navigate(Screen.Home.route) {
+    // ホームは常に既存のホームエントリへ戻す。画面状態の復元で、直前の「計画」を
+    // ホームとして再表示してしまうことを避ける。
+    val navigateToPrimaryScreen: (Screen) -> Unit = { screen ->
+        if (screen == Screen.Home) {
+            navController.popBackStack(Screen.Home.route, inclusive = false)
+            if (navController.currentDestination?.route != Screen.Home.route) {
+                navController.navigate(Screen.Home.route) { launchSingleTop = true }
+            }
+        } else if (currentRoute != screen.route) {
+            navController.navigate(screen.route) {
                 popUpTo(navController.graph.startDestinationId) {
-                    inclusive = false
+                    saveState = true
                 }
                 launchSingleTop = true
+                restoreState = true
             }
         }
     }
 
     Scaffold(
         topBar = {
-            if (currentRoute == Screen.Settings.route || !isSettingsRoute) {
+            if (!isSetupRoute && (currentRoute == Screen.Settings.route || !isSettingsRoute)) {
                 TopAppBar(
-                    title = { Text("NotionTasker", fontWeight = FontWeight.Bold) },
+                    title = { Text(topBarTitle, fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         if (isSettingsRoute && notionToken.isNotBlank() && databaseId.isNotBlank()) {
                             IconButton(
@@ -188,20 +206,25 @@ fun MainAppScreen(
                         titleContentColor = MaterialTheme.colorScheme.onSurface
                     ),
                     actions = {
-                        if (currentRoute == Screen.Home.route) {
-                            IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                        if (currentRoute == Screen.Category.route) {
+                            IconButton(onClick = { isTaskSearchActive = !isTaskSearchActive }) {
                                 Icon(
-                                    imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                                    contentDescription = if (isSearchActive) "検索を閉じる" else "検索"
+                                    imageVector = if (isTaskSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = if (isTaskSearchActive) "検索を閉じる" else "検索",
                                 )
                             }
                         }
-                        if ((currentRoute == Screen.Home.route) || (currentRoute == Screen.Category.route) || (currentRoute == Screen.Calendar.route) || (currentRoute == Screen.Schedule.route) || (currentRoute == Screen.Achievements.route)) {
-                            IconButton(
-                                onClick = { viewModel.syncWithNotion() },
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "同期")
-                            }
+                        if ((currentRoute == Screen.Home.route) || (currentRoute == Screen.Category.route) || (currentRoute == Screen.Plan.route) || (currentRoute == Screen.Schedule.route) || (currentRoute == Screen.Pomodoro.route) || (currentRoute == Screen.Achievements.route)) {
+                            SyncStatusAction(
+                                state = syncState,
+                                onClick = {
+                                    if (syncState is SyncUiState.NotConfigured) {
+                                        navController.navigate(Screen.Settings.route) { launchSingleTop = true }
+                                    } else {
+                                        viewModel.syncWithNotion()
+                                    }
+                                },
+                            )
                         }
                         if (!isSettingsRoute) {
                             IconButton(onClick = {
@@ -217,25 +240,23 @@ fun MainAppScreen(
             }
         },
         bottomBar = {
-            if (!isSettingsRoute) {
+            if (!isSettingsRoute && !isSetupRoute) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface
                 ) {
                     val screens = listOf(
                         Screen.Home,
                         Screen.Category,
-                        Screen.Calendar,
-                        Screen.Schedule,
+                        Screen.Plan,
                         Screen.Pomodoro,
                         Screen.Achievements
                     ).filter { screen ->
                         when (screen) {
                             is Screen.Home -> true
-                            is Screen.Category -> categoryTabEnabled
-                            is Screen.Calendar -> calendarTabEnabled
-                            is Screen.Schedule -> scheduleTabEnabled
-                            is Screen.Pomodoro -> pomodoroTabEnabled
-                            is Screen.Achievements -> achievementsTabEnabled
+                            is Screen.Category -> true
+                            is Screen.Plan -> true
+                            is Screen.Pomodoro -> true
+                            is Screen.Achievements -> true
                             else -> true
                         }
                     }
@@ -245,13 +266,15 @@ fun MainAppScreen(
                             label = {
                                 Text(
                                     text = screen.title,
-                                    fontSize = 9.5.sp,
                                     maxLines = 1,
                                     softWrap = false,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             },
-                            selected = currentRoute == screen.route,
+                            selected = when (screen) {
+                                is Screen.Plan -> currentRoute in setOf(Screen.Plan.route, Screen.Schedule.route)
+                                else -> currentRoute == screen.route
+                            },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.primary,
                                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -260,15 +283,7 @@ fun MainAppScreen(
                                 unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             ),
                             onClick = {
-                                if (currentRoute != screen.route) {
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
+                                navigateToPrimaryScreen(screen)
                             }
                         )
                     }
@@ -276,43 +291,58 @@ fun MainAppScreen(
             }
         },
         floatingActionButton = {
-            if (!isSettingsRoute && (currentRoute != Screen.Achievements.route)) {
+            if (!isSetupRoute && currentRoute in setOf(Screen.Home.route, Screen.Category.route, Screen.Plan.route)) {
                 FloatingActionButton(
                     onClick = { showAddDialogState.value = true },
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "タスク追加")
-                }
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) { Icon(Icons.Default.Add, contentDescription = "タスクを追加") }
             }
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = if (notionToken.isBlank() || databaseId.isBlank()) Screen.Settings.route else Screen.Home.route,
+            startDestination = if (setupCompleted) Screen.Home.route else Screen.Setup.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Home.route) {
-                HomeScreen(
+                TodayScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptions,
-                    onEditTask = { editingTaskState.value = it },
-                    isSearchActive = isSearchActive
+                    onOpenPlan = { navController.navigate(Screen.Plan.route) { launchSingleTop = true } },
+                    onOpenTasks = { navController.navigate(Screen.Category.route) { launchSingleTop = true } },
+                    onStartFocus = { task ->
+                        context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+                            .edit { putString("selected_task_id", task.id) }
+                        navController.navigate(Screen.Pomodoro.route) {
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                 )
             }
             composable(Screen.Category.route) {
-                CategoryScreen(
+                TasksScreen(
                     viewModel = viewModel,
-                    categoryOptions = categoryOptions,
                     statusOptions = statusOptions,
+                    categoryOptions = categoryOptions,
                     onEditTask = { editingTaskState.value = it },
-                ) { newOrder ->
-                    onUpdateCategoryOptions(newOrder)
-                }
+                    searchActive = isTaskSearchActive,
+                )
+            }
+            composable(Screen.Plan.route) {
+                PlanOverviewScreen(
+                    viewModel = viewModel,
+                    selectedCalendarDate = selectedCalendarDate,
+                    statusOptions = statusOptions,
+                    onOpenSchedule = { navController.navigate(Screen.Schedule.route) },
+                    onEditTask = { editingTaskState.value = it },
+                )
             }
             composable(Screen.Schedule.route) {
                 ScheduleScreen(
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onOpenCalendar = { navController.navigate(Screen.Plan.route) { launchSingleTop = true } },
                 )
             }
             composable(Screen.Pomodoro.route) {
@@ -331,28 +361,52 @@ fun MainAppScreen(
                     onEditTask = { editingTaskState.value = it }
                 )
             }
-            composable(Screen.Calendar.route) {
-                CalendarScreen(
-                    viewModel = viewModel,
-                    statusOptions = statusOptions,
-                    selectedCalendarDate = selectedCalendarDate,
-                    onEditTask = { editingTaskState.value = it }
-                )
-            }
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     settingsViewModel = settingsViewModel,
-                    navController = navController
+                    navController = navController,
+                    syncState = syncState,
+                    onSync = { viewModel.syncWithNotion() },
+                )
+            }
+            composable(Screen.Setup.route) {
+                NotionSetupScreen(
+                    viewModel = viewModel,
+                    onConnectionVerified = { token, dbId ->
+                        settingsViewModel.updateNotionToken(token)
+                        settingsViewModel.updateDatabaseId(dbId)
+                        viewModel.updateCredentials(token, dbId)
+                        navController.navigate(Screen.SettingsMapping.route) {
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
             composable(Screen.SettingsNotion.route) {
-                NotionSettingsScreen(viewModel, settingsViewModel, navController, onSaveCredentials)
+                NotionSettingsScreen(viewModel, settingsViewModel, navController)
             }
             composable(Screen.SettingsMapping.route) {
-                MappingSettingsScreen(viewModel, settingsViewModel, navController, onSaveCredentials)
+                MappingSettingsScreen(
+                    viewModel = viewModel,
+                    settingsViewModel = settingsViewModel,
+                    navController = navController,
+                    onSave = onSaveCredentials,
+                    isSetupFlow = !setupCompleted,
+                    onSetupCompleted = {
+                        settingsViewModel.markSetupCompleted()
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Setup.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                )
             }
             composable(Screen.SettingsNotifications.route) {
-                NotificationsSettingsScreen(settingsViewModel, navController)
+                NotificationsSettingsScreen(
+                    settingsViewModel = settingsViewModel,
+                    navController = navController,
+                    onScheduleChanged = { TaskNotificationReceiver.rescheduleAlarms(context) },
+                )
             }
             composable(Screen.SettingsTheme.route) {
                 ThemeSettingsScreen(settingsViewModel, navController)
@@ -363,34 +417,32 @@ fun MainAppScreen(
             composable(Screen.SettingsLifeActivity.route) {
                 LifeActivitySettingsScreen(viewModel, navController)
             }
-            composable(Screen.SettingsTabs.route) {
-                TabsSettingsScreen(settingsViewModel, navController)
-            }
             composable(Screen.SettingsStats.route) {
                 StatsManagementScreen(viewModel, settingsViewModel, navController)
             }
             composable(Screen.SettingsAbout.route) {
-                AboutScreen(settingsViewModel, navController, onSaveCredentials)
+                AboutScreen(settingsViewModel, navController)
             }
             composable(Screen.SettingsDeveloper.route) {
-                DeveloperSettingsScreen(settingsViewModel, navController, onSaveCredentials)
+                DeveloperSettingsScreen(settingsViewModel, navController)
             }
         }
     }
 
     if (showAddDialogState.value) {
         val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptions.firstOrNull()?.name ?: "")
-        val initialScheduled = if (currentRoute == Screen.Calendar.route) (selectedCalendarDate.value ?: "") else ""
+        val initialScheduled = ""
         AddTaskDialog(
             initialCategory = defaultCategory,
             categoryOptions = categoryOptions,
+            statusOptions = statusOptions,
             initialScheduledDate = initialScheduled,
             onDismiss = { showAddDialogState.value = false },
-            onConfirm = { title, cat, due, sched ->
+            onConfirm = { title, cat, status, due, sched ->
                 viewModel.addTask(
                     title = title,
                     category = cat,
-                    status = statusOptions.firstOrNull()?.name,
+                    status = status,
                     dueDate = due,
                     scheduledDate = sched,
                     onSuccess = {
@@ -428,3 +480,31 @@ fun MainAppScreen(
         }
     }
 }
+
+@Composable
+private fun SyncStatusAction(state: SyncUiState, onClick: () -> Unit) {
+    val (label, icon, containerColor, contentColor) = when (state) {
+        is SyncUiState.Synced -> SyncBadge("同期済", Icons.Default.CloudDone, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        SyncUiState.Syncing -> SyncBadge("同期中", Icons.Default.Sync, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary)
+        else -> SyncBadge("未同期", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(containerColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = contentColor)
+        Spacer(Modifier.size(5.dp))
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = contentColor)
+    }
+}
+
+private data class SyncBadge(
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val containerColor: Color,
+    val contentColor: Color,
+)

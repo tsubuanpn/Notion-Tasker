@@ -11,13 +11,14 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Home : Screen("home", "ホーム", Icons.Default.Home)
-    object Category : Screen("category", "種類別", Icons.AutoMirrored.Filled.List)
-    object Calendar : Screen("calendar", "カレンダー", Icons.Default.DateRange)
+    object Home : Screen("home", "今日", Icons.Default.Home)
+    object Category : Screen("tasks", "タスク", Icons.AutoMirrored.Filled.List)
+    object Plan : Screen("plan", "計画", Icons.Default.DateRange)
     object Schedule : Screen("schedule", "時間割", Icons.Default.Schedule)
     object Pomodoro : Screen("pomodoro", "集中", Icons.Default.Timer)
-    object Achievements : Screen("achievements", "実績", Icons.Default.EmojiEvents)
+    object Achievements : Screen("achievements", "振り返り", Icons.Default.EmojiEvents)
     object Settings : Screen("settings", "設定", Icons.Default.Settings)
+    object Setup : Screen("setup", "セットアップ", Icons.Default.Settings)
 
     // Settings Sub-pages
     object SettingsNotion : Screen("settings/notion", "Notion 接続設定", Icons.Default.Settings)
@@ -26,7 +27,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object SettingsTheme : Screen("settings/theme", "外観テーマ設定", Icons.Default.Settings)
     object SettingsPomodoro : Screen("settings/pomodoro", "ポモドーロタイマー設定", Icons.Default.Settings)
     object SettingsLifeActivity : Screen("settings/life_activity", "生活習慣設定", Icons.Default.Settings)
-    object SettingsTabs : Screen("settings/tabs", "表示タブ設定", Icons.Default.Settings)
     object SettingsStats : Screen("settings/stats", "統計データ管理", Icons.Default.Settings)
     object SettingsAbout : Screen("settings/about", "アプリの概要", Icons.Default.Settings)
     object SettingsDeveloper : Screen("settings/developer", "開発者設定", Icons.Default.Settings)
