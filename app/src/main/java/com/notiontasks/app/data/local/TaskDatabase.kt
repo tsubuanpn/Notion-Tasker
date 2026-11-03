@@ -66,6 +66,13 @@ data class PendingSyncActionEntity(
     val timestamp: Long,
 )
 
+/** リモート由来の同期時刻だけを保持するためのメタデータです。 */
+@Entity(tableName = "sync_metadata")
+data class SyncMetadataEntity(
+    @PrimaryKey val key: String,
+    val timestamp: Long,
+)
+
 // TaskDao は、コンパイル時の SQL 検証とクエリを処理します
 @Dao
 interface TaskDao {
@@ -110,9 +117,6 @@ interface TaskDao {
 
     @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)")
     suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int)
-
-    @Query("SELECT MAX(lastEditedTime) FROM tasks")
-    suspend fun getLastSyncTimestamp(): Long?
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: String)
@@ -217,6 +221,15 @@ interface PendingSyncActionDao {
     suspend fun clearAllPendingActions()
 }
 
+@Dao
+interface SyncMetadataDao {
+    @Query("SELECT timestamp FROM sync_metadata WHERE key = :key LIMIT 1")
+    suspend fun getTimestamp(key: String): Long?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entry: SyncMetadataEntity)
+}
+
 // SQL データソースを表す Room データベース
 @Database(
     entities = [
@@ -225,8 +238,9 @@ interface PendingSyncActionDao {
         ScheduleBlockEntity::class,
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
+        SyncMetadataEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -235,6 +249,7 @@ abstract class TaskDatabase : RoomDatabase() {
     abstract val scheduleBlockDao: ScheduleBlockDao
     abstract val lifeActivityDao: LifeActivityDao
     abstract val pendingSyncActionDao: PendingSyncActionDao
+    abstract val syncMetadataDao: SyncMetadataDao
 
     companion object {
         @Volatile
@@ -258,6 +273,14 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_metadata` (`key` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+                )
+            }
+        }
+
         fun getInstance(context: Context): TaskDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -265,7 +288,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     TaskDatabase::class.java,
                     "notion_tasks_cache.db",
                 )
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build().also {
                     INSTANCE = it
                 }

@@ -88,7 +88,7 @@ fun MainAppScreen(
     val currentRoute = navBackStackEntry?.destination?.route
     val isSettingsRoute = currentRoute?.startsWith("settings") == true
     val topBarTitle = when (currentRoute) {
-        Screen.Home.route -> "Notion Taker"
+        Screen.Home.route -> "Notion Tasker"
         Screen.Category.route -> Screen.Category.title
         Screen.Plan.route, Screen.Schedule.route -> Screen.Plan.title
         Screen.Pomodoro.route -> Screen.Pomodoro.title
@@ -372,10 +372,11 @@ fun MainAppScreen(
             composable(Screen.Setup.route) {
                 NotionSetupScreen(
                     viewModel = viewModel,
-                    onConnectionVerified = { token, dbId ->
+                    onConnectionVerified = { token, dbId, dataSourceId ->
                         settingsViewModel.updateNotionToken(token)
                         settingsViewModel.updateDatabaseId(dbId)
-                        viewModel.updateCredentials(token, dbId)
+                        settingsViewModel.updateDataSourceId(dataSourceId)
+                        viewModel.updateCredentials(token, dbId, dataSourceId = dataSourceId)
                         navController.navigate(Screen.SettingsMapping.route) {
                             launchSingleTop = true
                         }

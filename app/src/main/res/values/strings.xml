@@ -3,26 +3,17 @@
     <string name="app_name">Notion Tasker</string>
 
     <!-- Settings Menu -->
-    <string name="settings_title">設定</string>
-    <string name="settings_group_account">アカウント・連携</string>
-    <string name="settings_group_app">アプリ設定</string>
-    <string name="settings_group_dev">開発者用</string>
-    <string name="settings_group_other">その他</string>
-
     <string name="settings_notion_title">Notion 接続設定</string>
     <string name="settings_notion_subtitle">APIトークンとデータベースIDを連携します</string>
     <string name="settings_mapping_title">プロパティマッピング</string>
     <string name="settings_mapping_subtitle">Notion側のカラム名と同期属性を定義します</string>
     <string name="settings_notifications_title">通知スケジュール設定</string>
-    <string name="settings_notifications_subtitle">今日期限タスクを知らせる通知タイマー</string>
     <string name="settings_stats_title">データ管理</string>
     <string name="settings_stats_subtitle">タスク・統計データの保持制限と削除</string>
     <string name="settings_life_activity_title">生活習慣設定</string>
     <string name="settings_life_activity_subtitle">時間割に自動表示するデフォルト時刻やプリセット</string>
     <string name="settings_pomodoro_title">ポモドーロタイマー設定</string>
-    <string name="settings_pomodoro_subtitle">集中・休憩時間のカスタマイズとアラーム音</string>
     <string name="settings_theme_title">外観テーマ設定</string>
-    <string name="settings_theme_subtitle">ダークモードやテーマカラーの切り替え</string>
     <string name="settings_about_title">アプリの概要</string>
     <string name="settings_about_subtitle">バージョン情報、GitHub、開発者モード</string>
     <string name="settings_developer_title">開発者設定</string>
@@ -30,14 +21,10 @@
 
     <!-- Settings Detail -->
     <string name="settings_save">保存</string>
-    <string name="settings_save_and_back">保存して戻る</string>
-    <string name="settings_back">戻る</string>
     <string name="settings_notion_token_label">Notion インテグレーション トークン</string>
     <string name="settings_db_id_label">データベース ID</string>
     <string name="settings_fetch_schema">データベース構造を自動取得</string>
-    <string name="settings_fetching">取得中...</string>
-    <string name="settings_fetch_success">DB構造のロードに成功しました！</string>
-    <string name="settings_fetch_error">取得エラー: %1$s</string>
+    <string name="settings_fetching">取得中…</string>
 
     <!-- Theme Settings -->
     <string name="settings_theme_mode">表示モード</string>
@@ -69,15 +56,13 @@
     <string name="settings_alarm_desc">ポモドーロ完了時に鳴らす音</string>
     <string name="settings_alarm_current">現在の選択: %1$s</string>
     <string name="settings_alarm_pick">音を選択</string>
-    <string name="settings_alarm_play">再生</string>
-    <string name="settings_alarm_stop">停止</string>
 
     <!-- Data Management Settings -->
     <string name="settings_data_completed_tasks_title">完了済みタスクの保持制限</string>
     <string name="settings_data_keep_type_date">日付で制限</string>
     <string name="settings_data_keep_type_count">件数で制限</string>
     <string name="settings_data_keep_count_label">最大保持件数</string>
-    <string name="settings_data_delete_stats_btn">統計データを削除...</string>
+    <string name="settings_data_delete_stats_btn">統計データを削除…</string>
     <string name="settings_data_delete_select_period">削除する期間を選択</string>
     <string name="settings_data_delete_confirm_title">最終確認</string>
     <string name="settings_data_help_notion_remains">※ここでの削除はアプリ内のみです。Notion側のデータは削除されません。</string>
@@ -85,8 +70,6 @@
 
     <!-- Stats Settings -->
     <string name="settings_stats_duration">統計（ポモドーロ）の保持期間</string>
-    <string name="settings_stats_delete_title">データの一括削除</string>
-    <string name="settings_stats_delete_confirm">データの削除</string>
     <string name="settings_stats_delete_msg">%1$sの統計データを削除しますか？\nこの操作は取り消せません。</string>
     <string name="settings_stats_delete_action">削除する</string>
 

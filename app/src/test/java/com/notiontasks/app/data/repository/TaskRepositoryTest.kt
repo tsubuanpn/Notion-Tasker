@@ -2,6 +2,8 @@ package com.notiontasks.app.data.repository
 
 import android.content.SharedPreferences
 import com.notiontasks.app.data.local.PendingSyncActionDao
+import com.notiontasks.app.data.local.PendingSyncActionEntity
+import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.*
@@ -13,6 +15,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Before
 import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -21,6 +25,7 @@ class TaskRepositoryTest {
     private val notionApi: NotionApi = mockk()
     private val taskDao: TaskDao = mockk(relaxed = true)
     private val pendingSyncActionDao: PendingSyncActionDao = mockk(relaxed = true)
+    private val syncMetadataDao: SyncMetadataDao = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
 
@@ -28,7 +33,22 @@ class TaskRepositoryTest {
 
     @Before
     fun setup() {
-        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao)
+        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao)
+        repository.updateDataSourceId("data_source")
+    }
+
+    @Test
+    fun getTitleText_concatenatesAllRichTextFragments() {
+        val properties = mapOf(
+            "名前" to buildJsonObject {
+                put("title", buildJsonArray {
+                    add(buildJsonObject { put("plain_text", "前半") })
+                    add(buildJsonObject { put("plain_text", "後半") })
+                })
+            },
+        )
+
+        assertEquals("前半後半", properties.getTitleText("名前"))
     }
 
     @Test
@@ -71,6 +91,79 @@ class TaskRepositoryTest {
                 entities[0].status == "In Progress"
             })
         }
+    }
+
+    @Test
+    fun syncTasks_missingMappedTitle_doesNotReplaceCachedTasks() = runTest {
+        val response = NotionQueryResponse(
+            results = listOf(
+                NotionPage(
+                    id = "page_123",
+                    properties = mapOf(
+                        "別名" to buildJsonObject { put("title", buildJsonArray {}) },
+                    ),
+                ),
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns response
+
+        try {
+            repository.syncTasks("token", "database")
+            fail("Expected missing title mapping to fail the sync")
+        } catch (_: IOException) {
+            // Expected: preserving the existing cache is safer than replacing it with invalid data.
+        }
+
+        coVerify(exactly = 0) { taskDao.syncTasksTransactionally(any()) }
+    }
+
+    @Test
+    fun syncTasks_recordsOnlyRemoteEditedTimeAsTheNextCursor() = runTest {
+        val properties = mapOf(
+            "名前" to buildJsonObject {
+                put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "Task") }) })
+            },
+        )
+        val response = NotionQueryResponse(
+            results = listOf(
+                NotionPage(
+                    id = "page_123",
+                    lastEditedTime = "2026-11-03T00:00:00.000Z",
+                    properties = properties,
+                ),
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns response
+
+        repository.syncTasks("token", "database")
+
+        coVerify {
+            syncMetadataDao.put(match { it.key == "notion_remote_sync_cursor" && it.timestamp > 0L })
+        }
+    }
+
+    @Test
+    fun syncTasks_singleDataSource_discoversAndUsesItsId() = runTest {
+        repository.updateDataSourceId("")
+        val properties = mapOf(
+            "名前" to buildJsonObject {
+                put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "Task") }) })
+            },
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+        coEvery { notionApi.getDatabaseDataSources(any(), any(), any()) } returns NotionDatabaseInfo(
+            id = "database",
+            dataSources = listOf(NotionDataSource(id = "data_source", name = "Tasks")),
+        )
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(
+            results = listOf(NotionPage(id = "page_123", properties = properties)),
+        )
+
+        repository.syncTasks("token", "database")
+
+        coVerify { notionApi.queryDatabase(any(), any(), "data_source", any()) }
     }
 
     @Test
@@ -136,7 +229,7 @@ class TaskRepositoryTest {
             notionApi.queryDatabase(
                 any(),
                 any(),
-                databaseId,
+                "data_source",
                 match { request ->
                     val sorts = request.sorts
                     sorts?.size == 2 &&
@@ -220,6 +313,28 @@ class TaskRepositoryTest {
                 action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
             })
         }
+    }
+
+    @Test
+    fun syncTasks_permanentPendingFailure_keepsTheUserAction() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_123",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending)
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IllegalArgumentException("invalid status")
+
+        try {
+            repository.syncTasks("token", "database")
+            fail("Expected a permanent pending-action failure to be reported")
+        } catch (_: IOException) {
+            // Expected: the user action remains queued for repair and retry.
+        }
+
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(pending.id) }
     }
 
     @Test

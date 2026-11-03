@@ -33,6 +33,9 @@ class SettingsViewModel(
     private val _databaseId = MutableStateFlow(sharedPrefs.getString("database_id", "") ?: "")
     val databaseId: StateFlow<String> = _databaseId.asStateFlow()
 
+    private val _dataSourceId = MutableStateFlow(sharedPrefs.getString("notion_data_source_id", "") ?: "")
+    val dataSourceId: StateFlow<String> = _dataSourceId.asStateFlow()
+
     // --- Notification Settings ---
     private val _morningNotifEnabled = MutableStateFlow(sharedPrefs.getBoolean("morning_notif_enabled", true))
     val morningNotifEnabled = _morningNotifEnabled.asStateFlow()
@@ -83,6 +86,11 @@ class SettingsViewModel(
     fun updateDatabaseId(dbId: String) {
         _databaseId.value = dbId
         sharedPrefs.edit { putString("database_id", dbId) }
+    }
+
+    fun updateDataSourceId(dataSourceId: String) {
+        _dataSourceId.value = dataSourceId.trim()
+        sharedPrefs.edit { putString("notion_data_source_id", dataSourceId.trim()) }
     }
 
     fun markSetupCompleted() {

@@ -20,7 +20,6 @@ import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
-import com.notiontasks.app.data.insertPomodoroLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -470,7 +469,7 @@ class PomodoroService : Service() {
             )
 
             serviceScope.launch {
-                insertPomodoroLog(this@PomodoroService, newLog)
+                (application as NotionTaskerApplication).container.pomodoroRepository.insertPomodoroLog(newLog)
             }
         }
 

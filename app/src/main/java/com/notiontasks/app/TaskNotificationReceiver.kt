@@ -217,7 +217,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             createNotificationChannel(context)
             val notification = NotificationCompat.Builder(context, "notion_tasks_channel")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("Notion Taker のテスト通知")
+                .setContentTitle("Notion Tasker のテスト通知")
                 .setContentText("通知は正しく設定されています。")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)

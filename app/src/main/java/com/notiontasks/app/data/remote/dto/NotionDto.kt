@@ -27,6 +27,19 @@ data class NotionDatabaseResponse(
     @SerialName("properties") val properties: Map<String, NotionPropertyMeta>
 )
 
+/** Notion database は複数の data source を持てるため、接続時に選択対象を取得する。 */
+@Serializable
+data class NotionDatabaseInfo(
+    @SerialName("id") val id: String,
+    @SerialName("data_sources") val dataSources: List<NotionDataSource> = emptyList(),
+)
+
+@Serializable
+data class NotionDataSource(
+    @SerialName("id") val id: String,
+    @SerialName("name") val name: String = "",
+)
+
 @Serializable
 data class NotionPropertyMeta(
     @SerialName("id") val id: String,
@@ -146,6 +159,6 @@ data class NotionCreateRequest(
 
 @Serializable
 data class DatabaseParent(
-    @SerialName("database_id") val databaseId: String
+    @SerialName("data_source_id") val dataSourceId: String
 )
 

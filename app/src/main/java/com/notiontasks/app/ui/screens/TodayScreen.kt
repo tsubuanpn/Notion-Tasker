@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -162,4 +163,9 @@ private fun ScheduleBriefingRow(title: String, time: String, category: String, i
 
 private fun currentMinutes(): Int = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 private fun formatTime(minutes: Int): String = String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60)
-@Composable private fun rememberToday(): String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+
+@Composable
+private fun rememberToday(): String {
+    val locale = LocalLocale.current.platformLocale
+    return remember(locale) { SimpleDateFormat("yyyy-MM-dd", locale).format(Date()) }
+}

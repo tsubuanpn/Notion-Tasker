@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -368,10 +369,11 @@ fun SettingsSubPageScaffold(
 @Composable
 fun NotionSetupScreen(
     viewModel: TaskViewModel,
-    onConnectionVerified: (token: String, databaseId: String) -> Unit,
+    onConnectionVerified: (token: String, databaseId: String, dataSourceId: String) -> Unit,
 ) {
     var token by remember { mutableStateOf("") }
     var databaseId by remember { mutableStateOf("") }
+    var dataSourceId by remember { mutableStateOf("") }
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -394,7 +396,7 @@ fun NotionSetupScreen(
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(48.dp),
             )
-            Text("Notion Taker をはじめる", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Notion Tasker をはじめる", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
                 "最初にNotionのタスクデータベースへ安全に接続します。接続確認とプロパティ設定が完了するまで、タスクの同期は開始しません。",
                 style = MaterialTheme.typography.bodyLarge,
@@ -436,6 +438,15 @@ fun NotionSetupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
             )
+            OutlinedTextField(
+                value = dataSourceId,
+                onValueChange = { dataSourceId = it; errorMessage = null },
+                label = { Text("データソース ID（複数データソース時のみ）") },
+                supportingText = { Text("通常は空欄のままで自動検出されます") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            )
 
             if (errorMessage != null) {
                 Surface(
@@ -458,13 +469,14 @@ fun NotionSetupScreen(
                     viewModel.fetchDatabaseProperties(
                         token = token.trim(),
                         dbId = databaseId.trim(),
+                        dataSourceId = dataSourceId.trim(),
                         onSuccess = {
                             isLoading = false
-                            onConnectionVerified(token.trim(), databaseId.trim())
+                            onConnectionVerified(token.trim(), databaseId.trim(), dataSourceId.trim())
                         },
                         onFailure = {
                             isLoading = false
-                            errorMessage = "接続を確認できませんでした。トークン、データベースID、Notion側の共有設定を確認してもう一度お試しください。"
+                            errorMessage = it
                         },
                     )
                 },
@@ -477,7 +489,7 @@ fun NotionSetupScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("接続を確認中")
                 } else {
-                    Icon(Icons.Default.ArrowForward, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("接続を確認して次へ", fontWeight = FontWeight.Bold)
                 }
@@ -510,8 +522,10 @@ fun NotionSettingsScreen(
 ) {
     val token by settingsViewModel.notionToken.collectAsState()
     val dbId by settingsViewModel.databaseId.collectAsState()
+    val dataSourceId by settingsViewModel.dataSourceId.collectAsState()
     var draftToken by remember(token) { mutableStateOf(token) }
     var draftDbId by remember(dbId) { mutableStateOf(dbId) }
+    var draftDataSourceId by remember(dataSourceId) { mutableStateOf(dataSourceId) }
     var isLoadingSchema by remember { mutableStateOf(false) }
     var isTokenVisible by rememberSaveable { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -574,10 +588,22 @@ fun NotionSettingsScreen(
             )
             OutlinedTextField(
                 value = draftDbId,
-                onValueChange = { draftDbId = it; errorMessage = null },
+                onValueChange = {
+                    draftDbId = it
+                    draftDataSourceId = ""
+                    errorMessage = null
+                },
                 label = { Text(stringResource(R.string.settings_db_id_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
+            )
+            OutlinedTextField(
+                value = draftDataSourceId,
+                onValueChange = { draftDataSourceId = it; errorMessage = null },
+                label = { Text("データソース ID（複数データソース時のみ）") },
+                supportingText = { Text("単一データソースのDBでは空欄のままで構いません") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
             )
             
             errorMessage?.let { message ->
@@ -591,16 +617,18 @@ fun NotionSettingsScreen(
                     viewModel.fetchDatabaseProperties(
                         draftToken,
                         draftDbId,
+                        draftDataSourceId,
                         onSuccess = {
                             isLoadingSchema = false
                             settingsViewModel.updateNotionToken(draftToken)
                             settingsViewModel.updateDatabaseId(draftDbId)
+                            settingsViewModel.updateDataSourceId(draftDataSourceId)
                             settingsViewModel.markSetupIncomplete()
                             navController.navigate(Screen.SettingsMapping.route)
                         },
                         onFailure = {
                             isLoadingSchema = false
-                            errorMessage = "接続を確認できませんでした。トークン、データベース ID、Notion 側の共有設定を確認してください。"
+                            errorMessage = it
                         }
                     )
                 },
@@ -658,8 +686,9 @@ fun MappingSettingsScreen(
             isMetadataLoading = true
             metadataError = null
             viewModel.fetchDatabaseProperties(
-                token,
-                dbId,
+                token = token,
+                dbId = dbId,
+                dataSourceId = settingsViewModel.dataSourceId.value,
                 onSuccess = {
                     metadata = it
                     isMetadataLoading = false
@@ -836,152 +865,6 @@ fun MappingSettingsScreen(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(if (isSetupFlow) "設定を完了して初回同期へ" else stringResource(R.string.settings_save), fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-fun NotificationsSettingsScreen(
-    settingsViewModel: SettingsViewModel,
-    navController: NavController,
-    onScheduleChanged: () -> Unit,
-) {
-    val morningEnabled by settingsViewModel.morningNotifEnabled.collectAsState()
-    val morningTime by settingsViewModel.morningNotifTime.collectAsState()
-    val eveningEnabled by settingsViewModel.eveningNotifEnabled.collectAsState()
-    val eveningTime by settingsViewModel.eveningNotifTime.collectAsState()
-    val context = LocalContext.current
-    val notificationsAllowed = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
-        androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.POST_NOTIFICATIONS,
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-    val exactAlarmAllowed = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-        (context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).canScheduleExactAlarms()
-    } else {
-        true
-    }
-
-    val showPicker = { currentTime: String, onUpdate: (String) -> Unit ->
-        val parts = currentTime.split(":")
-        val h = parts.getOrNull(0)?.toIntOrNull() ?: 8
-        val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        android.app.TimePickerDialog(context, { _, hour, min ->
-            onUpdate(String.format(java.util.Locale.US, "%02d:%02d", hour, min))
-        }, h, m, true).show()
-    }
-
-    SettingsSubPageScaffold(stringResource(R.string.settings_notifications_title), navController) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = if (notificationsAllowed && exactAlarmAllowed) {
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            } else {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
-            },
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (notificationsAllowed && exactAlarmAllowed) "通知の準備はできています" else "通知の許可を確認してください",
-                    fontWeight = FontWeight.Bold,
-                )
-                if (!notificationsAllowed) {
-                    Text("Androidの通知権限が許可されていないため、朝・夜の通知は届きません。")
-                    OutlinedButton(onClick = {
-                        context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        })
-                    }) { Text("通知を許可する") }
-                }
-                if (!exactAlarmAllowed) {
-                    Text("正確なアラームが許可されていないため、通知時刻が遅れる場合があります。")
-                    OutlinedButton(onClick = {
-                        context.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                            data = "package:${context.packageName}".toUri()
-                        })
-                    }) { Text("正確なアラームを許可する") }
-                }
-            }
-        }
-        NotificationItem(
-            title = stringResource(R.string.settings_notif_morning),
-            subtitle = stringResource(R.string.settings_notif_morning_desc),
-            icon = Icons.Default.WbSunny,
-            enabled = morningEnabled,
-            time = morningTime,
-            onToggle = { settingsViewModel.toggleMorningNotif(it); onScheduleChanged() },
-            onTimeClick = { showPicker(morningTime) { settingsViewModel.updateMorningTime(it); onScheduleChanged() } }
-        )
-
-        NotificationItem(
-            title = stringResource(R.string.settings_notif_evening),
-            subtitle = stringResource(R.string.settings_notif_evening_desc),
-            icon = Icons.Default.NightsStay,
-            enabled = eveningEnabled,
-            time = eveningTime,
-            onToggle = { settingsViewModel.toggleEveningNotif(it); onScheduleChanged() },
-            onTimeClick = { showPicker(eveningTime) { settingsViewModel.updateEveningTime(it); onScheduleChanged() } }
-        )
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("通知を確認", fontWeight = FontWeight.Bold)
-                Text("朝・夜の通知とは別に、時間割の開始時刻にも通知されます。", style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(
-                    onClick = { com.notiontasks.app.TaskNotificationReceiver.showSettingsTestNotification(context) },
-                    enabled = notificationsAllowed,
-                ) {
-                    Icon(Icons.Default.Notifications, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("テスト通知を送る")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun NotificationItem(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    enabled: Boolean,
-    time: String,
-    onToggle: (Boolean) -> Unit,
-    onTimeClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                    Column {
-                        Text(title, fontWeight = FontWeight.Bold)
-                        Text(subtitle, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                Switch(checked = enabled, onCheckedChange = onToggle)
-            }
-            if (enabled) {
-                OutlinedButton(
-                    onClick = onTimeClick,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.AccessTime, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.settings_notif_time, time), fontWeight = FontWeight.Bold)
-                }
-            }
         }
     }
 }
@@ -1240,12 +1123,9 @@ fun AboutScreen(
     settingsViewModel: SettingsViewModel,
     navController: NavController,
 ) {
-    val context = LocalContext.current
     val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-    val version = try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName
-    } catch (_: Exception) { "1.3.2" }
+    val version = com.notiontasks.app.BuildConfig.VERSION_NAME
 
     SettingsSubPageScaffold(stringResource(R.string.settings_about_title), navController) {
         Surface(
@@ -1255,7 +1135,7 @@ fun AboutScreen(
         ) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("NotionTasker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(stringResource(R.string.settings_about_version, version ?: "1.3.2"), style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_about_version, version), style = MaterialTheme.typography.bodyLarge)
                 
                 Spacer(Modifier.height(8.dp))
                 
