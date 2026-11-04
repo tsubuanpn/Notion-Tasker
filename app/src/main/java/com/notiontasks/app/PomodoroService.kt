@@ -201,6 +201,10 @@ class PomodoroService : Service() {
                     stopTimer()
                     stopSelf()
                 }
+                ACTION_RESET -> {
+                    // 画面内のリセットではサービスを維持し、方式・タスクを直ちに変更できるようにする。
+                    stopTimer()
+                }
                 ACTION_SKIP -> {
                     skipToNext()
                 }
@@ -511,12 +515,13 @@ class PomodoroService : Service() {
      * a reset or a completed session.
      */
     fun configureFocusType(type: String, timerDurationMinutes: Int) {
-        if (isRunning || isPaused || type !in setOf(FOCUS_TYPE_POMODORO, FOCUS_TYPE_TIMER, FOCUS_TYPE_STOPWATCH)) {
+        if (isRunning || type !in setOf(FOCUS_TYPE_POMODORO, FOCUS_TYPE_TIMER, FOCUS_TYPE_STOPWATCH)) {
             return
         }
 
         focusType = type
         currentMode = "work"
+        isPaused = false
         currentSessionId = null
         sessionAccumulatedMs = 0L
         stopwatchSegmentStartedAtMs = null
@@ -763,6 +768,7 @@ class PomodoroService : Service() {
         const val ACTION_START_OR_RESUME = "com.notiontasks.app.ACTION_START_OR_RESUME"
         const val ACTION_PAUSE = "com.notiontasks.app.ACTION_PAUSE"
         const val ACTION_STOP = "com.notiontasks.app.ACTION_STOP"
+        const val ACTION_RESET = "com.notiontasks.app.ACTION_RESET"
         const val ACTION_SKIP = "com.notiontasks.app.ACTION_SKIP"
         const val ACTION_COMPLETE = "com.notiontasks.app.ACTION_COMPLETE"
         const val ACTION_STOP_ALARM = "com.notiontasks.app.ACTION_STOP_ALARM"

@@ -118,7 +118,8 @@ fun PomodoroScreen(
         }
     }
     val canEditTimerDuration = !isRunning && boundService?.isPaused != true
-    val isSessionActive = isRunning || boundService?.isPaused == true
+    // 一時停止中は次のタスクや集中方式を選び直せる、操作可能な待機状態です。
+    val isSessionActive = isRunning
 
     fun triggerServiceAction(action: String, durationMinutes: Int = -1) {
         val intent = Intent(context, PomodoroService::class.java).apply {
@@ -143,6 +144,29 @@ fun PomodoroScreen(
     }
 
     fun selectedDurationSeconds(): Int = durationSecondsFor(focusType)
+
+    fun completeFocusedTask(task: TaskModel) {
+        if (isRunning || boundService?.isPaused == true) {
+            triggerServiceAction(PomodoroService.ACTION_RESET)
+            isRunning = false
+            timeLeft = selectedDurationSeconds()
+        }
+        viewModel.updateTask(
+            id = task.id,
+            title = task.title,
+            status = completedStatus,
+            category = task.category,
+            dueDate = task.dueDate,
+            scheduledDate = task.scheduledDate,
+            onSuccess = {
+                selectedTaskId = null
+                Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
+            },
+            onFailure = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            },
+        )
+    }
 
     fun selectFocusType(type: String) {
         if (focusType != type) {
@@ -321,7 +345,7 @@ fun PomodoroScreen(
     ) {
         FocusModeTabs(
             selectedType = focusType,
-            enabled = !isRunning && boundService?.isPaused != true,
+            enabled = !isRunning,
             onSelect = ::selectFocusType,
         )
 
@@ -435,7 +459,7 @@ fun PomodoroScreen(
                         // リセットボタン
                         IconButton(
                             onClick = {
-                                triggerServiceAction(PomodoroService.ACTION_STOP)
+                                triggerServiceAction(PomodoroService.ACTION_RESET)
                                 isRunning = false
                                 timeLeft = selectedDurationSeconds()
                             },
@@ -568,100 +592,23 @@ fun PomodoroScreen(
             }
         }
 
-        if (!isSessionActive) {
-            FocusTaskSelector(
-                selectedTask = activeFocusTask,
-                availableTasks = uncompletedTasks,
-                onSelectTask = { task ->
-                    selectedTaskId = task?.id
-                    boundService?.updateFocusedTask(
-                        taskId = task?.id,
-                        taskTitle = task?.title,
-                        category = task?.category,
-                        categoryColor = task?.categoryColor,
-                    )
-                },
-            )
-        }
-
-        // 5. フォーカス中のタスクパネルカード
-        if (isSessionActive) activeFocusTask?.let { task ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "現在フォーカス中",
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                        Text(
-                            text = task.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "分類: ${task.category}  •  状態: ${task.status}",
-                            fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            // 明示的にサービスへ一時停止命令を送る
-                            if (isRunning) {
-                                triggerServiceAction(PomodoroService.ACTION_PAUSE)
-                            }
-                            
-                            viewModel.updateTask(
-                                id = task.id,
-                                title = task.title,
-                                status = completedStatus,
-                                category = task.category,
-                                dueDate = task.dueDate,
-                                scheduledDate = task.scheduledDate
-                            )
-                            selectedTaskId = null
-                            Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(50))
-                    ) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "完了",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            }
-        }
+        FocusTaskSelector(
+            selectedTask = activeFocusTask,
+            availableTasks = uncompletedTasks,
+            isSessionActive = isSessionActive,
+            onSelectTask = { task ->
+                selectedTaskId = task?.id
+                boundService?.updateFocusedTask(
+                    taskId = task?.id,
+                    taskTitle = task?.title,
+                    category = task?.category,
+                    categoryColor = task?.categoryColor,
+                )
+            },
+            onCompleteTask = activeFocusTask?.let { task ->
+                { completeFocusedTask(task) }
+            },
+        )
     }
 
     if (showPomodoroPhaseSheet) {
@@ -862,14 +809,16 @@ private fun FocusModeTabs(
 private fun FocusTaskSelector(
     selectedTask: TaskModel?,
     availableTasks: List<TaskModel>,
+    isSessionActive: Boolean,
     onSelectTask: (TaskModel?) -> Unit,
+    onCompleteTask: (() -> Unit)?,
 ) {
     var showPicker by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { showPicker = true },
+            .then(if (!isSessionActive) Modifier.clickable { showPicker = true } else Modifier),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
@@ -881,7 +830,11 @@ private fun FocusTaskSelector(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("集中するタスク", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (isSessionActive) "集中しているタスク" else "集中するタスク",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text(
                     selectedTask?.title ?: "タスクを選択",
                     style = MaterialTheme.typography.titleMedium,
@@ -896,11 +849,17 @@ private fun FocusTaskSelector(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text("変更", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            if (onCompleteTask != null) {
+                OutlinedButton(onClick = onCompleteTask) {
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("完了")
+                }
+            }
         }
     }
 
-    if (showPicker) {
+    if (showPicker && !isSessionActive) {
         ModalBottomSheet(onDismissRequest = { showPicker = false }) {
             Column(
                 modifier = Modifier

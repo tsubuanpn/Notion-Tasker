@@ -52,6 +52,8 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.getNotionCategoryColors
 import com.notiontasks.app.ui.components.getNotionStatusColors
+import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
+import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import java.text.SimpleDateFormat
@@ -126,6 +128,17 @@ internal fun TaskListCard(
     val statusColors = getNotionStatusColors(task.statusColor, isDark)
     val scheduledLabel = task.scheduledDate?.let { "予定 $it" } ?: "予定なし"
     val dueLabel = task.dueDate?.let { "締切 $it" } ?: "締切なし"
+    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    val scheduledDateColor = when {
+        !isCompleted && task.scheduledDate != null && task.scheduledDate < today -> MaterialTheme.colorScheme.error
+        !isCompleted && task.scheduledDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+    }
+    val dueDateColor = when {
+        !isCompleted && task.dueDate != null && task.dueDate < today -> MaterialTheme.colorScheme.error
+        !isCompleted && task.dueDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+    }
 
     Card(
         modifier = Modifier
@@ -198,13 +211,13 @@ internal fun TaskListCard(
                         imageVector = Icons.Default.CalendarToday,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = scheduledDateColor,
                     )
                     Spacer(Modifier.width(5.dp))
                     Text(
                         text = scheduledLabel,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = scheduledDateColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -213,13 +226,13 @@ internal fun TaskListCard(
                         imageVector = Icons.Default.CalendarToday,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = if (task.dueDate == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        tint = dueDateColor,
                     )
                     Spacer(Modifier.width(5.dp))
                     Text(
                         text = dueLabel,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (task.dueDate == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        color = dueDateColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
