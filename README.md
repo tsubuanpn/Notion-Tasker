@@ -35,10 +35,10 @@ Jetpack Compose + MVVM アーキテクチャに基づき、Kotlin Coroutines & F
    * **進行中 (In Progress)** : 集中力を高める爽やかなブルーのテーマカード。
    * **完了 (Completed)** : 達成感のある優しいミントグリーンのチェックカード。
 
-2. **📱 7つの多機能ナビゲーション画面**
-   * 🏠 **Home (ホーム)** : 直近のタスクを整理して一覧表示。1タップで状態をサイクル切り替え可能。
-   * 📂 **Category (カテゴリ)** : 課題、学習、作業、趣味などのカテゴリ別にタスクを集約。
-   * 📅 **Calendar (カレンダー)** : 期限日や予定日に基づく月間カレンダービュー。日付ごとのタスク確認が容易です。
+2. **📱 7つの多機能画面**
+   * 🏠 **Today (今日)** : 直近のタスクを整理して一覧表示。1タップで状態をサイクル切り替え可能。
+   * 📂 **Tasks (タスク)** : 課題、学習、作業、趣味などのカテゴリ別にタスクを集約。
+   * 📅 **Plan (計画)** : 期限日や予定日に基づく月間カレンダービュー。日付ごとのタスク確認が容易です。
    * 🕒 **Schedule (時間割)** : 毎日のルーティンやタイムブロックを管理するタイムブロッキング機能。**テキスト形式でのスケジュールエクスポート機能**も搭載。
    * 🍅 **Pomodoro (集中)** : フォアグラウンドサービスによるバックグラウンド実行に対応したタイマー。タスクとの紐付けやプッシュ通知機能を完備。
    * 🏆 **Achievements (実績)** : 累計完了数、達成率、ストリーク、ポモドーロ統計をグラフで可視化。
@@ -63,7 +63,7 @@ Jetpack Compose + MVVM アーキテクチャに基づき、Kotlin Coroutines & F
 | **Architecture** | MVVM / Repository パターン | `StateFlow` と Coroutines によるリアクティブな設計。 |
 | **Local DB** | Jetpack Room | 複数テーブル（タスク、ログ、ブロック等）とマイグレーション対応。 |
 | **Security** | Jetpack Security (Crypto) | 認証情報の AES256 方式による暗号化。 |
-| **Sync** | Ktor / Coroutines | Notion APIとの効率的な非同期通信とリトライ制御。 |
+| **Sync** | Retrofit / OkHttp / Coroutines | Notion APIとの効率的な非同期通信とリトライ制御。 |
 | **Background** | Foreground Service | タイマーの正確な動作と通知管理。 |
 
 ---
@@ -75,12 +75,12 @@ app/src/main/java/com/notiontasks/app/
 ├── data/
 │   ├── local/       # Roomデータベース、DAO (Task, Pomodoro, Schedule, LifeActivity)
 │   ├── model/       # データモデル (TaskModel, TimeBlock, LifeActivity等)
-│   ├── remote/      # Notion API (Ktor/Retrofit), DTO
+│   ├── remote/      # Notion API (Retrofit), DTO
 │   └── repository/  # データソースの統合管理
 ├── ui/
 │   ├── components/  # 再利用可能なUIコンポーネント (ダイアログ、カード)
 │   ├── navigation/  # 画面遷移定義 (Screen.kt)
-│   ├── screens/     # 各機能の画面実装 (Home, Calendar, Pomodoro等)
+│   ├── screens/     # 各機能の画面実装 (Today, Plan, Pomodoro等)
 │   ├── theme/       # カラー、テーマ定義
 │   └── viewmodel/   # ビジネスロジックと状態管理 (TaskViewModel, SettingsViewModel)
 ├── utils/           # セキュリティ、エクスポート等のユーティリティ
@@ -91,7 +91,7 @@ app/src/main/java/com/notiontasks/app/
 ---
 ## 🚀 セットアップ & 連携
 
-   アプリを Noton と連携させるために、アクセストークンおよびデータベースIDの設定を行います。
+   アプリを Notion と連携させるために、アクセストークンおよびデータベースIDの設定を行います。
 
    1. **Notionインテグレーションの作成:**
       * [Notion開発者向けハブ](https://www.notion.so/my-integrations) へアクセスし、「新規コネクト」をクリックします。

@@ -4,6 +4,8 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.notiontasks.app.data.local.PendingSyncActionDao
 import com.notiontasks.app.data.local.PendingSyncActionEntity
+import com.notiontasks.app.data.local.SyncMetadataDao
+import com.notiontasks.app.data.local.SyncMetadataEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.model.LifeActivity
@@ -35,13 +37,18 @@ import java.util.concurrent.CancellationException
 import retrofit2.HttpException
 
 private const val FULL_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
+private const val REMOTE_SYNC_CURSOR_KEY = "notion_remote_sync_cursor"
+
+private class PendingSyncActionException(message: String, cause: Throwable) : IOException(message, cause)
 
 // 動的な JSON 解析用の拡張機能
 fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
     val element = this[propertyName] ?: return null
     return try {
         val titleArray = element.jsonObject["title"]?.jsonArray
-        titleArray?.firstOrNull()?.jsonObject?.get("plain_text")?.jsonPrimitive?.content
+        titleArray
+            ?.mapNotNull { it.jsonObject["plain_text"]?.jsonPrimitive?.contentOrNull }
+            ?.joinToString("")
     } catch (_: Exception) {
         null
     }
@@ -96,6 +103,7 @@ class TaskRepository(
     private val notionApi: NotionApi,
     private val taskDao: TaskDao,
     private val pendingSyncActionDao: PendingSyncActionDao,
+    private val syncMetadataDao: SyncMetadataDao,
 ) {
 
     // 非同期処理およびリレーショナル整合性のための Mutex 排他制御
@@ -136,6 +144,22 @@ class TaskRepository(
     var propCategoryName: String = "種類"
     var propScheduledDateName: String = "予定日"
     var propDueDateName: String = "締め切り"
+    private var configuredDataSourceId: String = ""
+
+    fun updateDataSourceId(dataSourceId: String) {
+        configuredDataSourceId = dataSourceId.trim()
+    }
+
+    private suspend fun resolveDataSourceId(token: String, databaseId: String): String {
+        if (configuredDataSourceId.isNotBlank()) return configuredDataSourceId
+
+        val sources = notionApi.getDatabaseDataSources(token = "Bearer $token", databaseId = databaseId).dataSources
+        return when (sources.size) {
+            1 -> sources.single().id.also { configuredDataSourceId = it }
+            0 -> throw IllegalArgumentException("このデータベースには利用可能なデータソースがありません。Notion側の共有設定を確認してください。")
+            else -> throw IllegalArgumentException("このデータベースには複数のデータソースがあります。設定画面でデータソース ID を指定してください。")
+        }
+    }
 
     fun updatePropertyMappings(
         title: String,
@@ -154,9 +178,11 @@ class TaskRepository(
         propStatusUnstartedName = statusUnstarted.ifBlank { "未着手" }
         propStatusInProgressName = statusInProgress.ifBlank { "進行中" }
         propStatusCompletedName = statusCompleted.ifBlank { "完了" }
-        propCategoryName = category.ifBlank { "種類" }
-        propScheduledDateName = scheduledDate.ifBlank { "予定日" }
-        propDueDateName = dueDate.ifBlank { "締め切り" }
+        // 種類・予定日・締め切りは任意マッピング。空ならNotion APIの
+        // プロパティ操作から完全に除外する。
+        propCategoryName = category.trim()
+        propScheduledDateName = scheduledDate.trim()
+        propDueDateName = dueDate.trim()
     }
 
     // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
@@ -175,6 +201,9 @@ class TaskRepository(
                 )
             }
         }
+        .flowOn(Dispatchers.Default)
+
+    val pendingActionCount: Flow<Int> = pendingSyncActionDao.pendingActionCountFlow()
         .flowOn(Dispatchers.Default)
 
     fun getTaskFlowById(id: String): Flow<TaskModel?> = taskDao.getTaskFlowById(id)
@@ -196,7 +225,8 @@ class TaskRepository(
 
     suspend fun getDatabaseMetadata(token: String, databaseId: String): NotionDatabaseResponse {
         val authHeader = "Bearer $token"
-        val meta = notionApi.getDatabase(token = authHeader, databaseId = databaseId)
+        val dataSourceId = resolveDataSourceId(token, databaseId)
+        val meta = notionApi.getDataSource(token = authHeader, dataSourceId = dataSourceId)
         
         // 自己修復：実際のデータベースプロパティの型を自動的に検査し、select と status の不一致を解消します
         meta.properties[propStatusName]?.let { statusProp ->
@@ -212,9 +242,10 @@ class TaskRepository(
     // リモートの Notion DB からタスクのキャッシュを更新し、保留中のオフラインアクションを同期する
     suspend fun syncTasks(token: String, databaseId: String, incremental: Boolean = true) = syncMutex.withLock {
         val authHeader = "Bearer $token"
+        val dataSourceId = resolveDataSourceId(token, databaseId)
         
         // 1. まずオフライン中の変更があれば順次処理を試みる
-        processPendingSyncActionsInternal(token, databaseId)
+        processPendingSyncActionsInternal(token, dataSourceId)
 
         // 2. リモートから最新データを取得
         try {
@@ -226,7 +257,9 @@ class TaskRepository(
             // タスクもローカルキャッシュから確実に除去する。
             val now = System.currentTimeMillis()
             val performFullSync = !incremental || now - lastFullSyncAt >= FULL_SYNC_INTERVAL_MS
-            val lastSync = if (performFullSync) 0L else taskDao.getLastSyncTimestamp() ?: 0L
+            // 楽観的な端末更新時刻は Notion の時刻ではないため、差分取得の基準には使わない。
+            val lastSync = if (performFullSync) 0L else syncMetadataDao.getTimestamp(REMOTE_SYNC_CURSOR_KEY) ?: 0L
+            var latestRemoteEditTime = lastSync
 
             while (hasMore) {
                 // 差分同期用のフィルタ構築
@@ -239,10 +272,10 @@ class TaskRepository(
                     }
                 } else null
 
-                val sorts = listOf(
-                    NotionSort(property = propScheduledDateName, direction = "ascending"),
-                    NotionSort(property = propDueDateName, direction = "ascending")
-                )
+            val sorts = buildList {
+                if (propScheduledDateName.isNotBlank()) add(NotionSort(property = propScheduledDateName, direction = "ascending"))
+                if (propDueDateName.isNotBlank()) add(NotionSort(property = propDueDateName, direction = "ascending"))
+            }
 
                 val request = NotionQueryRequest(
                     filter = filter,
@@ -250,10 +283,14 @@ class TaskRepository(
                     startCursor = nextCursor,
                     pageSize = 100
                 )
-                val response = notionApi.queryDatabase(token = authHeader, databaseId = databaseId, request = request)
+                val response = notionApi.queryDatabase(token = authHeader, dataSourceId = dataSourceId, request = request)
                 
-                val pageEntities = response.results.mapNotNull { page ->
-                    val title = page.properties.getTitleText(propTitleName) ?: return@mapNotNull null
+                val pageEntities = response.results.map { page ->
+                    require(page.properties.containsKey(propTitleName)) {
+                        "タイトルのプロパティ「$propTitleName」がNotionデータベースに見つかりません。プロパティマッピングを確認してください。"
+                    }
+                    val title = page.properties.getTitleText(propTitleName)
+                        ?: throw IllegalArgumentException("タイトルのプロパティ「$propTitleName」を読み取れません。")
                     
                     val statusValue = (page.properties.getStatusText(propStatusName)
                         ?: page.properties.getSelectText(propStatusName)
@@ -268,6 +305,7 @@ class TaskRepository(
                     val editedTime = try {
                         page.lastEditedTime?.let { java.time.Instant.parse(it).toEpochMilli() } ?: 0L
                     } catch (_: Exception) { 0L }
+                    latestRemoteEditTime = maxOf(latestRemoteEditTime, editedTime)
 
                     TaskEntity(
                         id = page.id,
@@ -299,6 +337,9 @@ class TaskRepository(
             } else {
                 taskDao.syncTasksTransactionally(allFetchedEntities)
                 lastFullSyncAt = now
+            }
+            if (latestRemoteEditTime > 0L) {
+                syncMetadataDao.put(SyncMetadataEntity(REMOTE_SYNC_CURSOR_KEY, latestRemoteEditTime))
             }
         } catch (e: CancellationException) {
             throw e
@@ -469,7 +510,7 @@ class TaskRepository(
                     },
                 )
             }
-            
+
             properties[propStatusName] = buildJsonObject {
                 put(
                     sType,
@@ -479,38 +520,34 @@ class TaskRepository(
                 )
             }
             
-            properties[propCategoryName] = buildJsonObject {
-                put(
-                    "select",
-                    buildJsonObject {
-                        put("name", trimmedCategory)
-                    },
-                )
-            }
-            
-            properties[propDueDateName] = buildJsonObject {
-                if (dueDate.isNullOrBlank()) {
-                    put("date", JsonNull)
-                } else {
+            if (propCategoryName.isNotBlank()) {
+                properties[propCategoryName] = buildJsonObject {
                     put(
-                        "date",
+                        "select",
                         buildJsonObject {
-                            put("start", dueDate)
+                            put("name", trimmedCategory)
                         },
                     )
                 }
             }
             
-            properties[propScheduledDateName] = buildJsonObject {
-                if (scheduledDate.isNullOrBlank()) {
-                    put("date", JsonNull)
-                } else {
-                    put(
-                        "date",
-                        buildJsonObject {
-                            put("start", scheduledDate)
-                        },
-                    )
+            if (propDueDateName.isNotBlank()) {
+                properties[propDueDateName] = buildJsonObject {
+                    if (dueDate.isNullOrBlank()) {
+                        put("date", JsonNull)
+                    } else {
+                        put("date", buildJsonObject { put("start", dueDate) })
+                    }
+                }
+            }
+
+            if (propScheduledDateName.isNotBlank()) {
+                properties[propScheduledDateName] = buildJsonObject {
+                    if (scheduledDate.isNullOrBlank()) {
+                        put("date", JsonNull)
+                    } else {
+                        put("date", buildJsonObject { put("start", scheduledDate) })
+                    }
                 }
             }
             return properties
@@ -535,7 +572,7 @@ class TaskRepository(
             } else {
                 updatedPage.properties.getSelectColor(propStatusName)
             }
-            val apiCategoryColor = updatedPage.properties.getSelectColor(propCategoryName)
+            val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { updatedPage.properties.getSelectColor(it) }
             
             if (apiStatusColor != null || apiCategoryColor != null) {
                 val refreshedEntity = updatedLocalRef.copy(
@@ -573,6 +610,7 @@ class TaskRepository(
         val trimmedStatus = status.trim()
         val trimmedCategory = category.trim()
         val authHeader = "Bearer $token"
+        var dataSourceId = ""
         
         fun buildCreatePayload(sType: String): NotionCreateRequest {
             val properties = mutableMapOf<String, PropertyUpdate>()
@@ -582,22 +620,25 @@ class TaskRepository(
             } else {
                 PropertyUpdate(status = StatusValue(name = trimmedStatus))
             }
-            properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
+            if (propCategoryName.isNotBlank()) {
+                properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
+            }
             
-            if (!dueDate.isNullOrBlank()) {
+            if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) {
                 properties[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
             }
-            if (!scheduledDate.isNullOrBlank()) {
+            if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) {
                 properties[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
             }
 
             return NotionCreateRequest(
-                parent = DatabaseParent(databaseId = databaseId),
+                parent = DatabaseParent(dataSourceId = dataSourceId),
                 properties = properties
             )
         }
 
         try {
+            dataSourceId = resolveDataSourceId(token, databaseId)
             val request = buildCreatePayload(propStatusType)
             val createdPage = notionApi.createPage(token = authHeader, request = request)
             
@@ -607,7 +648,7 @@ class TaskRepository(
             } else {
                 createdPage.properties.getSelectColor(propStatusName)
             }
-            val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+            val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { createdPage.properties.getSelectColor(it) }
 
             val localEntity = TaskEntity(
                 id = createdPage.id,
@@ -623,6 +664,32 @@ class TaskRepository(
             taskDao.upsertTasks(listOf(localEntity))
         } catch (firstFailure: Exception) {
             if (firstFailure is CancellationException) throw firstFailure
+            if (dataSourceId.isBlank()) {
+                if (!firstFailure.isRetryableSyncFailure()) throw firstFailure
+                val tempId = "pending_" + System.currentTimeMillis()
+                taskDao.upsertTasks(listOf(
+                    TaskEntity(
+                        id = tempId,
+                        title = title,
+                        status = trimmedStatus,
+                        category = trimmedCategory,
+                        dueDate = dueDate,
+                        scheduledDate = scheduledDate,
+                        statusColor = statusColor,
+                        categoryColor = categoryColor,
+                        lastEditedTime = System.currentTimeMillis(),
+                    ),
+                ))
+                val actionPayload = buildJsonObject {
+                    put("title", title)
+                    put("status", trimmedStatus)
+                    put("category", trimmedCategory)
+                    dueDate?.let { put("dueDate", it) }
+                    scheduledDate?.let { put("scheduledDate", it) }
+                }.toString()
+                enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
+                return@withLock
+            }
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
                 val request = buildCreatePayload(alternateType)
@@ -634,7 +701,7 @@ class TaskRepository(
                 } else {
                     createdPage.properties.getSelectColor(propStatusName)
                 }
-                val apiCategoryColor = createdPage.properties.getSelectColor(propCategoryName)
+                val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { createdPage.properties.getSelectColor(it) }
 
                 val localEntity = TaskEntity(
                     id = createdPage.id,
@@ -681,7 +748,7 @@ class TaskRepository(
     }
 
     // 保留中のオフライン同期アクションを順次処理
-    private suspend fun processPendingSyncActionsInternal(token: String, databaseId: String) {
+    private suspend fun processPendingSyncActionsInternal(token: String, dataSourceId: String) {
         val pendingActions = pendingSyncActionDao.getAllPendingActions()
         if (pendingActions.isEmpty()) return
 
@@ -728,14 +795,18 @@ class TaskRepository(
                         properties[propStatusName] = buildJsonObject {
                             put(propStatusType, buildJsonObject { put("name", status) })
                         }
-                        properties[propCategoryName] = buildJsonObject {
-                            put("select", buildJsonObject { put("name", category) })
+                        if (propCategoryName.isNotBlank()) {
+                            properties[propCategoryName] = buildJsonObject { put("select", buildJsonObject { put("name", category) }) }
                         }
-                        properties[propDueDateName] = buildJsonObject {
-                            if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
+                        if (propDueDateName.isNotBlank()) {
+                            properties[propDueDateName] = buildJsonObject {
+                                if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
+                            }
                         }
-                        properties[propScheduledDateName] = buildJsonObject {
-                            if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
+                        if (propScheduledDateName.isNotBlank()) {
+                            properties[propScheduledDateName] = buildJsonObject {
+                                if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
+                            }
                         }
 
                         notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
@@ -750,12 +821,12 @@ class TaskRepository(
                         val propMap = mutableMapOf<String, PropertyUpdate>()
                         propMap[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
                         propMap[propStatusName] = if (propStatusType == "select") PropertyUpdate(select = SelectValue(name = status)) else PropertyUpdate(status = StatusValue(name = status))
-                        propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
-                        if (!dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
-                        if (!scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
+                        if (propCategoryName.isNotBlank()) propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+                        if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
+                        if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
 
                         val request = NotionCreateRequest(
-                            parent = DatabaseParent(databaseId = databaseId),
+                            parent = DatabaseParent(dataSourceId = dataSourceId),
                             properties = propMap
                         )
                         val created = notionApi.createPage(token = authHeader, request = request)
@@ -790,9 +861,9 @@ class TaskRepository(
                     break
                 }
 
-                // 認証・バリデーション・破損したペイロードは再試行しても成功しないため、
-                // キューを詰まらせないよう破棄する。
-                pendingSyncActionDao.deletePendingActionById(action.id)
+                // 認証・プロパティ設定の不整合でユーザーの操作を失わないよう、保留操作は残す。
+                // 設定を直した後に同じ順序で再送できるよう、後続の操作もここで止める。
+                throw PendingSyncActionException("保留中の変更を同期できません。Notionの接続設定とプロパティマッピングを確認してください。", failure)
             }
         }
     }

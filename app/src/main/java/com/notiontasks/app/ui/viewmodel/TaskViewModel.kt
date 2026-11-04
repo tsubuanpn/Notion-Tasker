@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -37,6 +38,23 @@ class TaskViewModel(
     private val pomodoroRepository: PomodoroRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
+
+    private val _syncPhase = MutableStateFlow<SyncUiState>(SyncUiState.NotConfigured)
+    val syncState: StateFlow<SyncUiState> = combine(
+        repository.pendingActionCount,
+        _syncPhase,
+    ) { pendingCount, phase ->
+        when {
+            phase is SyncUiState.Syncing -> phase
+            phase is SyncUiState.Failed -> phase
+            pendingCount > 0 -> SyncUiState.PendingChanges(pendingCount)
+            else -> phase
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = SyncUiState.NotConfigured,
+    )
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 
@@ -64,6 +82,8 @@ class TaskViewModel(
         )
 
     private val _initializedDates = MutableStateFlow<Set<String>>(emptySet())
+    /** 自動配置の更新対象を、設定画面で説明するために公開する読み取り専用状態。 */
+    val initializedDates: StateFlow<Set<String>> = _initializedDates.asStateFlow()
 
     // 保存された構成値 (MainActivity の暗号化された動的 SharedPrefs から挿入されます)
     private val _notionToken = MutableStateFlow("")
@@ -135,6 +155,11 @@ class TaskViewModel(
     fun setStatsStorageDuration(months: Int) {
         _statsStorageDuration.value = months
         sharedPrefs.edit { putInt("pomodoro_stats_duration_months", months) }
+    }
+
+    /** 保持期間を短縮するときだけ、ユーザー確認後に呼び出す。 */
+    fun setStatsStorageDurationAndCleanup(months: Int) {
+        setStatsStorageDuration(months)
         viewModelScope.launch {
             cleanupOldPomodoroLogs()
         }
@@ -433,6 +458,7 @@ class TaskViewModel(
                     onFailure("トークン、またはデータベースIDが入力されていません")
                     return@launch
                 }
+                repository.updateDataSourceId("")
                 val meta = repository.getDatabaseMetadata(token, dbId)
                 onSuccess(meta)
             } catch (e: Exception) {
@@ -450,12 +476,15 @@ class TaskViewModel(
         val statusUnstarted = sharedPrefs.getString("mapping_status_unstarted", "")?.ifBlank { "未着手" }?.trim() ?: "未着手"
         val statusInProgress = sharedPrefs.getString("mapping_status_in_progress", "")?.ifBlank { "進行中" }?.trim() ?: "進行中"
         val statusCompleted = sharedPrefs.getString("mapping_status_completed", "")?.ifBlank { "完了" }?.trim() ?: "完了"
-        val category = sharedPrefs.getString("mapping_prop_category", "")?.ifBlank { "種類" } ?: "種類"
-        val scheduledDate = sharedPrefs.getString("mapping_prop_scheduled_date", "")?.ifBlank { "予定日" } ?: "予定日"
-        val dueDate = sharedPrefs.getString("mapping_prop_due_date", "")?.ifBlank { "締め切り" } ?: "締め切り"
+        val category = sharedPrefs.getString("mapping_prop_category", "") ?: ""
+        val scheduledDate = sharedPrefs.getString("mapping_prop_scheduled_date", "") ?: ""
+        val dueDate = sharedPrefs.getString("mapping_prop_due_date", "") ?: ""
 
         _notionToken.value = token
         _databaseId.value = dbId
+        if (token.isBlank() || dbId.isBlank()) {
+            _syncPhase.value = SyncUiState.NotConfigured
+        }
         _statusUnstarted.value = statusUnstarted
         _statusInProgress.value = statusInProgress
         _statusCompleted.value = statusCompleted
@@ -470,6 +499,7 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
+        repository.updateDataSourceId("")
     }
 
     // アクティビティのロードフック
@@ -492,6 +522,9 @@ class TaskViewModel(
         
         _notionToken.value = token
         _databaseId.value = dbId
+        if (token.isBlank() || dbId.isBlank()) {
+            _syncPhase.value = SyncUiState.NotConfigured
+        }
         _statusUnstarted.value = trimmedUnstarted
         _statusInProgress.value = trimmedInProgress
         _statusCompleted.value = trimmedCompleted
@@ -506,6 +539,7 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
+        repository.updateDataSourceId("")
     }
 
     // 状態更新を伴うメインの同期トリガーコールバック
@@ -515,16 +549,22 @@ class TaskViewModel(
         val dbId = _databaseId.value
 
         if (token.isBlank() || dbId.isBlank()) {
+            _syncPhase.value = SyncUiState.NotConfigured
             return
         }
 
         viewModelScope.launch {
+            _syncPhase.value = SyncUiState.Syncing
             try {
                 repository.syncTasks(token, dbId, incremental = incremental)
                 // 同期後に完了済みタスクのクリーンアップを実行
                 cleanupData()
+                _syncPhase.value = SyncUiState.Synced(System.currentTimeMillis())
             } catch (e: Exception) {
-                e.printStackTrace()
+                _syncPhase.value = SyncUiState.Failed(
+                    message = e.message ?: "同期に失敗しました",
+                    retryable = true,
+                )
             }
         }
     }

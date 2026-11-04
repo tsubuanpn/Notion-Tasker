@@ -12,6 +12,25 @@ class SettingsViewModel(
     private val sharedPrefs: SharedPreferences
 ) : ViewModel() {
 
+    init {
+        // データソースはデータベースから自動検出するため、旧版の手入力値は移行時に破棄する。
+        sharedPrefs.edit { remove("notion_data_source_id") }
+    }
+
+    private val legacySetupComplete = sharedPrefs.getString("notion_token", "").orEmpty().isNotBlank() &&
+        sharedPrefs.getString("database_id", "").orEmpty().isNotBlank() &&
+        sharedPrefs.getString("mapping_prop_title", "").orEmpty().isNotBlank() &&
+        sharedPrefs.getString("mapping_prop_status", "").orEmpty().isNotBlank()
+
+    private val _setupCompleted = MutableStateFlow(
+        if (sharedPrefs.contains("setup_completed")) {
+            sharedPrefs.getBoolean("setup_completed", false)
+        } else {
+            legacySetupComplete
+        }
+    )
+    val setupCompleted: StateFlow<Boolean> = _setupCompleted.asStateFlow()
+
     // --- Notion Settings ---
     private val _notionToken = MutableStateFlow(sharedPrefs.getString("notion_token", "") ?: "")
     val notionToken: StateFlow<String> = _notionToken.asStateFlow()
@@ -42,22 +61,6 @@ class SettingsViewModel(
     private val _dynamicColorEnabled = MutableStateFlow(sharedPrefs.getBoolean("dynamic_color_enabled", true))
     val dynamicColorEnabled = _dynamicColorEnabled.asStateFlow()
 
-    // --- Tab Settings ---
-    private val _categoryTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_category_enabled", true))
-    val categoryTabEnabled = _categoryTabEnabled.asStateFlow()
-
-    private val _calendarTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_calendar_enabled", true))
-    val calendarTabEnabled = _calendarTabEnabled.asStateFlow()
-
-    private val _scheduleTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_schedule_enabled", true))
-    val scheduleTabEnabled = _scheduleTabEnabled.asStateFlow()
-
-    private val _pomodoroTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_pomodoro_enabled", true))
-    val pomodoroTabEnabled = _pomodoroTabEnabled.asStateFlow()
-
-    private val _achievementsTabEnabled = MutableStateFlow(sharedPrefs.getBoolean("tab_achievements_enabled", true))
-    val achievementsTabEnabled = _achievementsTabEnabled.asStateFlow()
-
     // --- Data Management Settings ---
     private val _completedTaskKeepType = MutableStateFlow(sharedPrefs.getString("data_keep_type", "date") ?: "date")
     val completedTaskKeepType = _completedTaskKeepType.asStateFlow()
@@ -85,6 +88,17 @@ class SettingsViewModel(
     fun updateDatabaseId(dbId: String) {
         _databaseId.value = dbId
         sharedPrefs.edit { putString("database_id", dbId) }
+    }
+
+    fun markSetupCompleted() {
+        _setupCompleted.value = true
+        sharedPrefs.edit { putBoolean("setup_completed", true) }
+    }
+
+    /** 接続先を変更する間は、完了済みセットアップとして扱わない。 */
+    fun markSetupIncomplete() {
+        _setupCompleted.value = false
+        sharedPrefs.edit { putBoolean("setup_completed", false) }
     }
 
     fun toggleMorningNotif(enabled: Boolean) {
@@ -120,17 +134,6 @@ class SettingsViewModel(
     fun toggleDynamicColor(enabled: Boolean) {
         _dynamicColorEnabled.value = enabled
         sharedPrefs.edit { putBoolean("dynamic_color_enabled", enabled) }
-    }
-
-    fun toggleTab(tabKey: String, isEnabled: Boolean) {
-        sharedPrefs.edit { putBoolean("tab_${tabKey}_enabled", isEnabled) }
-        when (tabKey) {
-            "category" -> _categoryTabEnabled.value = isEnabled
-            "calendar" -> _calendarTabEnabled.value = isEnabled
-            "schedule" -> _scheduleTabEnabled.value = isEnabled
-            "pomodoro" -> _pomodoroTabEnabled.value = isEnabled
-            "achievements" -> _achievementsTabEnabled.value = isEnabled
-        }
     }
 
     fun toggleDevMode(enabled: Boolean) {

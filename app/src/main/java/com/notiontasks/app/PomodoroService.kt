@@ -20,7 +20,6 @@ import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
-import com.notiontasks.app.data.insertPomodoroLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -470,7 +469,7 @@ class PomodoroService : Service() {
             )
 
             serviceScope.launch {
-                insertPomodoroLog(this@PomodoroService, newLog)
+                (application as NotionTaskerApplication).container.pomodoroRepository.insertPomodoroLog(newLog)
             }
         }
 
@@ -502,6 +501,41 @@ class PomodoroService : Service() {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
+    }
+
+    /**
+     * Changes the focus method only while a session is inactive.
+     *
+     * This is intentionally a binder operation rather than a stop command.  A stop command
+     * tears the service down, which could leave the screen bound to the previous method after
+     * a reset or a completed session.
+     */
+    fun configureFocusType(type: String, timerDurationMinutes: Int) {
+        if (isRunning || isPaused || type !in setOf(FOCUS_TYPE_POMODORO, FOCUS_TYPE_TIMER, FOCUS_TYPE_STOPWATCH)) {
+            return
+        }
+
+        focusType = type
+        currentMode = "work"
+        currentSessionId = null
+        sessionAccumulatedMs = 0L
+        stopwatchSegmentStartedAtMs = null
+
+        when (type) {
+            FOCUS_TYPE_POMODORO -> updateModeAndDuration("work")
+            FOCUS_TYPE_TIMER -> {
+                durationMs = timerDurationMinutes.coerceAtLeast(1) * 60 * 1000L
+                timeLeftMs = durationMs
+            }
+            FOCUS_TYPE_STOPWATCH -> {
+                durationMs = 0L
+                timeLeftMs = 0L
+            }
+        }
+
+        stopRingtonePlayback()
+        onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
+        onStateChangedListener?.invoke(false)
     }
 
     private fun startTaskMonitoring(taskId: String?) {

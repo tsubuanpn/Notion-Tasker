@@ -13,22 +13,12 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.core.content.edit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import com.notiontasks.app.data.local.TaskDatabase
-import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import com.notiontasks.app.data.repository.ScheduleRepository
-import com.notiontasks.app.data.repository.TaskRepository
-import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.ui.MainAppScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
-import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import retrofit2.Retrofit
 
 class MainActivity : ComponentActivity() {
 
@@ -66,7 +56,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                     startActivity(intent)
-                    Toast.makeText(this, "時間割通報の正確性を向上させるため、アラーム権限を許可してください。", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "時間割通知の正確性を向上させるため、アラーム権限を許可してください。", Toast.LENGTH_LONG).show()
                 } catch (_: Exception) {
                     // 設定画面が開けない場合のフォールバック
                 }
@@ -77,35 +67,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // セキュリティガイドラインに従って暗号化された SharedPreferences を初期化する
-        val sharedPreferences = SecurityUtils.getSecurePreferences(this)
-
-        // API のセットアップ
-        // 認証ヘッダーとタスク内容を端末ログへ出力しない。
-        val client = OkHttpClient.Builder().build()
-
-        val contentType = "application/json".toMediaType()
-        val retrofit = Retrofit.Builder()
-            .baseUrl("https://api.notion.com/")
-            .client(client)
-            .addConverterFactory(json.asConverterFactory(contentType))
-            .build()
-
-        val notionApi = retrofit.create(NotionApi::class.java)
-        val database = TaskDatabase.getInstance(applicationContext)
-        
-        val taskRepository = TaskRepository(
-            notionApi = notionApi,
-            taskDao = database.taskDao,
-            pendingSyncActionDao = database.pendingSyncActionDao
-        )
-        val scheduleRepository = ScheduleRepository(
-            scheduleBlockDao = database.scheduleBlockDao,
-            lifeActivityDao = database.lifeActivityDao
-        )
-        val pomodoroRepository = PomodoroRepository(
-            pomodoroLogDao = database.pomodoroLogDao
-        )
+        val container = (application as NotionTaskerApplication).container
+        val sharedPreferences = container.securePreferences
 
         // MVVM ファクトリ
         val factory = object : ViewModelProvider.Factory {
@@ -114,9 +77,9 @@ class MainActivity : ComponentActivity() {
                     modelClass.isAssignableFrom(TaskViewModel::class.java) -> {
                         @Suppress("UNCHECKED_CAST")
                         TaskViewModel(
-                            repository = taskRepository,
-                            scheduleRepository = scheduleRepository,
-                            pomodoroRepository = pomodoroRepository,
+                            repository = container.taskRepository,
+                            scheduleRepository = container.scheduleRepository,
+                            pomodoroRepository = container.pomodoroRepository,
                             sharedPrefs = sharedPreferences
                         ) as T
                     }
@@ -200,13 +163,6 @@ class MainActivity : ComponentActivity() {
                     settingsViewModel = settingsViewModel,
                     categoryOptions = categoryOptions,
                     statusOptions = statusOptions,
-                    onUpdateCategoryOptions = { newOrder ->
-                        val catJson = try { json.encodeToString<List<NotionOptionInfo>>(newOrder) } catch(_: Exception) { "" }
-                        if (catJson.isNotBlank()) {
-                            sharedPreferences.edit { putString("category_options_v2", catJson) }
-                        }
-                        viewModel.updateCategoryOptions(newOrder)
-                    }
                 ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mStatusUnstarted, mStatusInProgress, mStatusCompleted, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }

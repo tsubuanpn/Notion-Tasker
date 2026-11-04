@@ -1,9 +1,6 @@
 package com.notiontasks.app.data
 
-import android.content.Context
 import androidx.compose.ui.graphics.Color
-import com.notiontasks.app.data.local.TaskDatabase
-import com.notiontasks.app.data.repository.PomodoroRepository
 
 // PomodoroLog 用のデータクラス
 data class PomodoroLog(
@@ -131,21 +128,4 @@ fun getCategoryChartColorInCompose(colorName: String?): Color {
         "red" -> Color(0xFFEF5350)
         else -> Color(0xFF737373)
     }
-}
-
-private fun getPomodoroRepository(context: Context): PomodoroRepository {
-    val database = TaskDatabase.getInstance(context.applicationContext)
-    return PomodoroRepository(database.pomodoroLogDao)
-}
-
-suspend fun loadPomodoroLogs(context: Context): List<PomodoroLog> {
-    return getPomodoroRepository(context).loadPomodoroLogs()
-}
-
-suspend fun insertPomodoroLog(context: Context, log: PomodoroLog) {
-    getPomodoroRepository(context).insertPomodoroLog(log)
-}
-
-suspend fun deletePomodoroLogById(context: Context, id: String) {
-    getPomodoroRepository(context).deletePomodoroLogById(id)
 }

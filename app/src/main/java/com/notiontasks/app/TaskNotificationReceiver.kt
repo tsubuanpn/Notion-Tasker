@@ -209,6 +209,23 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             notificationManager.createNotificationChannel(channel)
         }
 
+        /** 設定画面から通知権限・通知チャネルを確認するためのローカル通知。 */
+        fun showSettingsTestNotification(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) return
+            createNotificationChannel(context)
+            val notification = NotificationCompat.Builder(context, "notion_tasks_channel")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Notion Tasker のテスト通知")
+                .setContentText("通知は正しく設定されています。")
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build()
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(2003, notification)
+        }
+
         fun getSecurePreferences(context: Context): SharedPreferences {
             return SecurityUtils.getSecurePreferences(context)
         }

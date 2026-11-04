@@ -1,6 +1,7 @@
 package com.notiontasks.app.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.GroupedPomodoroLog
+import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.formatDecimal
 import com.notiontasks.app.data.formatDurationJapanese
 import com.notiontasks.app.data.getCategoryChartColorInCompose
@@ -98,7 +102,8 @@ fun AchievementsScreen(
     val uiState by viewModel.tasksState.collectAsState()
     val completedStatus by viewModel.statusCompleted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
-    var subPage by remember { mutableStateOf("main") }
+    var subPage by remember { mutableStateOf("review") }
+    val pomodoroLogs by viewModel.pomodoroLogs.collectAsState()
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -256,9 +261,9 @@ fun AchievementsScreen(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         listOf(
-                            "main" to "🏆 目標進捗",
-                            "stats" to "📈 作業統計",
-                            "completed" to "✅ 完了タスク",
+                            "review" to "振り返り",
+                            "stats" to "集中記録",
+                            "completed" to "完了済み",
                         ).forEach { (page, label) ->
                             val isSelected = subPage == page
                             Box(
@@ -282,7 +287,7 @@ fun AchievementsScreen(
                                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
                                     color = if (isSelected) {
                                         when (page) {
-                                            "main" -> MaterialTheme.colorScheme.primary
+                                            "review" -> MaterialTheme.colorScheme.primary
                                             "stats" -> MaterialTheme.colorScheme.secondary
                                             else -> MaterialTheme.colorScheme.tertiary
                                         }
@@ -295,6 +300,16 @@ fun AchievementsScreen(
                     }
 
                     when (subPage) {
+                        "review" -> {
+                            ReviewOverview(
+                                tasks = state.tasks,
+                                completedStatus = completedStatus,
+                                inProgressStatus = inProgressStatus,
+                                logs = pomodoroLogs,
+                                onEditTask = onEditTask,
+                                onCycleTask = { task -> viewModel.cycleTaskStatus(task, statusOptions) },
+                            )
+                        }
                         "main" -> {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
@@ -652,12 +667,12 @@ fun AchievementsScreen(
                                         )
                                     }
                                     items(completedTasks) { task ->
-                                        TaskItemCard(
+                                        TaskListCard(
                                             task = task,
-                                            inProgressStatus = inProgressStatus,
-                                            completedStatus = completedStatus,
-                                            onStatusClick = { viewModel.cycleTaskStatus(task, statusOptions) }
-                                        ) { onEditTask(task) }
+                                            isCompleted = true,
+                                            onEdit = { onEditTask(task) },
+                                            onCycle = { viewModel.cycleTaskStatus(task, statusOptions) },
+                                        )
                                     }
                                 }
                             }
@@ -665,6 +680,175 @@ fun AchievementsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReviewOverview(
+    tasks: List<TaskModel>,
+    completedStatus: String,
+    inProgressStatus: String,
+    logs: List<PomodoroLog>,
+    onEditTask: (TaskModel) -> Unit,
+    onCycleTask: (TaskModel) -> Unit,
+) {
+    var period by remember { mutableStateOf("today") }
+    val today = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+    val bounds = remember(period, today) {
+        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val calendar = Calendar.getInstance()
+        when (period) {
+            "week" -> {
+                calendar.firstDayOfWeek = Calendar.MONDAY
+                val day = calendar.get(Calendar.DAY_OF_WEEK)
+                calendar.add(Calendar.DAY_OF_MONTH, if (day == Calendar.SUNDAY) -6 else Calendar.MONDAY - day)
+                val start = formatter.format(calendar.time)
+                calendar.add(Calendar.DAY_OF_MONTH, 6)
+                Triple(start, formatter.format(calendar.time), "今週")
+            }
+            "month" -> {
+                calendar.set(Calendar.DAY_OF_MONTH, 1)
+                val start = formatter.format(calendar.time)
+                calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
+                Triple(start, formatter.format(calendar.time), "今月")
+            }
+            else -> Triple(today, today, "今日")
+        }
+    }
+    val completedTrimmed = completedStatus.trim()
+    val periodTasks = remember(tasks, bounds, completedTrimmed) {
+        reviewPeriodTasks(tasks, completedTrimmed, bounds.first, bounds.second)
+    }
+    val completedCount = remember(periodTasks, completedTrimmed) { periodTasks.count { it.status.trim() == completedTrimmed } }
+    val focusMinutes = remember(logs, bounds) { logs.filter { it.date in bounds.first..bounds.second }.sumOf { it.minutes } }
+    val attentionTasks = remember(tasks, completedTrimmed, today) {
+        tasks.filter { task ->
+            task.status.trim() != completedTrimmed &&
+                ((task.dueDate != null && task.dueDate < today) || (task.scheduledDate != null && task.scheduledDate < today))
+        }.sortedWith(
+            compareBy<TaskModel> { it.dueDate ?: it.scheduledDate ?: "9999-12-31" }
+                .thenBy { it.scheduledDate ?: "9999-12-31" }
+                .thenBy { it.title },
+        )
+    }
+    val attentionCount = attentionTasks.size
+    val carryoverCount = remember(periodTasks, completedTrimmed, bounds) {
+        carryoverTaskCount(periodTasks, completedTrimmed, bounds.first)
+    }
+    val rate = if (periodTasks.isEmpty()) 0 else (completedCount * 100 / periodTasks.size)
+    val summary = when {
+        periodTasks.isEmpty() -> "予定タスクはありません"
+        rate == 100 -> "予定したタスクを完了しました"
+        rate >= 60 -> "順調に進んでいます"
+        completedCount > 0 -> "少しずつ進められています"
+        else -> "まず一つ取りかかりましょう"
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f), RoundedCornerShape(22.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf("today" to "今日", "week" to "今週", "month" to "今月").forEach { (key, label) ->
+                    val selected = period == key
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(18.dp))
+                            .clickable { period = key }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        item {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)),
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${bounds.third}の振り返り", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(summary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("$completedCount / ${periodTasks.size} 件完了", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            if (carryoverCount > 0) {
+                                Text("期限切れ・持ち越し $carryoverCount 件を含む", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
+                            }
+                        }
+                        Text("$rate%", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    LinearProgressIndicator(
+                        progress = { rate / 100f },
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    )
+                }
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ReviewMetricCard("集中時間", formatDurationJapanese(focusMinutes), Modifier.weight(1f))
+                ReviewMetricCard("未完了", "${(periodTasks.size - completedCount).coerceAtLeast(0)}件", Modifier.weight(1f))
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (attentionCount > 0) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.50f) else MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(if (attentionCount > 0) "対応が必要なタスク" else "計画の状態", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (attentionCount > 0) "${attentionCount}件の期限切れ・持ち越しがあります" else "期限切れ・持ち越しはありません", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        }
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = if (attentionCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                    }
+                    attentionTasks.forEach { task ->
+                        TaskListCard(
+                            task = task,
+                            isCompleted = false,
+                            isInProgress = task.status.trim() == inProgressStatus.trim(),
+                            onEdit = { onEditTask(task) },
+                            onCycle = { onCycleTask(task) },
+                        )
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(88.dp)) }
+    }
+}
+
+@Composable
+private fun ReviewMetricCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -744,14 +928,16 @@ fun PomodoroStatsSubPage(
     }
 
     val maxDailyHours = remember(pomodoroLogs, thisWeekDays) {
-        var max = 10f
+        var max = 0f
         for (day in thisWeekDays) {
             val dayHours = pomodoroLogs.asSequence().filter { it.date == day.second }.sumOf { it.minutes } / 60f
             if (dayHours > max) {
                 max = dayHours
             }
         }
-        max
+        // A fixed 10-hour scale makes ordinary sessions (for example 27 minutes) nearly
+        // invisible.  Use half-hour steps with a small, stable minimum instead.
+        kotlin.math.ceil(max.coerceAtLeast(0.5f) / 0.5f) * 0.5f
     }
 
     val sortedCategories = remember(pomodoroLogs, thisWeekDays) {
@@ -978,24 +1164,27 @@ fun PomodoroStatsSubPage(
                                             .height(90.dp)
                                             .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                        contentAlignment = Alignment.BottomCenter
                                     ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.Bottom
-                                        ) {
-                                            val activeCategories = (categoryOptions.map { it.name } + listOf("一般作業")).distinct()
+                                        // Drawing the stack directly avoids Compose measuring the inner Column
+                                        // at its content height, which could leave every colored segment hidden.
+                                        // The database can contain categories that are no longer in the current
+                                        // Notion option list.  Build the stack from the logs themselves so those
+                                        // historical records are never rendered as an empty bar.
+                                        val activeCategories = categoryHours.keys.sorted()
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            var currentBottom = size.height
                                             activeCategories.forEach { cat ->
-                                                val hrs = categoryHours[cat] ?: 0f
-                                                if (hrs > 0f) {
-                                                    val pct = hrs / maxDailyHours
-                                                    val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor ?: categoryColorMap[cat]
-                                                    val color = getCategoryChartColorInCompose(colorName)
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .height((90 * pct).dp)
-                                                            .background(color)
+                                                val hours = categoryHours[cat] ?: 0f
+                                                if (hours > 0f) {
+                                                    val segmentHeight = (size.height * (hours / maxDailyHours))
+                                                        .coerceAtMost(currentBottom)
+                                                    currentBottom -= segmentHeight
+                                                    val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor
+                                                        ?: categoryColorMap[cat]
+                                                    drawRect(
+                                                        color = getCategoryChartColorInCompose(colorName),
+                                                        topLeft = Offset(0f, currentBottom),
+                                                        size = Size(size.width, segmentHeight),
                                                     )
                                                 }
                                             }

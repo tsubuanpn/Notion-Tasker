@@ -46,6 +46,7 @@ class TaskViewModelTest {
 
         // デフォルトのモック設定（ViewModelの初期化でエラーにならないように）
         every { repository.allTasks } returns flowOf(emptyList())
+        every { repository.pendingActionCount } returns flowOf(0)
         every { scheduleRepository.allTimeBlocks } returns flowOf(emptyList())
         every { scheduleRepository.allLifeActivities } returns flowOf(emptyList())
         every { pomodoroRepository.allLogsFlow } returns flowOf(emptyList())
@@ -181,6 +182,21 @@ class TaskViewModelTest {
 
         // Assert
         coVerify(exactly = 0) { repository.syncTasks(any(), any()) }
+    }
+
+    @Test
+    fun syncState_withQueuedActions_emitsPendingChanges() = runTest {
+        // Arrange
+        every { repository.pendingActionCount } returns flowOf(2)
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+
+        // Assert
+        viewModel.syncState.test {
+            assertEquals(SyncUiState.NotConfigured, awaitItem())
+            runCurrent()
+            assertEquals(SyncUiState.PendingChanges(2), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
