@@ -146,13 +146,13 @@ fun TaskItemCard(
                         }
                     } else if (isOverdueScheduled) {
                         Surface(
-                            color = if (isSystemDark) WarningOrangeContainerDark else WarningOrangeContainerLight,
+                            color = MaterialTheme.colorScheme.errorContainer,
                             shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
                                 text = "⚠️ 持ち越し",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
@@ -195,11 +195,16 @@ fun TaskItemCard(
                 ) {
                     if (task.dueDate != null) {
                         val isDueOver = task.status != completedStatus && task.dueDate < todayStr
+                        val isDueToday = task.status != completedStatus && task.dueDate == todayStr
                         Text(
                             text = if (isDueOver) "⚠️ 締切: ${task.dueDate}" else "締切: ${task.dueDate}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isDueOver) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            fontWeight = if (isDueOver) FontWeight.Bold else FontWeight.Normal
+                            color = when {
+                                isDueOver -> MaterialTheme.colorScheme.error
+                                isDueToday -> if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            },
+                            fontWeight = if (isDueOver || isDueToday) FontWeight.Bold else FontWeight.Normal
                         )
                     } else {
                         Spacer(modifier = Modifier.width(1.dp))
@@ -207,15 +212,16 @@ fun TaskItemCard(
 
                     if (task.scheduledDate != null) {
                         val isSchedOver = task.status != completedStatus && task.scheduledDate < todayStr
+                        val isSchedToday = task.status != completedStatus && task.scheduledDate == todayStr
                         Text(
                             text = if (isSchedOver) "持ち越し: ${task.scheduledDate}" else "予定: ${task.scheduledDate}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isSchedOver) {
-                                if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            color = when {
+                                isSchedOver -> MaterialTheme.colorScheme.error
+                                isSchedToday -> if (isSystemDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             },
-                            fontWeight = if (isSchedOver) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (isSchedOver || isSchedToday) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }
