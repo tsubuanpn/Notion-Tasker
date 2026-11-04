@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
@@ -926,14 +928,16 @@ fun PomodoroStatsSubPage(
     }
 
     val maxDailyHours = remember(pomodoroLogs, thisWeekDays) {
-        var max = 10f
+        var max = 0f
         for (day in thisWeekDays) {
             val dayHours = pomodoroLogs.asSequence().filter { it.date == day.second }.sumOf { it.minutes } / 60f
             if (dayHours > max) {
                 max = dayHours
             }
         }
-        max
+        // A fixed 10-hour scale makes ordinary sessions (for example 27 minutes) nearly
+        // invisible.  Use half-hour steps with a small, stable minimum instead.
+        kotlin.math.ceil(max.coerceAtLeast(0.5f) / 0.5f) * 0.5f
     }
 
     val sortedCategories = remember(pomodoroLogs, thisWeekDays) {
@@ -1160,24 +1164,27 @@ fun PomodoroStatsSubPage(
                                             .height(90.dp)
                                             .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                        contentAlignment = Alignment.BottomCenter
                                     ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.Bottom
-                                        ) {
-                                            val activeCategories = (categoryOptions.map { it.name } + listOf("一般作業")).distinct()
+                                        // Drawing the stack directly avoids Compose measuring the inner Column
+                                        // at its content height, which could leave every colored segment hidden.
+                                        // The database can contain categories that are no longer in the current
+                                        // Notion option list.  Build the stack from the logs themselves so those
+                                        // historical records are never rendered as an empty bar.
+                                        val activeCategories = categoryHours.keys.sorted()
+                                        Canvas(modifier = Modifier.fillMaxSize()) {
+                                            var currentBottom = size.height
                                             activeCategories.forEach { cat ->
-                                                val hrs = categoryHours[cat] ?: 0f
-                                                if (hrs > 0f) {
-                                                    val pct = hrs / maxDailyHours
-                                                    val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor ?: categoryColorMap[cat]
-                                                    val color = getCategoryChartColorInCompose(colorName)
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .height((90 * pct).dp)
-                                                            .background(color)
+                                                val hours = categoryHours[cat] ?: 0f
+                                                if (hours > 0f) {
+                                                    val segmentHeight = (size.height * (hours / maxDailyHours))
+                                                        .coerceAtMost(currentBottom)
+                                                    currentBottom -= segmentHeight
+                                                    val colorName = dayLogs.firstOrNull { it.category == cat }?.categoryColor
+                                                        ?: categoryColorMap[cat]
+                                                    drawRect(
+                                                        color = getCategoryChartColorInCompose(colorName),
+                                                        topLeft = Offset(0f, currentBottom),
+                                                        size = Size(size.width, segmentHeight),
                                                     )
                                                 }
                                             }

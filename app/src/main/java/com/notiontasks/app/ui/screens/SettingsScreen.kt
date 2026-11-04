@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -1084,12 +1085,19 @@ fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
 @Composable
 fun DurationSettingRow(label: String, value: Int, onValueChange: (Int) -> Unit, unit: String, color: Color) {
     var text by remember(value) { mutableStateOf(value.toString()) }
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text(label, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(
                 onClick = { if (value > 1) onValueChange(value - 1) },
-                modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50)),
+                modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50)),
             ) { Icon(Icons.Default.Remove, contentDescription = "$label を1${unit}減らす") }
             OutlinedTextField(
                 value = text,
@@ -1097,13 +1105,13 @@ fun DurationSettingRow(label: String, value: Int, onValueChange: (Int) -> Unit, 
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = color),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                modifier = Modifier.width(72.dp).height(52.dp)
+                modifier = Modifier.width(64.dp).height(52.dp)
             )
             IconButton(
                 onClick = { if (value < 999) onValueChange(value + 1) },
-                modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50)),
+                modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50)),
             ) { Icon(Icons.Default.Add, contentDescription = "$label を1${unit}増やす") }
-            Text(unit, Modifier.width(20.dp))
+            Text(unit, Modifier.width(18.dp), maxLines = 1)
         }
     }
 }

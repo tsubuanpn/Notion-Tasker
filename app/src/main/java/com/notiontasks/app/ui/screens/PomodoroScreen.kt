@@ -136,18 +136,23 @@ fun PomodoroScreen(
         context.startForegroundService(intent)
     }
 
-    fun selectedDurationSeconds(): Int = when (focusType) {
+    fun durationSecondsFor(type: String, phase: String = mode): Int = when (type) {
         PomodoroService.FOCUS_TYPE_TIMER -> freeTimerMinutes * 60
         PomodoroService.FOCUS_TYPE_STOPWATCH -> 0
-        else -> pomodoroDurationSecondsFor(mode, prefs)
+        else -> pomodoroDurationSecondsFor(phase, prefs)
     }
+
+    fun selectedDurationSeconds(): Int = durationSecondsFor(focusType)
 
     fun selectFocusType(type: String) {
         if (focusType != type) {
             focusType = type
             mode = "work"
-            timeLeft = selectedDurationSeconds()
-            triggerServiceAction(PomodoroService.ACTION_STOP)
+            timeLeft = durationSecondsFor(type, "work")
+            // Do not use ACTION_STOP here.  The old approach could destroy the service while
+            // this screen still held its binder, leaving the previous mode selected after a
+            // reset or completion.
+            boundService?.configureFocusType(type, freeTimerMinutes)
         }
     }
 
