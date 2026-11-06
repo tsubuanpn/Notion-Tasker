@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -126,7 +128,11 @@ private fun AchievementsTabSelector(
                         color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
                         shape = RoundedCornerShape(6.dp)
                     )
-                    .clickable { onPageSelected(page) }
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.Tab,
+                        onClick = { onPageSelected(page) },
+                    )
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -810,7 +816,11 @@ private fun ReviewOverview(
                         modifier = Modifier
                             .weight(1f)
                             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(18.dp))
-                            .clickable { period = key }
+                            .selectable(
+                                selected = selected,
+                                role = Role.Tab,
+                                onClick = { period = key },
+                            )
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
