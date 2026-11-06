@@ -311,6 +311,13 @@ fun PomodoroScreen(
             }
             boundService.onStateChangedListener = { running ->
                 isRunning = running
+                // 通知の「終了」や画面内リセットでは、サービスが残り時間を初期値に
+                // 戻してから停止状態を通知する。onTick は停止後に来ないため、この時点で
+                // 同期しないと画面だけが終了時点の残り時間を表示し続ける。
+                // 一時停止は残り時間を保持して再開できるよう、ここでは上書きしない。
+                if (!running && !boundService.isPaused) {
+                    timeLeft = (boundService.timeLeftMs / 1000).toInt()
+                }
             }
             boundService.onRingtoneStateChangedListener = { playing ->
                 isAlarmPlaying = playing
