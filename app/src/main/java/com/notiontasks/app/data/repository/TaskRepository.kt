@@ -690,60 +690,32 @@ class TaskRepository(
                 enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
                 return@withLock
             }
-            val alternateType = if (propStatusType == "select") "status" else "select"
-            try {
-                val request = buildCreatePayload(alternateType)
-                val createdPage = notionApi.createPage(token = authHeader, request = request)
-                propStatusType = alternateType
-                
-                val apiStatusColor = if (alternateType == "status") {
-                    createdPage.properties.getStatusColor(propStatusName)
-                } else {
-                    createdPage.properties.getSelectColor(propStatusName)
-                }
-                val apiCategoryColor = propCategoryName.takeIf { it.isNotBlank() }?.let { createdPage.properties.getSelectColor(it) }
+            if (!firstFailure.isRetryableSyncFailure()) throw firstFailure
 
-                val localEntity = TaskEntity(
-                    id = createdPage.id,
-                    title = title,
-                    status = trimmedStatus,
-                    category = trimmedCategory,
-                    dueDate = dueDate,
-                    scheduledDate = scheduledDate,
-                    statusColor = apiStatusColor ?: statusColor,
-                    categoryColor = apiCategoryColor ?: categoryColor,
-                    lastEditedTime = System.currentTimeMillis(),
-                )
-                taskDao.upsertTasks(listOf(localEntity))
-            } catch (failure: Exception) {
-                if (failure is CancellationException) throw failure
-                if (!failure.isRetryableSyncFailure()) throw failure
+            // 応答喪失・429・5xx ではリモート作成済みかを判定できない。別の status/select
+            // 型で再POSTすると重複作成し得るため、元の意図を一度だけローカルに保留する。
+            val tempId = "pending_" + System.currentTimeMillis()
+            val localEntity = TaskEntity(
+                id = tempId,
+                title = title,
+                status = trimmedStatus,
+                category = trimmedCategory,
+                dueDate = dueDate,
+                scheduledDate = scheduledDate,
+                statusColor = statusColor,
+                categoryColor = categoryColor,
+                lastEditedTime = System.currentTimeMillis(),
+            )
+            taskDao.upsertTasks(listOf(localEntity))
 
-                // 一時的な通信・サーバー障害時のみローカルダミーIDで保存し、キューに入れる。
-                val tempId = "pending_" + System.currentTimeMillis()
-                val localEntity = TaskEntity(
-                    id = tempId,
-                    title = title,
-                    status = trimmedStatus,
-                    category = trimmedCategory,
-                    dueDate = dueDate,
-                    scheduledDate = scheduledDate,
-                    statusColor = statusColor,
-                    categoryColor = categoryColor,
-                    lastEditedTime = System.currentTimeMillis(),
-                )
-                taskDao.upsertTasks(listOf(localEntity))
-
-                val actionPayload = buildJsonObject {
-                    put("title", title)
-                    put("status", trimmedStatus)
-                    put("category", trimmedCategory)
-                    dueDate?.let { put("dueDate", it) }
-                    scheduledDate?.let { put("scheduledDate", it) }
-                }.toString()
-
-                enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
-            }
+            val actionPayload = buildJsonObject {
+                put("title", title)
+                put("status", trimmedStatus)
+                put("category", trimmedCategory)
+                dueDate?.let { put("dueDate", it) }
+                scheduledDate?.let { put("scheduledDate", it) }
+            }.toString()
+            enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
         }
     }
 
