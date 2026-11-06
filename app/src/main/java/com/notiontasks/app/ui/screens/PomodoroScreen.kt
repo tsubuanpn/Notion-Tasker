@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -91,7 +92,7 @@ fun PomodoroScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
-    val todayStr = JapanTime.todayIso()
+    val todayStr = rememberJapanToday()
     val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
     val initialCompletedCount = if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     

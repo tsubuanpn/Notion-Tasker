@@ -75,6 +75,7 @@ import com.notiontasks.app.data.groupPomodoroLogs
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.TaskItemCard
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.theme.WarningOrangeContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeContainerLight
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
@@ -232,9 +233,7 @@ fun AchievementsScreen(
                 }
             }
             is TasksUiState.Success -> {
-                val todayStr = remember {
-                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-                }
+                val todayStr = rememberJapanToday()
 
                 val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
                 val startOfWeekCal = remember {
@@ -748,7 +747,7 @@ private fun ReviewOverview(
     onCycleTask: (TaskModel) -> Unit,
 ) {
     var period by remember { mutableStateOf("today") }
-    val today = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+    val today = rememberJapanToday()
     val bounds = remember(period, today) {
         val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         val calendar = Calendar.getInstance()
@@ -937,9 +936,7 @@ fun PomodoroStatsSubPage(
         prefs.getInt("work_duration_min", 25)
     }
 
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = rememberJapanToday()
     val currentMonthPrefix = todayStr.substring(0, 7)
 
     val todayMinutes = remember(pomodoroLogs, todayStr) {

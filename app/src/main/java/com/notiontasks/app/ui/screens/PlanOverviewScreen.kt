@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.components.getNotionCategoryColors
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -68,7 +69,7 @@ fun PlanOverviewScreen(
     val tasksState by viewModel.tasksState.collectAsState()
     val completedStatus by viewModel.statusCompleted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
-    val today = JapanTime.todayIso()
+    val today = rememberJapanToday()
     val tasks = (tasksState as? TasksUiState.Success)?.tasks.orEmpty()
     val selectedDate = selectedCalendarDate.value ?: today
     var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)) }

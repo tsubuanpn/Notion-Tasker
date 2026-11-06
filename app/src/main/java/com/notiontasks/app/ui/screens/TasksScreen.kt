@@ -53,6 +53,7 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.getNotionCategoryColors
 import com.notiontasks.app.ui.components.getNotionStatusColors
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
@@ -80,7 +81,7 @@ fun TasksScreen(
     var periodExpanded by remember { mutableStateOf(false) }
     var categoryExpanded by remember { mutableStateOf(false) }
     var statusExpanded by remember { mutableStateOf(false) }
-    val today = JapanTime.todayIso()
+    val today = rememberJapanToday()
     val source = (tasksState as? TasksUiState.Success)?.tasks.orEmpty().filter { it.status.trim() != completed.trim() }
     val weekStart = JapanTime.startOfWeek().toString()
     val weekEnd = JapanTime.endOfWeek().toString()
@@ -176,7 +177,7 @@ internal fun TaskListCard(
     val statusColors = getNotionStatusColors(task.statusColor, isDark)
     val scheduledLabel = task.scheduledDate?.let { "予定 $it" } ?: "予定なし"
     val dueLabel = task.dueDate?.let { "締切 $it" } ?: "締切なし"
-    val today = JapanTime.todayIso()
+    val today = rememberJapanToday()
     val scheduledDate = JapanTime.projectedDateKey(task.scheduledDate)
     val dueDate = JapanTime.projectedDateKey(task.dueDate)
     val scheduledDateColor = when {

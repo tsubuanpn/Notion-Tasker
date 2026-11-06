@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import kotlinx.coroutines.delay
@@ -46,7 +47,7 @@ fun TodayScreen(
     val timeBlocks by viewModel.timeBlocks.collectAsState()
     val unstartedStatus by viewModel.statusUnstarted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
-    val today = rememberToday()
+    val today = rememberJapanToday()
     var nowMinutes by remember { mutableIntStateOf(currentMinutes()) }
     LaunchedEffect(Unit) { while (true) { delay(60_000L); nowMinutes = currentMinutes() } }
 
@@ -163,11 +164,5 @@ private fun ScheduleBriefingRow(title: String, time: String, category: String, i
     }
 }
 
-private fun currentMinutes(): Int = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+private fun currentMinutes(): Int = com.notiontasks.app.utils.JapanTime.now().let { it.hour * 60 + it.minute }
 private fun formatTime(minutes: Int): String = String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60)
-
-@Composable
-private fun rememberToday(): String {
-    val locale = LocalLocale.current.platformLocale
-    return remember(locale) { SimpleDateFormat("yyyy-MM-dd", locale).format(Date()) }
-}
