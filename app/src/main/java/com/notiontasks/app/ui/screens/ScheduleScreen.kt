@@ -1614,6 +1614,14 @@ fun ScheduleScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(String.format(Locale.US, "%02d:%02d", endHour, endMin))
                         }
+                        TextButton(
+                            onClick = {
+                                endHour = 24
+                                endMin = 0
+                            },
+                        ) {
+                            Text("24:00にする")
+                        }
                     }
 
                     // 所要時間のクイック設定
