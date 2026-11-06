@@ -336,6 +336,7 @@ fun AddTaskDialog(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
+                label = { Text("タスク名") },
                 placeholder = { Text("タスク名を入力") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -507,6 +508,7 @@ fun EditTaskDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
+                    label = { Text("タスク名") },
                     placeholder = { Text("タスク名") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
