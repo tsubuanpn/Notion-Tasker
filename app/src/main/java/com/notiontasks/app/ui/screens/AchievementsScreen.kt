@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,7 +70,6 @@ import com.notiontasks.app.data.getCategoryChartColorInCompose
 import com.notiontasks.app.data.groupPomodoroLogs
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
 import com.notiontasks.app.ui.theme.WarningOrangeContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeContainerLight
@@ -93,6 +93,62 @@ private data class AchievementsData(
 )
 
 @Composable
+private fun AchievementsTabSelector(
+    selectedPage: String,
+    onPageSelected: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        listOf(
+            "review" to "振り返り",
+            "stats" to "集中記録",
+            "completed" to "完了済み",
+        ).forEach { (page, label) ->
+            val isSelected = selectedPage == page
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable { onPageSelected(page) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                    color = if (isSelected) {
+                        when (page) {
+                            "review" -> MaterialTheme.colorScheme.primary
+                            "stats" -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.tertiary
+                        }
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun AchievementsScreen(
     viewModel: TaskViewModel,
     statusOptions: List<NotionOptionInfo>,
@@ -109,21 +165,63 @@ fun AchievementsScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        when (val state = uiState) {
+        if (subPage == "stats" && uiState !is TasksUiState.Success) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AchievementsTabSelector(subPage) { subPage = it }
+                PomodoroStatsSubPage(
+                    viewModel = viewModel,
+                    categoryOptions = categoryOptions,
+                    categoryColorMap = emptyMap(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            when (val state = uiState) {
             is TasksUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
             is TasksUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Text(text = "エラーが発生しました: ${state.message}", color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { subPage = "stats" }) {
+                        Text("集中記録を表示")
+                    }
                 }
             }
             is TasksUiState.Idle -> {
-                EmptyStateView(
-                    message = "タスクデータがありません。同期して実績を確認してください。",
-                ) { viewModel.syncWithNotion() }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "タスクデータがありません。同期して実績を確認してください。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 24.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = { viewModel.syncWithNotion() }) {
+                        Text("データを同期する")
+                    }
+                    TextButton(onClick = { subPage = "stats" }) {
+                        Text("集中記録を表示")
+                    }
+                }
             }
             is TasksUiState.Success -> {
                 val todayStr = remember {
@@ -244,60 +342,7 @@ fun AchievementsScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // タブセレクター
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        listOf(
-                            "review" to "振り返り",
-                            "stats" to "集中記録",
-                            "completed" to "完了済み",
-                        ).forEach { (page, label) ->
-                            val isSelected = subPage == page
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.surface
-                                        } else {
-                                            Color.Transparent
-                                        },
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { subPage = page }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
-                                    color = if (isSelected) {
-                                        when (page) {
-                                            "review" -> MaterialTheme.colorScheme.primary
-                                            "stats" -> MaterialTheme.colorScheme.secondary
-                                            else -> MaterialTheme.colorScheme.tertiary
-                                        }
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    AchievementsTabSelector(subPage) { subPage = it }
 
                     when (subPage) {
                         "review" -> {
@@ -680,6 +725,7 @@ fun AchievementsScreen(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -858,6 +904,7 @@ fun PomodoroStatsSubPage(
     viewModel: TaskViewModel,
     categoryOptions: List<NotionOptionInfo>,
     categoryColorMap: Map<String, String?>,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val pomodoroLogs by viewModel.pomodoroLogs.collectAsState()
@@ -964,7 +1011,7 @@ fun PomodoroStatsSubPage(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
