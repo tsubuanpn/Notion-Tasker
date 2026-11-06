@@ -408,6 +408,11 @@ fun NotionSetupScreen(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "同期には、タイトル・状態・カテゴリ・予定日・締め切りの5項目が必要です。状態は「未着手」「進行中」「完了」の3種類を割り当てます。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 SetupStepChip("1", "接続", selected = true)
@@ -766,6 +771,11 @@ fun MappingSettingsScreen(
                 PropertyDropdown("「未着手」とみなす値", propStatusUnstarted, statusOptions) { propStatusUnstarted = it }
                 PropertyDropdown("「進行中」とみなす値", propStatusInProgress, statusOptions) { propStatusInProgress = it }
                 PropertyDropdown("「完了」とみなす値", propStatusCompleted, statusOptions) { propStatusCompleted = it }
+                Text(
+                    "このアプリで扱える状態はこの3種類です。その他の状態値を個別に扱うことには対応していません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
