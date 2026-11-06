@@ -35,6 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -1060,11 +1066,22 @@ fun PropertyDropdown(label: String, selected: String, options: List<String>, onS
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = selected.ifBlank { "未選択" }
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("未選択") }, onClick = { onSelect(""); expanded = false })
             displayOptions.filter { it.isNotBlank() }.forEach { name ->
@@ -1083,11 +1100,22 @@ fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = if (selected == "status") "Status型" else "Select型"
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Status型") }, onClick = { onSelect("status"); expanded = false })
             DropdownMenuItem(text = { Text("Select型") }, onClick = { onSelect("select"); expanded = false })
