@@ -43,6 +43,6 @@
 
 ## 実機代替の確認
 
-- Android Emulator 37.2.13 はクラウド SDK に導入した。
+- Android Emulator 37.2.13 を導入して起動可否を確認後、検証不能と判断して削除した。
 - `emulator -accel-check` は終了コード 3 で `KVM requires a CPU that supports vmx or svm` を返した。`/dev/kvm` も利用できない。
-- API 35 Google APIs system image の取得を試みたが、完了前に停止した。KVM 非対応のソフトウェアエミュレーションは、この環境で回帰試験に使える性能・安定性を確認できないため AVD は作成していない。
+- API 35 Google APIs system image の取得を試みたが、完了前に停止した。未完了データも削除済み。KVM 非対応のソフトウェアエミュレーションは、この環境で回帰試験に使える性能・安定性を確認できないため AVD は作成していない。
