@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.notiontasks.app.data.local.TaskDatabase
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.utils.SecurityUtils
+import com.notiontasks.app.utils.JapanTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -62,7 +63,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 when (type) {
                     "MORNING" -> {
                         val todayTasks = allTasks.filter {
-                            it.scheduledDate == todayStr && it.status != completedStatus
+                            JapanTime.projectedDateKey(it.scheduledDate) == todayStr && it.status != completedStatus
                         }
                         if (todayTasks.isNotEmpty()) {
                             showNotification(

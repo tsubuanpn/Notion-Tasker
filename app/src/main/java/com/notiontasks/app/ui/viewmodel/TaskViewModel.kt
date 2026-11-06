@@ -306,8 +306,8 @@ class TaskViewModel(
             scheduleRepository.deleteLifeActivityById(id)
             
             // 初期化済みの未来（今日含む）のスケジュールから、この習慣を削除
-            val today = java.time.LocalDate.now()
-            val nowMinutes = java.time.LocalTime.now().let { (it.hour * 60) + it.minute }
+            val today = com.notiontasks.app.utils.JapanTime.today()
+            val nowMinutes = com.notiontasks.app.utils.JapanTime.now().let { (it.hour * 60) + it.minute }
             
             // UIキャッシュではなく、DBから全ブロックを直接取得してスキャンする
             val allBlocks = scheduleRepository.getAllTimeBlocks()
@@ -342,7 +342,7 @@ class TaskViewModel(
      * 初期化済みの全ての日付のうち、今日および未来の日付に対して設定を同期します。
      */
     private fun syncAllInitializedFutureDates(context: android.content.Context) {
-        val today = java.time.LocalDate.now()
+        val today = com.notiontasks.app.utils.JapanTime.today()
 
         // ConcurrentModificationException を避けるためコピーに対して処理
         val dates = _initializedDates.value.toList()
@@ -390,8 +390,8 @@ class TaskViewModel(
 
         if (defaults.isEmpty()) return
 
-        val now = java.time.LocalDateTime.now()
-        val todayStr = java.time.LocalDate.now().toString()
+        val now = com.notiontasks.app.utils.JapanTime.now()
+        val todayStr = com.notiontasks.app.utils.JapanTime.todayIso()
         val currentMinutes = (now.hour * 60) + now.minute
 
         val dayBlocks = timeBlocks.value.filter { (it.date == date) && (it.type == "life") }

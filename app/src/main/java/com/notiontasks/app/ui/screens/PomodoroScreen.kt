@@ -71,6 +71,7 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 
 private const val POMODOROS_BEFORE_LONG_BREAK = 4
 
@@ -90,9 +91,7 @@ fun PomodoroScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = JapanTime.todayIso()
     val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
     val initialCompletedCount = if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     
@@ -217,13 +216,13 @@ fun PomodoroScreen(
                 state.tasks.asSequence().filter { task ->
                     val isUncompleted = task.status.trim() != completedTrimmed
                     isUncompleted && (
-                        (task.scheduledDate == todayStr) ||
-                        ((task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
-                        ((task.dueDate != null) && (task.dueDate < todayStr))
+                        (JapanTime.projectedDateKey(task.scheduledDate) == todayStr) ||
+                        (JapanTime.projectedDateKey(task.scheduledDate)?.let { it < todayStr } == true) ||
+                        (JapanTime.projectedDateKey(task.dueDate)?.let { it < todayStr } == true)
                     )
                 }.sortedWith(
-                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy(nullsLast(naturalOrder())) { it.dueDate }
+                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
+                        .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
                         .thenBy { it.id },
                 ).toList()
             }

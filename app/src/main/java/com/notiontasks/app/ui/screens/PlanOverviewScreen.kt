@@ -50,6 +50,7 @@ import com.notiontasks.app.ui.components.getNotionCategoryColors
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -67,7 +68,7 @@ fun PlanOverviewScreen(
     val tasksState by viewModel.tasksState.collectAsState()
     val completedStatus by viewModel.statusCompleted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
-    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val today = JapanTime.todayIso()
     val tasks = (tasksState as? TasksUiState.Success)?.tasks.orEmpty()
     val selectedDate = selectedCalendarDate.value ?: today
     var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)) }
@@ -75,15 +76,20 @@ fun PlanOverviewScreen(
     val tasksByDate = remember(tasks) {
         buildMap<String, MutableList<TaskModel>> {
             tasks.forEach { task ->
-                listOfNotNull(task.scheduledDate, task.dueDate).distinct().forEach { date ->
+                listOfNotNull(
+                    JapanTime.projectedDateKey(task.scheduledDate),
+                    JapanTime.projectedDateKey(task.dueDate),
+                ).distinct().forEach { date ->
                     getOrPut(date) { mutableListOf() }.add(task)
                 }
             }
         }
     }
     val selectedTasks = remember(tasks, selectedDate) {
-        tasks.filter { it.scheduledDate == selectedDate || it.dueDate == selectedDate }
-            .sortedBy { it.scheduledDate ?: it.dueDate }
+        tasks.filter {
+            JapanTime.projectedDateKey(it.scheduledDate) == selectedDate ||
+                JapanTime.projectedDateKey(it.dueDate) == selectedDate
+        }.sortedBy { JapanTime.projectedDateKey(it.scheduledDate) ?: JapanTime.projectedDateKey(it.dueDate) }
     }
     val calendarDays = remember(year, month) { monthCells(year, month) }
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -116,15 +122,15 @@ fun PlanOverviewScreen(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf("日", "月", "火", "水", "木", "金", "土").forEachIndexed { index, day ->
+                        listOf("月", "火", "水", "木", "金", "土", "日").forEachIndexed { index, day ->
                             Text(
                                 day,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = when (index) {
-                                    0 -> MaterialTheme.colorScheme.error
-                                    6 -> MaterialTheme.colorScheme.primary
+                                    5 -> MaterialTheme.colorScheme.primary
+                                    6 -> MaterialTheme.colorScheme.error
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
@@ -161,8 +167,8 @@ fun PlanOverviewScreen(
                                                 color = when {
                                                     isSelected -> MaterialTheme.colorScheme.onPrimary
                                                     isToday -> MaterialTheme.colorScheme.primary
-                                                    column == 0 -> MaterialTheme.colorScheme.error
-                                                    column == 6 -> MaterialTheme.colorScheme.primary
+                                                    column == 5 -> MaterialTheme.colorScheme.primary
+                                                    column == 6 -> MaterialTheme.colorScheme.error
                                                     else -> MaterialTheme.colorScheme.onSurface
                                                 },
                                             )
@@ -278,9 +284,9 @@ private fun MonthMoveButton(icon: androidx.compose.ui.graphics.vector.ImageVecto
 private data class PlanCalendarDay(val number: Int, val date: String)
 
 private fun monthCells(year: Int, month: Int): List<PlanCalendarDay?> {
-    val calendar = Calendar.getInstance().apply { set(year, month, 1) }
-    val offset = calendar.get(Calendar.DAY_OF_WEEK) - 1
-    val days = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+    val firstDay = java.time.LocalDate.of(year, month + 1, 1)
+    val offset = firstDay.dayOfWeek.value - 1
+    val days = firstDay.lengthOfMonth()
     val cells = MutableList<PlanCalendarDay?>(offset) { null }
     repeat(days) { index -> cells += PlanCalendarDay(index + 1, String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, index + 1)) }
     while (cells.size % 7 != 0) cells += null

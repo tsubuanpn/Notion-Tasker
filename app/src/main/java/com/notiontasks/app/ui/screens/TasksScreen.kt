@@ -57,6 +57,7 @@ import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -79,12 +80,13 @@ fun TasksScreen(
     var periodExpanded by remember { mutableStateOf(false) }
     var categoryExpanded by remember { mutableStateOf(false) }
     var statusExpanded by remember { mutableStateOf(false) }
-    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    val today = JapanTime.todayIso()
     val source = (tasksState as? TasksUiState.Success)?.tasks.orEmpty().filter { it.status.trim() != completed.trim() }
-    val weekEnd = remember(today) { java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 6) }.let { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(it.time) } }
+    val weekStart = JapanTime.startOfWeek().toString()
+    val weekEnd = JapanTime.endOfWeek().toString()
     val visible = source.filter { task ->
-        val date = task.scheduledDate ?: task.dueDate
-        val periodMatch = periods.isEmpty() || ("今日" in periods && date == today) || ("今週" in periods && date != null && date in today..weekEnd)
+        val date = JapanTime.projectedDateKey(task.scheduledDate) ?: JapanTime.projectedDateKey(task.dueDate)
+        val periodMatch = periods.isEmpty() || ("今日" in periods && date == today) || ("今週" in periods && date != null && date in weekStart..weekEnd)
         periodMatch && (categories.isEmpty() || task.category in categories) && (statuses.isEmpty() || task.status in statuses) &&
             (query.isBlank() || task.title.contains(query, true) || task.category.contains(query, true))
     }.sortedBy { it.scheduledDate ?: it.dueDate ?: "9999-12-31" }
@@ -174,15 +176,17 @@ internal fun TaskListCard(
     val statusColors = getNotionStatusColors(task.statusColor, isDark)
     val scheduledLabel = task.scheduledDate?.let { "予定 $it" } ?: "予定なし"
     val dueLabel = task.dueDate?.let { "締切 $it" } ?: "締切なし"
-    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    val today = JapanTime.todayIso()
+    val scheduledDate = JapanTime.projectedDateKey(task.scheduledDate)
+    val dueDate = JapanTime.projectedDateKey(task.dueDate)
     val scheduledDateColor = when {
-        !isCompleted && task.scheduledDate != null && task.scheduledDate < today -> MaterialTheme.colorScheme.error
-        !isCompleted && task.scheduledDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+        !isCompleted && scheduledDate != null && scheduledDate < today -> MaterialTheme.colorScheme.error
+        !isCompleted && scheduledDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
     }
     val dueDateColor = when {
-        !isCompleted && task.dueDate != null && task.dueDate < today -> MaterialTheme.colorScheme.error
-        !isCompleted && task.dueDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
+        !isCompleted && dueDate != null && dueDate < today -> MaterialTheme.colorScheme.error
+        !isCompleted && dueDate == today -> if (isDark) WarningOrangeOnContainerDark else WarningOrangeOnContainerLight
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
     }
 

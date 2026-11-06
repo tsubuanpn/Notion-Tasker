@@ -47,6 +47,7 @@ import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 import com.notiontasks.app.utils.ScheduleExporter
 import android.content.Intent
 import java.text.SimpleDateFormat
@@ -72,14 +73,14 @@ fun ScheduleScreen(
     var selectedDateStr by remember {
         mutableStateOf(
             selectedCalendarDate.value
-                ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+                ?: JapanTime.todayIso(),
         )
     }
 
     // 現在時刻の状態管理（1分ごとに更新）
     var currentTime by remember { mutableStateOf(Calendar.getInstance()) }
     val isToday = remember(selectedDateStr, currentTime) {
-        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val todayStr = JapanTime.todayIso()
         selectedDateStr == todayStr
     }
 
@@ -111,22 +112,22 @@ fun ScheduleScreen(
                 state.tasks.filter { task ->
                     val statusTrimmed = task.status.trim()
                     val isActive = statusTrimmed == unstartedTrimmed || statusTrimmed == inProgressTrimmed
-                    task.scheduledDate == selectedDateStr ||
-                    (isActive && (task.scheduledDate != null && task.scheduledDate < selectedDateStr)) ||
-                    (isActive && (task.dueDate != null && task.dueDate < selectedDateStr))
+                    JapanTime.projectedDateKey(task.scheduledDate) == selectedDateStr ||
+                    (isActive && (JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true)) ||
+                    (isActive && (JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true))
                 }
                 .sortedWith(
                     compareBy<TaskModel> { task ->
-                        val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
-                        val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
+                        val isOverdueDue = JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true
+                        val isOverdueScheduled = JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true
                         when {
                             isOverdueDue -> 0
                             isOverdueScheduled -> 1
                             else -> 2
                         }
                     }
-                    .thenBy(nullsLast(naturalOrder())) { it.dueDate }
-                    .thenBy(nullsLast(naturalOrder())) { it.scheduledDate }
+                    .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
+                    .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
                     .thenBy { it.id }
                 )
             }
@@ -1017,8 +1018,8 @@ fun ScheduleScreen(
                                                                 fontWeight = FontWeight.Medium
                                                             )
 
-                                                            val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
-                                                            val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
+                                                            val isOverdueDue = JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true
+                                                            val isOverdueScheduled = JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true
 
                                                             if (isOverdueDue) {
                                                                 Surface(

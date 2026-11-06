@@ -25,9 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.UUID
+import com.notiontasks.app.utils.JapanTime
 
 class PomodoroService : Service() {
 
@@ -85,14 +84,14 @@ class PomodoroService : Service() {
 
     fun getCompletedCountToday(): Int {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val todayStr = JapanTime.todayIso()
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         return if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
 
     private fun transitionToNextMode() {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val todayStr = JapanTime.todayIso()
         
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         var pomodoroCompletedCount = if (savedCompletedCountDate == todayStr) {
@@ -467,7 +466,7 @@ class PomodoroService : Service() {
         val totalMinutes = ceil(sessionAccumulatedMs / 60000.0).toInt()
 
         if (totalMinutes > 0) {
-            val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+            val todayStr = JapanTime.todayIso()
 
             val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
             val categoryVal = associatedTaskCategory ?: "一般作業"
