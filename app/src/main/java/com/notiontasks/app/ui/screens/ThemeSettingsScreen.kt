@@ -12,8 +12,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -110,12 +111,22 @@ fun ThemeSettingsScreen(settingsViewModel: SettingsViewModel, navController: Nav
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = dynamicColorEnabled,
+                                role = Role.Switch,
+                                onValueChange = settingsViewModel::toggleDynamicColor,
+                            ),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.settings_theme_dynamic), fontWeight = FontWeight.Bold)
                             Text(stringResource(R.string.settings_theme_dynamic_desc), style = MaterialTheme.typography.bodySmall)
                         }
-                        Switch(checked = dynamicColorEnabled, onCheckedChange = settingsViewModel::toggleDynamicColor)
+                        Switch(checked = dynamicColorEnabled, onCheckedChange = null)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
@@ -127,12 +138,17 @@ fun ThemeSettingsScreen(settingsViewModel: SettingsViewModel, navController: Nav
                 if (!isColorEnabled) {
                     Text("壁紙の色を使用中です。プリセット色は動的カラーをオフにすると選べます。", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    AppThemePalettes.chunked(2).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { palette ->
-                                ThemeColorItem(palette, themeColor == palette.name, settingsViewModel::updateThemeColor)
+                    Column(
+                        modifier = Modifier.selectableGroup(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppThemePalettes.chunked(2).forEach { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { palette ->
+                                    ThemeColorItem(palette, themeColor == palette.name, settingsViewModel::updateThemeColor)
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
                             }
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
@@ -162,12 +178,21 @@ fun ThemeSettingsScreen(settingsViewModel: SettingsViewModel, navController: Nav
 private fun ThemeColorItem(palette: AppThemePalette, isSelected: Boolean, onClick: (String) -> Unit) {
     Surface(
         modifier = Modifier.width(160.dp).heightIn(min = 48.dp),
-        onClick = { onClick(palette.name) },
         shape = RoundedCornerShape(12.dp),
         color = if (isSelected) palette.seed.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surface,
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) palette.seed else MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(
+                    selected = isSelected,
+                    role = Role.RadioButton,
+                    onClick = { onClick(palette.name) },
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Surface(shape = CircleShape, color = palette.seed, modifier = Modifier.size(20.dp)) {
                 if (isSelected) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.padding(3.dp))
             }
