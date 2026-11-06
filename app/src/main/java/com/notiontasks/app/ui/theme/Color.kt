@@ -25,7 +25,7 @@ val AppThemePalettes = listOf(
 
 // Warning / Mochikoshi Colors
 val WarningOrangeContainerLight = Color(0xFFFFF3E0)
-val WarningOrangeOnContainerLight = Color(0xFFE65100)
+val WarningOrangeOnContainerLight = Color(0xFFBF360C)
 val WarningOrangeContainerDark = Color(0xFF4D2B00)
 val WarningOrangeOnContainerDark = Color(0xFFFFB347)
 

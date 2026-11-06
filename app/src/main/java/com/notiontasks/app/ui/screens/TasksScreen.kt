@@ -36,6 +36,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -87,6 +88,7 @@ fun TasksScreen(
         periodMatch && (categories.isEmpty() || task.category in categories) && (statuses.isEmpty() || task.status in statuses) &&
             (query.isBlank() || task.title.contains(query, true) || task.category.contains(query, true))
     }.sortedBy { it.scheduledDate ?: it.dueDate ?: "9999-12-31" }
+    val hasActiveConditions = query.isNotBlank() || periods.isNotEmpty() || categories.isNotEmpty() || statuses.isNotEmpty()
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (searchActive) OutlinedTextField(
@@ -98,6 +100,40 @@ fun TasksScreen(
             Box { FilterChip(selected = categories.isNotEmpty(), onClick = { categoryExpanded = true }, label = { Text("種類${if (categories.isEmpty()) "▼" else "：${categories.size}"}") }); DropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) { categoryOptions.forEach { option -> DropdownMenuItem(text = { Text(if (option.name in categories) "✓ ${option.name}" else option.name) }, onClick = { categories = categories.toggle(option.name) }) } } }
             Box { FilterChip(selected = statuses.isNotEmpty(), onClick = { statusExpanded = true }, label = { Text("状態${if (statuses.isEmpty()) "▼" else "：${statuses.size}"}") }); DropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) { statusOptions.forEach { option -> DropdownMenuItem(text = { Text(if (option.name in statuses) "✓ ${option.name}" else option.name) }, onClick = { statuses = statuses.toggle(option.name) }) } } }
         }
+        if (hasActiveConditions) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!searchActive && query.isNotBlank()) {
+                    FilterChip(
+                        selected = true,
+                        onClick = { query = "" },
+                        label = { Text("検索: $query ×") },
+                    )
+                }
+                periods.sorted().forEach { value ->
+                    FilterChip(selected = true, onClick = { periods = periods - value }, label = { Text("期間: $value ×") })
+                }
+                categories.sorted().forEach { value ->
+                    FilterChip(selected = true, onClick = { categories = categories - value }, label = { Text("種類: $value ×") })
+                }
+                statuses.sorted().forEach { value ->
+                    FilterChip(selected = true, onClick = { statuses = statuses - value }, label = { Text("状態: $value ×") })
+                }
+                TextButton(
+                    onClick = {
+                        query = ""
+                        periods = emptySet()
+                        categories = emptySet()
+                        statuses = emptySet()
+                    },
+                ) {
+                    Text("すべて解除")
+                }
+            }
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
             items(visible, key = { it.id }) { task ->
                 TaskListCard(
@@ -108,7 +144,17 @@ fun TasksScreen(
                     onCycle = { viewModel.cycleTaskStatus(task, statusOptions) },
                 )
             }
-            if (visible.isEmpty()) item { Text("該当するタスクはありません", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 32.dp)) }
+            if (visible.isEmpty()) {
+                item {
+                    val message = when (tasksState) {
+                        TasksUiState.Loading -> "タスクを読み込んでいます"
+                        is TasksUiState.Error -> "タスクを読み込めませんでした。端末のデータを確認してください。"
+                        TasksUiState.Idle -> "タスクはまだありません"
+                        is TasksUiState.Success -> "条件に一致するタスクはありません"
+                    }
+                    Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 32.dp))
+                }
+            }
         }
     }
 }

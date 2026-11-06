@@ -11,6 +11,7 @@ import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
 import io.mockk.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
@@ -197,6 +198,35 @@ class TaskViewModelTest {
             assertEquals(SyncUiState.PendingChanges(2), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun addTask_whileCreateIsInFlight_acceptsOnlyOneRequest() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        every { sharedPrefs.getString("database_id", "") } returns "database"
+        val completion = CompletableDeferred<Unit>()
+        coEvery {
+            repository.createTask(
+                token = any(),
+                databaseId = any(),
+                title = any(),
+                status = any(),
+                category = any(),
+                dueDate = any(),
+                scheduledDate = any(),
+                statusColor = any(),
+                categoryColor = any(),
+            )
+        } coAnswers { completion.await() }
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+
+        viewModel.addTask(title = "同じタスク", category = "仕事")
+        viewModel.addTask(title = "同じタスク", category = "仕事")
+        runCurrent()
+
+        coVerify(exactly = 1) { repository.createTask(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        completion.complete(Unit)
+        advanceUntilIdle()
     }
 
     @Test

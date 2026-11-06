@@ -316,6 +316,20 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun createTask_transientFailure_postsOnceAndQueuesTheOriginalIntent() = runTest {
+        coEvery { notionApi.createPage(any(), any(), any()) } throws IOException("response lost")
+
+        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+
+        coVerify(exactly = 1) { notionApi.createPage(any(), any(), any()) }
+        coVerify {
+            pendingSyncActionDao.insertPendingAction(match { action ->
+                action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
+            })
+        }
+    }
+
+    @Test
     fun syncTasks_permanentPendingFailure_keepsTheUserAction() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,

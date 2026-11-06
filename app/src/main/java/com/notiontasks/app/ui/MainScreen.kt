@@ -102,6 +102,8 @@ fun MainAppScreen(
     val setupCompleted by settingsViewModel.setupCompleted.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val isCreatingTask by viewModel.isCreatingTask.collectAsState()
+    val activeTaskSaveKeys by viewModel.activeTaskSaveKeys.collectAsState()
 
     val context = LocalContext.current
     var boundService by remember { mutableStateOf<PomodoroService?>(null) }
@@ -437,6 +439,7 @@ fun MainAppScreen(
             categoryOptions = categoryOptions,
             statusOptions = statusOptions,
             initialScheduledDate = initialScheduled,
+            isSaving = isCreatingTask,
             onDismiss = { showAddDialogState.value = false },
             onConfirm = { title, cat, status, due, sched ->
                 viewModel.addTask(
@@ -461,6 +464,7 @@ fun MainAppScreen(
             task = task,
             categoryOptions = categoryOptions,
             statusOptions = statusOptions,
+            isSaving = task.id in activeTaskSaveKeys,
             onDismiss = { editingTaskState.value = null },
         ) { title, cat, stat, due, sched ->
             viewModel.updateTask(

@@ -140,6 +140,7 @@ fun ScheduleScreen(
     // ブロックの作成/編集用のダイアログ状態
     var showAddDialog by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<TimeBlock?>(null) }
+    var deleteConfirmationBlock by remember { mutableStateOf<TimeBlock?>(null) }
     var selectedPresetTask by remember { mutableStateOf<TaskModel?>(null) }
     var selectedPresetActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var clickedTimeMinutes by remember { mutableStateOf<Int?>(null) }
@@ -1555,8 +1556,8 @@ fun ScheduleScreen(
                                         val startTot = startHour * 60 + startMin
                                         val endTot = endHour * 60 + endMin
                                         if (endTot <= startTot) {
-                                            val newEnd = startTot + 60
-                                            endHour = (newEnd / 60) % 24
+                                            val newEnd = (startTot + 60).coerceAtMost(1440)
+                                            endHour = newEnd / 60
                                             endMin = newEnd % 60
                                         }
                                     },
@@ -1592,7 +1593,7 @@ fun ScheduleScreen(
                                         endHour = hour
                                         endMin = minute
                                     },
-                                    endHour,
+                                    endHour.coerceAtMost(23),
                                     endMin,
                                     true
                                 ).show()
@@ -1628,8 +1629,8 @@ fun ScheduleScreen(
                                 SuggestionChip(
                                     onClick = {
                                         val startTot = startHour * 60 + startMin
-                                        val endTot = startTot + duration
-                                        endHour = (endTot / 60) % 24
+                                        val endTot = (startTot + duration).coerceAtMost(1440)
+                                        endHour = endTot / 60
                                         endMin = endTot % 60
                                     },
                                     label = { Text("${duration}分") }
@@ -1701,9 +1702,7 @@ fun ScheduleScreen(
                     if (editingBlock != null) {
                         TextButton(
                             onClick = {
-                                viewModel.deleteTimeBlock(context, editingBlock!!.id)
-                                editingBlock = null
-                                showAddDialog = false
+                                deleteConfirmationBlock = editingBlock
                             },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
@@ -1718,6 +1717,36 @@ fun ScheduleScreen(
                     }
                 }
             }
+        )
+    }
+
+    deleteConfirmationBlock?.let { block ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmationBlock = null },
+            title = { Text("予定を削除しますか？") },
+            text = {
+                Text(
+                    "「${block.title}」\n${block.date} ${String.format(Locale.US, "%02d:%02d", block.startTime / 60, block.startTime % 60)}〜${String.format(Locale.US, "%02d:%02d", block.endTime / 60, block.endTime % 60)}\n\nアプリ内の予定と通知だけを削除します。Notion のタスクは削除されません。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteTimeBlock(context, block.id)
+                        deleteConfirmationBlock = null
+                        editingBlock = null
+                        showAddDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text("削除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmationBlock = null }) {
+                    Text("キャンセル")
+                }
+            },
         )
     }
 }

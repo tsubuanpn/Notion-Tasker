@@ -35,6 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -438,6 +444,11 @@ fun NotionSetupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
             )
+            Text(
+                "このアプリは 1 つのタスクデータベースを対象にします。複数ある場合は、利用するデータベースを Notion で選び、その ID を入力してください。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (errorMessage != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -801,6 +812,14 @@ fun MappingSettingsScreen(
         val isAllMapped = metadata != null && propTitle.isNotBlank() && propStatus.isNotBlank() &&
             propCategory.isNotBlank() && propScheduled.isNotBlank() && propDue.isNotBlank() && areStatusValuesValid
 
+        if (!isAllMapped) {
+            Text(
+                "同期を開始するには、タイトル・状態・カテゴリ・予定日・締切日の対応と、重複しない状態値の設定が必要です。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         Button(
             onClick = {
                 val chosenCatProp = metadata?.properties?.get(propCategory)
@@ -1047,11 +1066,22 @@ fun PropertyDropdown(label: String, selected: String, options: List<String>, onS
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = selected.ifBlank { "未選択" }
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("未選択") }, onClick = { onSelect(""); expanded = false })
             displayOptions.filter { it.isNotBlank() }.forEach { name ->
@@ -1070,11 +1100,22 @@ fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = if (selected == "status") "Status型" else "Select型"
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Status型") }, onClick = { onSelect("status"); expanded = false })
             DropdownMenuItem(text = { Text("Select型") }, onClick = { onSelect("select"); expanded = false })
@@ -1809,8 +1850,8 @@ fun LifeActivitySettingsSection(
                                             val startTot = (defaultStartHour * 60) + defaultStartMin
                                             val endTot = (defaultEndHour * 60) + defaultEndMin
                                             if (endTot <= startTot) {
-                                                val newEnd = startTot + (durationValue ?: 30)
-                                                defaultEndHour = (newEnd / 60) % 24
+                                                val newEnd = (startTot + (durationValue ?: 30)).coerceAtMost(1440)
+                                                defaultEndHour = newEnd / 60
                                                 defaultEndMin = newEnd % 60
                                             }
                                         }, defaultStartHour, defaultStartMin, true).show()
@@ -1834,7 +1875,7 @@ fun LifeActivitySettingsSection(
                                         android.app.TimePickerDialog(context, { _, hour, minute ->
                                             defaultEndHour = hour
                                             defaultEndMin = minute
-                                        }, defaultEndHour, defaultEndMin, true).show()
+                                        }, defaultEndHour.coerceAtMost(23), defaultEndMin, true).show()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                                 ) {
@@ -1868,7 +1909,9 @@ fun LifeActivitySettingsSection(
                                 durationMinutes = duration,
                                 color = actColor,
                                 defaultStartTime = startTot,
-                                defaultEndTime = endTot
+                                defaultEndTime = endTot,
+                                // 編集では既存の表示順を変えない。新規は ViewModel が末尾へ配置する。
+                                sortOrder = editingActivity?.sortOrder ?: 0,
                             )
 
                             val changesExistingSchedule = editingActivity != null && (
