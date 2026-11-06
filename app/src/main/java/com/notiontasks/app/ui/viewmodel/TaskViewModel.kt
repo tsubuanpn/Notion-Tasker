@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.util.Calendar
 
@@ -38,6 +40,39 @@ class TaskViewModel(
     private val pomodoroRepository: PomodoroRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
+
+    private val taskSaveMutex = Mutex()
+    private val _activeTaskSaveKeys = MutableStateFlow<Set<String>>(emptySet())
+    val activeTaskSaveKeys: StateFlow<Set<String>> = _activeTaskSaveKeys.asStateFlow()
+    val isCreatingTask: StateFlow<Boolean> = activeTaskSaveKeys
+        .map { CREATE_TASK_SAVE_KEY in it }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false,
+        )
+
+    private fun launchTaskSaveOnce(key: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            val accepted = taskSaveMutex.withLock {
+                if (key in _activeTaskSaveKeys.value) {
+                    false
+                } else {
+                    _activeTaskSaveKeys.value += key
+                    true
+                }
+            }
+            if (!accepted) return@launch
+
+            try {
+                block()
+            } finally {
+                taskSaveMutex.withLock {
+                    _activeTaskSaveKeys.value -= key
+                }
+            }
+        }
+    }
 
     private val _syncPhase = MutableStateFlow<SyncUiState>(SyncUiState.NotConfigured)
     val syncState: StateFlow<SyncUiState> = combine(
@@ -731,7 +766,7 @@ class TaskViewModel(
         val sColor = _statusOptions.value.find { it.name == status }?.color
         val cColor = _categoryOptions.value.find { it.name == category }?.color
 
-        viewModelScope.launch {
+        launchTaskSaveOnce(id) {
             try {
                 repository.updateTask(
                     token = token,
@@ -772,7 +807,7 @@ class TaskViewModel(
         val sColor = _statusOptions.value.find { it.name == finalStatus }?.color
         val cColor = _categoryOptions.value.find { it.name == category.trim() }?.color
 
-        viewModelScope.launch {
+        launchTaskSaveOnce(CREATE_TASK_SAVE_KEY) {
             try {
                 repository.createTask(
                     token = token,
@@ -790,5 +825,9 @@ class TaskViewModel(
                 onFailure(e.message ?: "タスクの作成に失敗しました。")
             }
         }
+    }
+
+    private companion object {
+        const val CREATE_TASK_SAVE_KEY = "create-task"
     }
 }

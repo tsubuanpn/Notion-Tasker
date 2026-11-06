@@ -267,6 +267,7 @@ fun AddTaskDialog(
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
     initialScheduledDate: String = "",
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String?, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
@@ -359,11 +360,23 @@ fun AddTaskDialog(
                 )
             }
             Button(
-                onClick = { if (title.isNotBlank()) onConfirm(title, category, status.ifBlank { null }, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                onClick = { if (title.isNotBlank() && !isSaving) onConfirm(title, category, status.ifBlank { null }, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !isSaving,
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("追加する", fontWeight = FontWeight.Bold) }
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("保存中", fontWeight = FontWeight.Bold)
+                } else {
+                    Text("追加する", fontWeight = FontWeight.Bold)
+                }
+            }
             Text("保存後にNotionへ同期されます", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -404,6 +417,7 @@ fun EditTaskDialog(
     task: TaskModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
@@ -459,9 +473,19 @@ fun EditTaskDialog(
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Clear, contentDescription = "閉じる") }
                     Text("タスクを編集", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     TextButton(
-                        onClick = { if (title.isNotBlank()) onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
-                        enabled = title.isNotBlank(),
-                    ) { Text("保存", fontWeight = FontWeight.Bold) }
+                        onClick = { if (title.isNotBlank() && !isSaving) onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                        enabled = title.isNotBlank() && !isSaving,
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Text("保存", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = title,
