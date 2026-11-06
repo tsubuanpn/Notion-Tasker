@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,6 +58,7 @@ private const val GRID_SNAP_MINUTES = 15
 @Composable
 fun ScheduleScreen(
     viewModel: TaskViewModel,
+    selectedCalendarDate: MutableState<String?>,
     onOpenCalendar: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -68,7 +70,10 @@ fun ScheduleScreen(
 
     // 日付セレクターの状態
     var selectedDateStr by remember {
-        mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
+        mutableStateOf(
+            selectedCalendarDate.value
+                ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+        )
     }
 
     // 現在時刻の状態管理（1分ごとに更新）
@@ -89,6 +94,7 @@ fun ScheduleScreen(
     }
 
     LaunchedEffect(selectedDateStr) {
+        selectedCalendarDate.value = selectedDateStr
         viewModel.autoInitializeDefaultLifeActivities(context, selectedDateStr)
     }
     val displayName = remember(selectedDateStr) {

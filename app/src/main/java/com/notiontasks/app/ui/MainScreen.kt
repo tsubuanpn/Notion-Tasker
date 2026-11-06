@@ -344,7 +344,8 @@ fun MainAppScreen(
             composable(Screen.Schedule.route) {
                 ScheduleScreen(
                     viewModel = viewModel,
-                    onOpenCalendar = { navController.navigate(Screen.Plan.route) { launchSingleTop = true } },
+                    selectedCalendarDate = selectedCalendarDate,
+                    onOpenCalendar = { navController.popBackStack(Screen.Plan.route, inclusive = false) },
                 )
             }
             composable(Screen.Pomodoro.route) {

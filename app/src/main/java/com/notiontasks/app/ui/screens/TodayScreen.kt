@@ -58,7 +58,9 @@ fun TodayScreen(
             val activeTasks = remember(tasks, unstartedStatus, inProgressStatus) {
                 tasks.filter { it.status.trim() == unstartedStatus.trim() || it.status.trim() == inProgressStatus.trim() }
             }
-            val inProgressTask = remember(activeTasks, inProgressStatus) { activeTasks.firstOrNull { it.status.trim() == inProgressStatus.trim() } }
+            val inProgressTask = remember(activeTasks, inProgressStatus) {
+                representativeInProgressTask(activeTasks, inProgressStatus)
+            }
             val dayBlocks = remember(timeBlocks, today) { timeBlocks.filter { it.type == "task" && it.date == today }.sortedBy { it.startTime } }
             val taskById = remember(tasks) { tasks.associateBy { it.id } }
             val upcomingBlocks = remember(dayBlocks, nowMinutes) { dayBlocks.filter { it.endTime >= nowMinutes }.take(2) }
