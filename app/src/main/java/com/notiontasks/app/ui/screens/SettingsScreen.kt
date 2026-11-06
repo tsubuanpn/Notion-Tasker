@@ -438,6 +438,11 @@ fun NotionSetupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
             )
+            Text(
+                "このアプリは 1 つのタスクデータベースを対象にします。複数ある場合は、利用するデータベースを Notion で選び、その ID を入力してください。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (errorMessage != null) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -800,6 +805,14 @@ fun MappingSettingsScreen(
             mappedStatusValues.distinct().size == mappedStatusValues.size
         val isAllMapped = metadata != null && propTitle.isNotBlank() && propStatus.isNotBlank() &&
             propCategory.isNotBlank() && propScheduled.isNotBlank() && propDue.isNotBlank() && areStatusValuesValid
+
+        if (!isAllMapped) {
+            Text(
+                "同期を開始するには、タイトル・状態・カテゴリ・予定日・締切日の対応と、重複しない状態値の設定が必要です。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Button(
             onClick = {
