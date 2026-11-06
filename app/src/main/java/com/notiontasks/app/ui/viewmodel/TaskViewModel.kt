@@ -720,14 +720,13 @@ class TaskViewModel(
         val options = stateOptions.ifEmpty { _statusOptions.value }
         if (options.isEmpty()) return
 
-        val taskStatusTrimmed = task.status.trim()
-        val currentIndex = options.indexOfFirst { it.name.trim() == taskStatusTrimmed }
-        
-        val nextOption = if (currentIndex == -1) {
-            options.first()
-        } else {
-            options[(currentIndex + 1) % options.size]
-        }
+        val nextStatus = nextSupportedTaskStatus(
+            currentStatus = task.status,
+            unstartedStatus = _statusUnstarted.value,
+            inProgressStatus = _statusInProgress.value,
+            completedStatus = _statusCompleted.value,
+        ) ?: return
+        val nextOption = options.firstOrNull { it.name.trim() == nextStatus } ?: return
 
         val token = _notionToken.value
         if (token.isBlank()) return
