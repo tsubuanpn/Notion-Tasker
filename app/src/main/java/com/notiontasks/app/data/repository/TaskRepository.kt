@@ -24,6 +24,7 @@ import com.notiontasks.app.data.remote.dto.DateValue
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionQueryRequest
 import com.notiontasks.app.data.remote.dto.NotionSort
+import com.notiontasks.app.data.remote.dto.NotionDataSourceUpdateRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -34,10 +35,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.IOException
 import java.util.concurrent.CancellationException
+import java.util.UUID
 import retrofit2.HttpException
 
 private const val FULL_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
 private const val REMOTE_SYNC_CURSOR_KEY = "notion_remote_sync_cursor"
+private const val CLIENT_IDENTIFIER_PROPERTY = "Notion Tasker ID"
 
 private class PendingSyncActionException(message: String, cause: Throwable) : IOException(message, cause)
 
@@ -47,6 +50,17 @@ fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
     return try {
         val titleArray = element.jsonObject["title"]?.jsonArray
         titleArray
+            ?.mapNotNull { it.jsonObject["plain_text"]?.jsonPrimitive?.contentOrNull }
+            ?.joinToString("")
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun Map<String, JsonElement>.getRichTextText(propertyName: String): String? {
+    val element = this[propertyName] ?: return null
+    return try {
+        element.jsonObject["rich_text"]?.jsonArray
             ?.mapNotNull { it.jsonObject["plain_text"]?.jsonPrimitive?.contentOrNull }
             ?.joinToString("")
     } catch (_: Exception) {
@@ -110,8 +124,10 @@ class TaskRepository(
     private val syncMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
     private var lastFullSyncAt = 0L
+    private var verifiedClientIdentifierDataSourceId: String? = null
 
     private fun Throwable.isRetryableSyncFailure(): Boolean = when (this) {
+        is PendingSyncActionException -> false
         is IOException -> true
         is HttpException -> code() == 429 || code() >= 500
         else -> false
@@ -148,6 +164,54 @@ class TaskRepository(
 
     fun updateDataSourceId(dataSourceId: String) {
         configuredDataSourceId = dataSourceId.trim()
+        verifiedClientIdentifierDataSourceId = null
+    }
+
+    /** Adds the identifier column once per connected data source without altering other properties. */
+    private suspend fun ensureClientIdentifierProperty(token: String, dataSourceId: String) {
+        if (verifiedClientIdentifierDataSourceId == dataSourceId) return
+
+        val metadata = notionApi.getDataSource(token = "Bearer $token", dataSourceId = dataSourceId)
+        val existing = metadata.properties[CLIENT_IDENTIFIER_PROPERTY]
+        when {
+            existing == null -> notionApi.updateDataSource(
+                token = "Bearer $token",
+                dataSourceId = dataSourceId,
+                request = NotionDataSourceUpdateRequest(
+                    properties = mapOf(
+                        CLIENT_IDENTIFIER_PROPERTY to buildJsonObject {
+                            put("rich_text", buildJsonObject {})
+                        },
+                    ),
+                ),
+            )
+            existing.type != "rich_text" -> throw IllegalArgumentException(
+                "Notionの「$CLIENT_IDENTIFIER_PROPERTY」プロパティはリッチテキスト型である必要があります。型を変更せず、別名のプロパティを作成してください。",
+            )
+        }
+        verifiedClientIdentifierDataSourceId = dataSourceId
+    }
+
+    private suspend fun findCreatedPageByClientIdentifier(
+        token: String,
+        dataSourceId: String,
+        clientIdentifier: String,
+    ): com.notiontasks.app.data.remote.dto.NotionPage? {
+        val response = notionApi.queryDatabase(
+            token = "Bearer $token",
+            dataSourceId = dataSourceId,
+            request = NotionQueryRequest(
+                filter = buildJsonObject {
+                    put("property", CLIENT_IDENTIFIER_PROPERTY)
+                    put("rich_text", buildJsonObject { put("equals", clientIdentifier) })
+                },
+                pageSize = 2,
+            ),
+        )
+        if (response.results.size > 1) {
+            throw IllegalStateException("同じNotion Tasker IDを持つタスクが複数あります。自動再送を停止しました。")
+        }
+        return response.results.singleOrNull()
     }
 
     private suspend fun resolveDataSourceId(token: String, databaseId: String): String {
@@ -620,6 +684,7 @@ class TaskRepository(
         val trimmedCategory = category.trim()
         val authHeader = "Bearer $token"
         var dataSourceId = ""
+        val clientIdentifier = UUID.randomUUID().toString()
         
         fun buildCreatePayload(sType: String): NotionCreateRequest {
             val properties = mutableMapOf<String, PropertyUpdate>()
@@ -639,6 +704,9 @@ class TaskRepository(
             if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) {
                 properties[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
             }
+            properties[CLIENT_IDENTIFIER_PROPERTY] = PropertyUpdate(
+                richText = listOf(RichTextObject(text = TextContent(content = clientIdentifier))),
+            )
 
             return NotionCreateRequest(
                 parent = DatabaseParent(dataSourceId = dataSourceId),
@@ -648,6 +716,7 @@ class TaskRepository(
 
         try {
             dataSourceId = resolveDataSourceId(token, databaseId)
+            ensureClientIdentifierProperty(token, dataSourceId)
             val request = buildCreatePayload(propStatusType)
             val createdPage = notionApi.createPage(token = authHeader, request = request)
             
@@ -675,7 +744,7 @@ class TaskRepository(
             if (firstFailure is CancellationException) throw firstFailure
             if (dataSourceId.isBlank()) {
                 if (!firstFailure.isRetryableSyncFailure()) throw firstFailure
-                val tempId = "pending_" + System.currentTimeMillis()
+                val tempId = "pending_$clientIdentifier"
                 taskDao.upsertTasks(listOf(
                     TaskEntity(
                         id = tempId,
@@ -693,6 +762,7 @@ class TaskRepository(
                     put("title", title)
                     put("status", trimmedStatus)
                     put("category", trimmedCategory)
+                    put("clientIdentifier", clientIdentifier)
                     dueDate?.let { put("dueDate", it) }
                     scheduledDate?.let { put("scheduledDate", it) }
                 }.toString()
@@ -703,7 +773,7 @@ class TaskRepository(
 
             // 応答喪失・429・5xx ではリモート作成済みかを判定できない。別の status/select
             // 型で再POSTすると重複作成し得るため、元の意図を一度だけローカルに保留する。
-            val tempId = "pending_" + System.currentTimeMillis()
+            val tempId = "pending_$clientIdentifier"
             val localEntity = TaskEntity(
                 id = tempId,
                 title = title,
@@ -721,10 +791,14 @@ class TaskRepository(
                 put("title", title)
                 put("status", trimmedStatus)
                 put("category", trimmedCategory)
+                    put("clientIdentifier", clientIdentifier)
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
             enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
+            // A lost create response can already have created the page.  Query by the stable
+            // identifier before one automatic retry; network failure simply leaves it queued.
+            processPendingSyncActionsInternal(token, dataSourceId)
         }
     }
 
@@ -798,6 +872,14 @@ class TaskRepository(
                         val category = payloadObj["category"]?.jsonPrimitive?.content ?: ""
                         val dueDate = payloadObj["dueDate"]?.jsonPrimitive?.contentOrNull
                         val scheduledDate = payloadObj["scheduledDate"]?.jsonPrimitive?.contentOrNull
+                        val clientIdentifier = payloadObj["clientIdentifier"]?.jsonPrimitive?.contentOrNull
+                            ?: throw PendingSyncActionException(
+                                "識別子のない過去のタスク作成は重複防止のため自動再送しません。保留中の変更を確認してください。",
+                                IllegalStateException("CREATE_TASK is missing clientIdentifier"),
+                            )
+
+                        ensureClientIdentifierProperty(token, dataSourceId)
+                        val existing = findCreatedPageByClientIdentifier(token, dataSourceId, clientIdentifier)
 
                         val propMap = mutableMapOf<String, PropertyUpdate>()
                         propMap[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
@@ -805,12 +887,17 @@ class TaskRepository(
                         if (propCategoryName.isNotBlank()) propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
                         if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
                         if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
-
-                        val request = NotionCreateRequest(
-                            parent = DatabaseParent(dataSourceId = dataSourceId),
-                            properties = propMap
+                        propMap[CLIENT_IDENTIFIER_PROPERTY] = PropertyUpdate(
+                            richText = listOf(RichTextObject(text = TextContent(content = clientIdentifier))),
                         )
-                        val created = notionApi.createPage(token = authHeader, request = request)
+
+                        val created = existing ?: notionApi.createPage(
+                            token = authHeader,
+                            request = NotionCreateRequest(
+                                parent = DatabaseParent(dataSourceId = dataSourceId),
+                                properties = propMap,
+                            ),
+                        )
                         
                         // IDマッピングを記録
                         idMapping[action.taskId] = created.id

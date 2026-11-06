@@ -6,6 +6,7 @@ import com.notiontasks.app.data.remote.dto.NotionCreateRequest
 import com.notiontasks.app.data.remote.dto.NotionPage
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionDatabaseInfo
+import com.notiontasks.app.data.remote.dto.NotionDataSourceUpdateRequest
 import com.notiontasks.app.data.remote.dto.NotionQueryRequest
 import retrofit2.http.Body
 import retrofit2.http.Header
@@ -28,6 +29,14 @@ interface NotionApi {
         @Header("Authorization") token: String,
         @Header("Notion-Version") version: String = "2025-09-03",
         @Path("data_source_id") dataSourceId: String,
+    ): NotionDatabaseResponse
+
+    @PATCH("v1/data_sources/{data_source_id}")
+    suspend fun updateDataSource(
+        @Header("Authorization") token: String,
+        @Header("Notion-Version") version: String = "2025-09-03",
+        @Path("data_source_id") dataSourceId: String,
+        @Body request: NotionDataSourceUpdateRequest,
     ): NotionDatabaseResponse
 
     @POST("v1/data_sources/{data_source_id}/query")

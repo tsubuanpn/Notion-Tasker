@@ -5,6 +5,7 @@ import com.notiontasks.app.data.local.PendingSyncActionDao
 import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.TaskDao
+import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.*
 import io.mockk.*
@@ -35,6 +36,15 @@ class TaskRepositoryTest {
     fun setup() {
         repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao)
         repository.updateDataSourceId("data_source")
+        coEvery { notionApi.getDataSource(any(), any(), any()) } returns NotionDatabaseResponse(
+            id = "data_source",
+            properties = mapOf(
+                "Notion Tasker ID" to NotionPropertyMeta(
+                    id = "client_identifier",
+                    type = "rich_text",
+                ),
+            ),
+        )
     }
 
     @Test
@@ -328,6 +338,59 @@ class TaskRepositoryTest {
                 action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
             })
         }
+    }
+
+    @Test
+    fun createTask_writesStableClientIdentifier() = runTest {
+        val requestSlot = slot<NotionCreateRequest>()
+        coEvery { notionApi.createPage(any(), any(), capture(requestSlot)) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+
+        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+
+        val identifier = requestSlot.captured.properties["Notion Tasker ID"]
+            ?.richText
+            ?.singleOrNull()
+            ?.text
+            ?.content
+        assertEquals(true, !identifier.isNullOrBlank())
+    }
+
+    @Test
+    fun pendingCreate_reconcilesExistingPageBeforeRetrying() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"New Task","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+        )
+        val existing = NotionPage(
+            id = "page_123",
+            properties = mapOf(
+                "名前" to buildJsonObject { put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "New Task") }) }) },
+                "状態" to buildJsonObject { put("status", buildJsonObject { put("name", "Todo") }) },
+                "種類" to buildJsonObject { put("select", buildJsonObject { put("name", "Life") }) },
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(results = listOf(existing))
+        coEvery { taskDao.getTaskById("pending_client-123") } returns TaskEntity(
+            id = "pending_client-123",
+            title = "New Task",
+            status = "Todo",
+            category = "Life",
+            dueDate = null,
+            scheduledDate = null,
+        )
+
+        repository.syncTasks("token", "db")
+
+        coVerify(exactly = 0) { notionApi.createPage(any(), any(), any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
+        coVerify { taskDao.upsertTasks(match { it.single().id == "page_123" }) }
     }
 
     @Test
