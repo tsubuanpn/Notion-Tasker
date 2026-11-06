@@ -1556,8 +1556,8 @@ fun ScheduleScreen(
                                         val startTot = startHour * 60 + startMin
                                         val endTot = endHour * 60 + endMin
                                         if (endTot <= startTot) {
-                                            val newEnd = startTot + 60
-                                            endHour = (newEnd / 60) % 24
+                                            val newEnd = (startTot + 60).coerceAtMost(1440)
+                                            endHour = newEnd / 60
                                             endMin = newEnd % 60
                                         }
                                     },
@@ -1593,7 +1593,7 @@ fun ScheduleScreen(
                                         endHour = hour
                                         endMin = minute
                                     },
-                                    endHour,
+                                    endHour.coerceAtMost(23),
                                     endMin,
                                     true
                                 ).show()
@@ -1629,8 +1629,8 @@ fun ScheduleScreen(
                                 SuggestionChip(
                                     onClick = {
                                         val startTot = startHour * 60 + startMin
-                                        val endTot = startTot + duration
-                                        endHour = (endTot / 60) % 24
+                                        val endTot = (startTot + duration).coerceAtMost(1440)
+                                        endHour = endTot / 60
                                         endMin = endTot % 60
                                     },
                                     label = { Text("${duration}分") }

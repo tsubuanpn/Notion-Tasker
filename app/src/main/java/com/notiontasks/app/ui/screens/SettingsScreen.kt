@@ -1809,8 +1809,8 @@ fun LifeActivitySettingsSection(
                                             val startTot = (defaultStartHour * 60) + defaultStartMin
                                             val endTot = (defaultEndHour * 60) + defaultEndMin
                                             if (endTot <= startTot) {
-                                                val newEnd = startTot + (durationValue ?: 30)
-                                                defaultEndHour = (newEnd / 60) % 24
+                                                val newEnd = (startTot + (durationValue ?: 30)).coerceAtMost(1440)
+                                                defaultEndHour = newEnd / 60
                                                 defaultEndMin = newEnd % 60
                                             }
                                         }, defaultStartHour, defaultStartMin, true).show()
@@ -1834,7 +1834,7 @@ fun LifeActivitySettingsSection(
                                         android.app.TimePickerDialog(context, { _, hour, minute ->
                                             defaultEndHour = hour
                                             defaultEndMin = minute
-                                        }, defaultEndHour, defaultEndMin, true).show()
+                                        }, defaultEndHour.coerceAtMost(23), defaultEndMin, true).show()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                                 ) {
