@@ -27,6 +27,8 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private val JAPAN_ZONE: ZoneId = ZoneId.of("Asia/Tokyo")
+
 class TaskNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -54,12 +56,14 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 val database = TaskDatabase.getInstance(context.applicationContext)
                 val allTasks = database.taskDao.getAllTasksFlow().first()
                 
-                val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val todayStr = LocalDate.now(JAPAN_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE)
                 val completedStatus = getSecurePreferences(context).getString("mapping_status_completed", "完了") ?: "完了"
                 
                 when (type) {
                     "MORNING" -> {
-                        val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
+                        val todayTasks = allTasks.filter {
+                            it.scheduledDate == todayStr && it.status != completedStatus
+                        }
                         if (todayTasks.isNotEmpty()) {
                             showNotification(
                                 context = context,
@@ -89,6 +93,12 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                         val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
                         val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
                         val associatedId = intent.getStringExtra("ASSOCIATED_ID")
+                        // タスクに紐づく時間枠は、キャッシュ上で対象タスクが存在し未完了の
+                        // 場合だけ通知する。削除済み・完了済みのタスクを知らせない。
+                        val associatedTask = associatedId?.let { id -> allTasks.find { it.id == id } }
+                        if (blockType == "task" && (associatedTask == null || associatedTask.status == completedStatus)) {
+                            return@launch
+                        }
                         showBlockNotification(
                             context = context,
                             notifId = 3000 + blockId.hashCode(),
@@ -264,7 +274,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             try {
                 val database = TaskDatabase.getInstance(context.applicationContext)
                 val blocks = database.scheduleBlockDao.getAllBlocks()
-                val today = LocalDate.now()
+                val today = LocalDate.now(JAPAN_ZONE)
                 
                 blocks.forEach { entity ->
                     val blockDate = try { LocalDate.parse(entity.date) } catch(_: Exception) { null }
@@ -340,12 +350,12 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             val hour = parts[0].toIntOrNull() ?: return
             val minute = parts[1].toIntOrNull() ?: return
 
-            var scheduledTime = LocalDateTime.of(LocalDate.now(), LocalTime.of(hour, minute))
-            if (scheduledTime.isBefore(LocalDateTime.now())) {
+            var scheduledTime = LocalDateTime.of(LocalDate.now(JAPAN_ZONE), LocalTime.of(hour, minute))
+            if (scheduledTime.isBefore(LocalDateTime.now(JAPAN_ZONE))) {
                 scheduledTime = scheduledTime.plusDays(1)
             }
 
-            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val millis = scheduledTime.atZone(JAPAN_ZONE).toInstant().toEpochMilli()
 
             setExactAlarm(alarmManager, millis, pendingIntent)
         }
@@ -388,11 +398,11 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
             val scheduledTime = LocalDateTime.of(date, LocalTime.of(hour, minute))
 
-            if (scheduledTime.isBefore(LocalDateTime.now())) {
+            if (scheduledTime.isBefore(LocalDateTime.now(JAPAN_ZONE))) {
                 return // すでに過去の時間です
             }
 
-            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val millis = scheduledTime.atZone(JAPAN_ZONE).toInstant().toEpochMilli()
 
             setExactAlarm(alarmManager, millis, pendingIntent)
         }
