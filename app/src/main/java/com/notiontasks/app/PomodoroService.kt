@@ -60,6 +60,10 @@ class PomodoroService : Service() {
     // セッション内での累積作業時間（ミリ秒）
     private var sessionAccumulatedMs: Long = 0L
     private var stopwatchSegmentStartedAtMs: Long? = null
+    private var sessionStartedDate: String? = null
+    private var sessionTaskTitle: String? = null
+    private var sessionTaskCategory: String? = null
+    private var sessionTaskCategoryColor: String? = null
 
     private val sessionPrefs by lazy { getSharedPreferences("pomodoro_prefs", MODE_PRIVATE) }
 
@@ -76,6 +80,10 @@ class PomodoroService : Service() {
             putLong(PREF_SESSION_LEFT_MS, timeLeftMs)
             putLong(PREF_SESSION_FOCUS_START_LEFT_MS, focusStartLeftMs)
             putLong(PREF_SESSION_ACCUMULATED_MS, sessionAccumulatedMs)
+            putString(PREF_SESSION_STARTED_DATE, sessionStartedDate)
+            putString(PREF_SESSION_TASK_TITLE_SNAPSHOT, sessionTaskTitle)
+            putString(PREF_SESSION_TASK_CATEGORY_SNAPSHOT, sessionTaskCategory)
+            putString(PREF_SESSION_TASK_COLOR_SNAPSHOT, sessionTaskCategoryColor)
             putLong(PREF_SESSION_SAVED_AT, System.currentTimeMillis())
             putLong(PREF_SESSION_DEADLINE, if (isRunning && focusType != FOCUS_TYPE_STOPWATCH) System.currentTimeMillis() + timeLeftMs else 0L)
             putString(PREF_SESSION_TASK_ID, associatedTaskId)
@@ -113,6 +121,10 @@ class PomodoroService : Service() {
         timeLeftMs = sessionPrefs.getLong(PREF_SESSION_LEFT_MS, durationMs)
         focusStartLeftMs = sessionPrefs.getLong(PREF_SESSION_FOCUS_START_LEFT_MS, timeLeftMs)
         sessionAccumulatedMs = sessionPrefs.getLong(PREF_SESSION_ACCUMULATED_MS, 0L)
+        sessionStartedDate = sessionPrefs.getString(PREF_SESSION_STARTED_DATE, JapanTime.todayIso())
+        sessionTaskTitle = sessionPrefs.getString(PREF_SESSION_TASK_TITLE_SNAPSHOT, null)
+        sessionTaskCategory = sessionPrefs.getString(PREF_SESSION_TASK_CATEGORY_SNAPSHOT, null)
+        sessionTaskCategoryColor = sessionPrefs.getString(PREF_SESSION_TASK_COLOR_SNAPSHOT, null)
         associatedTaskId = sessionPrefs.getString(PREF_SESSION_TASK_ID, null)
         associatedTaskTitle = sessionPrefs.getString(PREF_SESSION_TASK_TITLE, null)
         associatedTaskCategory = sessionPrefs.getString(PREF_SESSION_TASK_CATEGORY, null)
@@ -309,6 +321,10 @@ class PomodoroService : Service() {
         if (!restoring && currentSessionId == null) {
             currentSessionId = "pomo_session_${UUID.randomUUID()}"
             sessionAccumulatedMs = 0L
+            sessionStartedDate = JapanTime.todayIso()
+            sessionTaskTitle = associatedTaskTitle
+            sessionTaskCategory = associatedTaskCategory
+            sessionTaskCategoryColor = associatedTaskCategoryColor
         }
         
         isRunning = true
@@ -554,12 +570,13 @@ class PomodoroService : Service() {
         val totalMinutes = ceil(sessionAccumulatedMs / 60000.0).toInt()
 
         if (totalMinutes > 0) {
-            val todayStr = JapanTime.todayIso()
+            val startDate = sessionStartedDate ?: JapanTime.todayIso()
 
-            val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
-            val categoryVal = associatedTaskCategory ?: "一般作業"
-            val categoryColorVal = if (!associatedTaskCategoryColor.isNullOrBlank() && associatedTaskCategoryColor != "default") {
-                associatedTaskCategoryColor!!.lowercase()
+            val taskTitleVal = sessionTaskTitle ?: associatedTaskTitle ?: "一般作業の集中セッション"
+            val categoryVal = sessionTaskCategory ?: associatedTaskCategory ?: "一般作業"
+            val snapshotColor = sessionTaskCategoryColor ?: associatedTaskCategoryColor
+            val categoryColorVal = if (!snapshotColor.isNullOrBlank() && snapshotColor != "default") {
+                snapshotColor.lowercase()
             } else {
                 "default"
             }
@@ -573,7 +590,7 @@ class PomodoroService : Service() {
                 taskTitle = taskTitleVal,
                 category = categoryVal,
                 categoryColor = categoryColorVal,
-                date = todayStr,
+                date = startDate,
                 minutes = totalMinutes,
                 timestamp = System.currentTimeMillis(),
                 sessionType = focusType,
@@ -591,10 +608,11 @@ class PomodoroService : Service() {
     }
 
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
+        val taskChanged = associatedTaskId != taskId
         if (isFocusWorkSession()) {
             if (isRunning || isPaused) {
                 // タスクが変更される、または解除される場合、現在のセッション（の累積時間）を確定させる
-                if (associatedTaskId != taskId) {
+                if (taskChanged) {
                     commitFocusSession()
                     // 別のタスクに切り替わる、または解除される場合は新しいセッションIDを発行する
                     currentSessionId = "pomo_session_${UUID.randomUUID()}"
@@ -608,10 +626,18 @@ class PomodoroService : Service() {
         associatedTaskCategory = category
         associatedTaskCategoryColor = categoryColor
 
+        if (taskChanged && (isRunning || isPaused)) {
+            sessionStartedDate = JapanTime.todayIso()
+            sessionTaskTitle = taskTitle
+            sessionTaskCategory = category
+            sessionTaskCategoryColor = categoryColor
+        }
+
         if (isFocusWorkSession() && isRunning) {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
+        persistSessionSnapshot()
         persistSessionSnapshot()
     }
 
@@ -633,6 +659,10 @@ class PomodoroService : Service() {
         currentSessionId = null
         sessionAccumulatedMs = 0L
         stopwatchSegmentStartedAtMs = null
+        sessionStartedDate = null
+        sessionTaskTitle = null
+        sessionTaskCategory = null
+        sessionTaskCategoryColor = null
 
         when (type) {
             FOCUS_TYPE_POMODORO -> updateModeAndDuration("work")
@@ -911,5 +941,9 @@ class PomodoroService : Service() {
         private const val PREF_SESSION_TASK_TITLE = "focus_session_task_title"
         private const val PREF_SESSION_TASK_CATEGORY = "focus_session_task_category"
         private const val PREF_SESSION_TASK_COLOR = "focus_session_task_color"
+        private const val PREF_SESSION_STARTED_DATE = "focus_session_started_date"
+        private const val PREF_SESSION_TASK_TITLE_SNAPSHOT = "focus_session_task_title_snapshot"
+        private const val PREF_SESSION_TASK_CATEGORY_SNAPSHOT = "focus_session_task_category_snapshot"
+        private const val PREF_SESSION_TASK_COLOR_SNAPSHOT = "focus_session_task_color_snapshot"
     }
 }

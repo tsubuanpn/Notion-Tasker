@@ -68,6 +68,7 @@ import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.GroupedPomodoroLog
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.formatDecimal
+import com.notiontasks.app.data.formatFocusSessionCount
 import com.notiontasks.app.data.formatDurationJapanese
 import com.notiontasks.app.data.getCategoryChartColorInCompose
 import com.notiontasks.app.data.groupPomodoroLogs
@@ -1338,7 +1339,7 @@ fun PomodoroStatsSubPage(
                             )
                             val totalMins = dateLogs.sumOf { it.minutes }
                             Text(
-                                text = "合計: ${totalMins / 60}時間${totalMins % 60}分 (${dateLogs.size}回)",
+                                text = "合計: ${totalMins / 60}時間${totalMins % 60}分 (${formatFocusSessionCount(totalMins, workDurationMin)}回)",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1417,9 +1418,8 @@ fun PomodoroStatsSubPage(
                                                         fontSize = 8.sp,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                     )
-                                                    val sessions = group.totalMinutes.toDouble() / workDurationMin
                                                     Text(
-                                                        text = "(${formatDecimal(sessions)}回)",
+                                                        text = "(${formatFocusSessionCount(group.totalMinutes, workDurationMin)}回)",
                                                         fontSize = 8.sp,
                                                         color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f),
                                                         fontWeight = FontWeight.Bold
