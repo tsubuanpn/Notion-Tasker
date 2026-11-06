@@ -79,6 +79,7 @@ fun TodayScreen(
                 Text(SimpleDateFormat("M月d日（E）", Locale.JAPAN).format(Date()), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
                 InProgressSection(
                     task = inProgressTask,
+                    totalCount = activeTasks.count { it.status.trim() == inProgressStatus.trim() },
                     onComplete = inProgressTask?.let { { viewModel.cycleTaskStatus(it, statusOptions) } },
                     onStartFocus = inProgressTask?.let { { onStartFocus(it) } },
                 )
@@ -91,8 +92,8 @@ fun TodayScreen(
 }
 
 @Composable
-private fun InProgressSection(task: TaskModel?, onComplete: (() -> Unit)?, onStartFocus: (() -> Unit)?) {
-    BriefingSectionCard("進行中のタスク", Icons.Default.PlayArrow) {
+private fun InProgressSection(task: TaskModel?, totalCount: Int, onComplete: (() -> Unit)?, onStartFocus: (() -> Unit)?) {
+    BriefingSectionCard("進行中のタスク（${totalCount}件）", Icons.Default.PlayArrow) {
         if (task == null) EmptyBriefingRow("進行中のタスクはありません") else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Default.PlayArrow, "進行中", Modifier.size(42.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape).padding(9.dp), MaterialTheme.colorScheme.primary)
@@ -112,7 +113,7 @@ private fun InProgressSection(task: TaskModel?, onComplete: (() -> Unit)?, onSta
 
 @Composable
 private fun TodayScheduleSection(blocks: List<TimeBlock>, taskById: Map<String, TaskModel>, onOpenPlan: () -> Unit) {
-    BriefingSectionCard("今日の予定", Icons.Default.CalendarMonth, onOpenPlan) {
+    BriefingSectionCard("これからのタスク予定（最大2件）", Icons.Default.CalendarMonth, onOpenPlan) {
         if (blocks.isEmpty()) EmptyBriefingRow("今日の予定はありません") else blocks.forEachIndexed { index, block ->
             val task = block.associatedId?.let(taskById::get)
             ScheduleBriefingRow(task?.title ?: block.title, "${formatTime(block.startTime)} – ${formatTime(block.endTime)}", task?.category.orEmpty(), index == 0, onOpenPlan)
@@ -122,7 +123,7 @@ private fun TodayScheduleSection(blocks: List<TimeBlock>, taskById: Map<String, 
 
 @Composable
 private fun UnplannedSection(tasks: List<TaskModel>, onOpenTasks: () -> Unit) {
-    BriefingSectionCard("未計画", Icons.Default.TaskAlt, onOpenTasks) {
+    BriefingSectionCard("今日に未割当のタスク（最大2件）", Icons.Default.TaskAlt, onOpenTasks) {
         if (tasks.isEmpty()) EmptyBriefingRow("未計画タスクはありません") else tasks.forEach { task ->
             Row(Modifier.fillMaxWidth().clickable(onClick = onOpenTasks).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Default.RadioButtonUnchecked, null, tint = MaterialTheme.colorScheme.outline)
@@ -146,6 +147,9 @@ private fun BriefingSectionCard(title: String, icon: ImageVector, onClick: (() -
                 if (onClick != null) Icon(Icons.Default.ChevronRight, "$title を開く", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             content()
+            if (onClick != null) {
+                Text("一覧を見る", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }
