@@ -411,6 +411,19 @@ fun PomodoroScreen(
                         }
                     }
 
+                    if (focusType == PomodoroService.FOCUS_TYPE_POMODORO) {
+                        Text(
+                            "今日のポモドーロ進行: ${pomodoroCompletedCount}回（4回ごとに長い休憩）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "集中フェーズを完了またはスキップすると、次のフェーズへ1回進みます。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
                     val minutes = timeLeft / 60
                     val seconds = timeLeft % 60
                     val timeStr = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
