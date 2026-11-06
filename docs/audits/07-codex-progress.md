@@ -20,11 +20,11 @@
 | タスク | 状態 | 作業内容 | 変更ファイル | 検証 |
 | --- | --- | --- | --- | --- |
 | T6-001 | 完了 | Git、JDK、Gradle、Android SDK、既存テストとテスト隔離を確認した。 | なし | `testDebugUnitTest lintDebug assembleDebug` 成功 |
-| T6-016 | 完了 | 作成操作と同一タスクの保存操作を実行中キーで直列化し、保存中は送信ボタンを無効化する。 | `TaskViewModel.kt`, `MainScreen.kt`, `TaskComponents.kt`, `TaskViewModelTest.kt` | 重複作成防止テストを追加。全 JVM 41 件、Lint、debug ビルド成功 |
+| T6-016 | 実装済み・実機未検証 | 作成操作と同一タスクの保存操作を実行中キーで直列化し、保存中は送信ボタンを無効化する。 | `TaskViewModel.kt`, `MainScreen.kt`, `TaskComponents.kt`, `TaskViewModelTest.kt` | 重複作成防止テストを追加。全 JVM 41 件、Lint、debug ビルド成功 |
 | T6-017 | 完了 | データソース解決済みの一時 HTTP 失敗時、代替プロパティで再 POST せず、元の作成要求を一度だけ保留キューへ記録する。 | `TaskRepository.kt`, `TaskRepositoryTest.kt` | 単一 POST・保留キュー検証を追加。全 JVM 41 件、Lint、debug ビルド成功 |
-| T6-028 | 完了 | タスク/カレンダーの読込中、DB エラー、データなし、フィルター結果なしを別の表示にした。DB エラー時の同期誘導は追加していない。 | `TasksScreen.kt`, `PlanOverviewScreen.kt` | 既存の状態遷移 JVM テストを確認。全 JVM 41 件、Lint、debug ビルド成功 |
-| T6-029 | 完了 | タスクが未取得または取得エラーでも、振り返り画面から集中記録を開けるようにした。 | `AchievementsScreen.kt` | 全 JVM 41 件、Lint、debug ビルド成功。画面操作の実機検証は未実施 |
-| T6-034 | 完了 | 生活活動プリセットの編集時に既存 `sortOrder` を保持する。新規追加の末尾追加規則は維持する。 | `SettingsScreen.kt` | 既存の順序保存テストを確認。全 JVM 41 件、Lint、debug ビルド成功 |
+| T6-028 | 実装済み・実機未検証 | タスク/カレンダーの読込中、DB エラー、データなし、フィルター結果なしを別の表示にした。DB エラー時の同期誘導は追加していない。 | `TasksScreen.kt`, `PlanOverviewScreen.kt` | 既存の状態遷移 JVM テストを確認。全 JVM 41 件、Lint、debug ビルド成功 |
+| T6-029 | 実装済み・実機未検証 | タスクが未取得または取得エラーでも、振り返り画面から集中記録を開けるようにした。 | `AchievementsScreen.kt` | 全 JVM 41 件、Lint、debug ビルド成功 |
+| T6-034 | 実装済み・実機未検証 | 生活活動プリセットの編集時に既存 `sortOrder` を保持する。新規追加の末尾追加規則は維持する。 | `SettingsScreen.kt` | 既存の順序保存テストを確認。全 JVM 41 件、Lint、debug ビルド成功 |
 
 ## 保留
 
@@ -38,4 +38,5 @@
 
 - 添付の `06-open-questions.md` にある仕様未確定事項には判断を加えていない。
 - Android instrumentation / 実機検証は未実施である。
+- T6-016、T6-028、T6-029、T6-034 は画面操作を含むため、タスク定義の最終完了には実機またはエミュレータでの確認が必要である。
 - 最終一括 `testDebugUnitTest lintDebug assembleDebug` は成功した。Gradle 10 互換性に関する既存の非推奨 API 警告が出力されたが、失敗や Lint エラーはない。
