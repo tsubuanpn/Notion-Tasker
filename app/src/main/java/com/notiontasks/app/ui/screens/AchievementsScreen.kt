@@ -1465,6 +1465,12 @@ fun PomodoroStatsSubPage(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    Text(
+                        text = "合計: ${formatDurationJapanese(totalReportMins)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1514,7 +1520,7 @@ fun PomodoroStatsSubPage(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val chunkedCats = sortedCats.asSequence().take(6).chunked(2).toList()
+                            val chunkedCats = sortedCats.chunked(2)
                             chunkedCats.forEach { rowItems ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1560,7 +1566,7 @@ fun PomodoroStatsSubPage(
                                                 }
                                                 Text(
                                                     text = if (sc.hours > 0) "${sc.hours}時間${sc.minsRemainder}分" else "${sc.minsRemainder}分",
-                                                    fontSize = 8.sp,
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                 )
