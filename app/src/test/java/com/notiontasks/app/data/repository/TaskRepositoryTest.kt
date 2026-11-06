@@ -36,6 +36,7 @@ class TaskRepositoryTest {
     fun setup() {
         repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao)
         repository.updateDataSourceId("data_source")
+        repository.updateConnectionScope("database")
         coEvery { notionApi.getDataSource(any(), any(), any()) } returns NotionDatabaseResponse(
             id = "data_source",
             properties = mapOf(
@@ -94,11 +95,12 @@ class TaskRepositoryTest {
 
         // Assert
         coVerify { 
-            taskDao.syncTasksTransactionally(match { entities ->
+            taskDao.syncTasksTransactionally(eq(databaseId), match { entities ->
                 entities.size == 1 &&
                 entities[0].id == pageId &&
                 entities[0].title == "Sample Task" &&
-                entities[0].status == "In Progress"
+                entities[0].status == "In Progress" &&
+                entities[0].connectionScope == databaseId
             })
         }
     }
@@ -125,7 +127,7 @@ class TaskRepositoryTest {
             // Expected: preserving the existing cache is safer than replacing it with invalid data.
         }
 
-        coVerify(exactly = 0) { taskDao.syncTasksTransactionally(any()) }
+        coVerify(exactly = 0) { taskDao.syncTasksTransactionally(any(), any()) }
     }
 
     @Test
@@ -212,7 +214,7 @@ class TaskRepositoryTest {
         // Assert
         coVerify(exactly = 2) { notionApi.queryDatabase(any(), any(), any(), any()) }
         coVerify { 
-            taskDao.syncTasksTransactionally(match { entities ->
+            taskDao.syncTasksTransactionally(eq(databaseId), match { entities ->
                 entities.size == 2 &&
                 entities.any { it.id == "page_1" && it.title == "Task 1" } &&
                 entities.any { it.id == "page_2" && it.title == "Task 2" }
@@ -366,6 +368,7 @@ class TaskRepositoryTest {
             taskId = "pending_client-123",
             payloadJson = """{"title":"New Task","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
             timestamp = 1L,
+            connectionScope = "db",
         )
         val existing = NotionPage(
             id = "page_123",

@@ -534,6 +534,7 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
+        repository.updateConnectionScope(dbId)
         repository.updateDataSourceId("")
     }
 
@@ -574,6 +575,7 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
+        repository.updateConnectionScope(dbId)
         repository.updateDataSourceId("")
     }
 

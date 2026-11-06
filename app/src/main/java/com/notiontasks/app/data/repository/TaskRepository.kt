@@ -27,6 +27,8 @@ import com.notiontasks.app.data.remote.dto.NotionSort
 import com.notiontasks.app.data.remote.dto.NotionDataSourceUpdateRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -125,6 +127,7 @@ class TaskRepository(
     private val json = Json { ignoreUnknownKeys = true }
     private var lastFullSyncAt = 0L
     private var verifiedClientIdentifierDataSourceId: String? = null
+    private val connectionScope = MutableStateFlow<String?>(null)
 
     private fun Throwable.isRetryableSyncFailure(): Boolean = when (this) {
         is PendingSyncActionException -> false
@@ -138,6 +141,9 @@ class TaskRepository(
         taskId: String,
         payloadJson: String,
     ) {
+        val scope = requireNotNull(connectionScope.value) {
+            "接続先が未確認のため、保留中の変更として保存できません。Notionの接続設定を確認してください。"
+        }
         // 同じ操作は最新の状態だけを残し、オフライン中の連打でキューを肥大化させない。
         pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId)
         pendingSyncActionDao.insertPendingAction(
@@ -146,6 +152,7 @@ class TaskRepository(
                 taskId = taskId,
                 payloadJson = payloadJson,
                 timestamp = System.currentTimeMillis(),
+                connectionScope = scope,
             ),
         )
     }
@@ -165,6 +172,11 @@ class TaskRepository(
     fun updateDataSourceId(dataSourceId: String) {
         configuredDataSourceId = dataSourceId.trim()
         verifiedClientIdentifierDataSourceId = null
+    }
+
+    /** Switches the visible and sendable cache to one explicitly configured database. */
+    fun updateConnectionScope(databaseId: String) {
+        connectionScope.value = databaseId.trim().ifBlank { null }
     }
 
     /** Adds the identifier column once per connected data source without altering other properties. */
@@ -250,9 +262,10 @@ class TaskRepository(
     }
 
     // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
-    val allTasks: Flow<List<TaskModel>> = taskDao.getAllTasksFlow()
-        .map { entities ->
-            entities.map { entity ->
+    val allTasks: Flow<List<TaskModel>> = combine(taskDao.getAllTasksFlow(), connectionScope) { entities, scope ->
+            entities.asSequence()
+                .filter { scope != null && it.connectionScope == scope }
+                .map { entity ->
                 TaskModel(
                     id = entity.id,
                     title = entity.title,
@@ -264,15 +277,17 @@ class TaskRepository(
                     categoryColor = entity.categoryColor,
                 )
             }
+                .toList()
         }
         .flowOn(Dispatchers.Default)
 
-    val pendingActionCount: Flow<Int> = pendingSyncActionDao.pendingActionCountFlow()
+    val pendingActionCount: Flow<Int> = combine(pendingSyncActionDao.getAllPendingActionsFlow(), connectionScope) { actions, scope ->
+        actions.count { scope != null && it.connectionScope == scope }
+    }
         .flowOn(Dispatchers.Default)
 
-    fun getTaskFlowById(id: String): Flow<TaskModel?> = taskDao.getTaskFlowById(id)
-        .map { entity ->
-            entity?.let {
+    fun getTaskFlowById(id: String): Flow<TaskModel?> = combine(taskDao.getTaskFlowById(id), connectionScope) { entity, scope ->
+            entity?.takeIf { scope != null && it.connectionScope == scope }?.let {
                 TaskModel(
                     id = it.id,
                     title = it.title,
@@ -305,6 +320,7 @@ class TaskRepository(
 
     // リモートの Notion DB からタスクのキャッシュを更新し、保留中のオフラインアクションを同期する
     suspend fun syncTasks(token: String, databaseId: String, incremental: Boolean = true) = syncMutex.withLock {
+        updateConnectionScope(databaseId)
         val authHeader = "Bearer $token"
         val dataSourceId = resolveDataSourceId(token, databaseId)
         
@@ -380,7 +396,8 @@ class TaskRepository(
                         scheduledDate = page.properties.getDateValue(propScheduledDateName),
                         statusColor = statusColorVal,
                         categoryColor = categoryColorVal,
-                        lastEditedTime = editedTime
+                        lastEditedTime = editedTime,
+                        connectionScope = databaseId,
                     )
                 }
                 allFetchedEntities.addAll(pageEntities)
@@ -399,7 +416,7 @@ class TaskRepository(
             if (!performFullSync && lastSync > 0) {
                 taskDao.upsertTasks(allFetchedEntities)
             } else {
-                taskDao.syncTasksTransactionally(allFetchedEntities)
+                taskDao.syncTasksTransactionally(databaseId, allFetchedEntities)
                 lastFullSyncAt = now
             }
             if (latestRemoteEditTime > 0L) {
@@ -559,6 +576,7 @@ class TaskRepository(
             statusColor = finalStatusColor,
             categoryColor = finalCategoryColor,
             lastEditedTime = System.currentTimeMillis(),
+            connectionScope = connectionScope.value,
         )
         taskDao.upsertTasks(listOf(updatedLocalRef))
 
@@ -738,6 +756,7 @@ class TaskRepository(
                 statusColor = apiStatusColor ?: statusColor,
                 categoryColor = apiCategoryColor ?: categoryColor,
                 lastEditedTime = System.currentTimeMillis(),
+                connectionScope = connectionScope.value,
             )
             taskDao.upsertTasks(listOf(localEntity))
         } catch (firstFailure: Exception) {
@@ -756,6 +775,7 @@ class TaskRepository(
                         statusColor = statusColor,
                         categoryColor = categoryColor,
                         lastEditedTime = System.currentTimeMillis(),
+                        connectionScope = connectionScope.value,
                     ),
                 ))
                 val actionPayload = buildJsonObject {
@@ -784,6 +804,7 @@ class TaskRepository(
                 statusColor = statusColor,
                 categoryColor = categoryColor,
                 lastEditedTime = System.currentTimeMillis(),
+                connectionScope = connectionScope.value,
             )
             taskDao.upsertTasks(listOf(localEntity))
 
@@ -804,7 +825,9 @@ class TaskRepository(
 
     // 保留中のオフライン同期アクションを順次処理
     private suspend fun processPendingSyncActionsInternal(token: String, dataSourceId: String) {
+        val scope = connectionScope.value ?: return
         val pendingActions = pendingSyncActionDao.getAllPendingActions()
+            .filter { it.connectionScope == scope }
         if (pendingActions.isEmpty()) return
 
         val authHeader = "Bearer $token"
@@ -915,6 +938,7 @@ class TaskRepository(
                                 dueDate = dueDate,
                                 scheduledDate = scheduledDate,
                                 lastEditedTime = System.currentTimeMillis(),
+                                connectionScope = scope,
                             )
                         ))
                     }

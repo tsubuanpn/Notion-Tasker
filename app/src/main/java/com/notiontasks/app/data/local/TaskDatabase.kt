@@ -16,6 +16,8 @@ data class TaskEntity(
     val statusColor: String? = null,
     val categoryColor: String? = null,
     val lastEditedTime: Long = 0L,
+    /** Database ID that last verified this row. Null means legacy/unknown and is never sent. */
+    val connectionScope: String? = null,
 )
 
 @Entity(tableName = "pomodoro_logs")
@@ -64,6 +66,8 @@ data class PendingSyncActionEntity(
     val taskId: String,
     val payloadJson: String,
     val timestamp: Long,
+    /** Database ID that owned this operation when it was queued. */
+    val connectionScope: String? = null,
 )
 
 /** リモート由来の同期時刻だけを保持するためのメタデータです。 */
@@ -85,13 +89,13 @@ interface TaskDao {
     @Upsert
     suspend fun upsertTasks(tasks: List<TaskEntity>)
 
-    @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
-    suspend fun deleteTasksNotInList(ids: List<String>)
+    @Query("DELETE FROM tasks WHERE connectionScope = :connectionScope AND id NOT IN (:ids)")
+    suspend fun deleteTasksNotInList(connectionScope: String, ids: List<String>)
 
     @Transaction
-    suspend fun syncTasksTransactionally(activeEntities: List<TaskEntity>) {
+    suspend fun syncTasksTransactionally(connectionScope: String, activeEntities: List<TaskEntity>) {
         upsertTasks(activeEntities)
-        deleteTasksNotInList(activeEntities.map { it.id })
+        deleteTasksNotInList(connectionScope, activeEntities.map { it.id })
     }
 
     @Query("DELETE FROM tasks")
@@ -206,6 +210,9 @@ interface PendingSyncActionDao {
     fun pendingActionCountFlow(): Flow<Int>
 
     @Query("SELECT * FROM pending_sync_actions ORDER BY timestamp ASC")
+    fun getAllPendingActionsFlow(): Flow<List<PendingSyncActionEntity>>
+
+    @Query("SELECT * FROM pending_sync_actions ORDER BY timestamp ASC")
     suspend fun getAllPendingActions(): List<PendingSyncActionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -240,7 +247,7 @@ interface SyncMetadataDao {
         PendingSyncActionEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -281,9 +288,17 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Old rows have no trustworthy connection ownership, so retain them as unowned. */
+        private val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN connectionScope TEXT")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN connectionScope TEXT")
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
 
         /** 本番と同じ移行設定を使う、名前を分離したインストルメンテーションテスト用DB。 */

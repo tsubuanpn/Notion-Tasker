@@ -64,7 +64,13 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 createNotificationChannel(context)
                 
                 val database = TaskDatabase.getInstance(context.applicationContext)
+                val currentConnectionScope = getSecurePreferences(context)
+                    .getString("database_id", "")
+                    ?.trim()
+                    .orEmpty()
+                // Old cache rows without a verified connection must never trigger notifications.
                 val allTasks = database.taskDao.getAllTasksFlow().first()
+                    .filter { currentConnectionScope.isNotBlank() && it.connectionScope == currentConnectionScope }
                 
                 val todayStr = LocalDate.now(JAPAN_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE)
                 val completedStatus = getSecurePreferences(context).getString("mapping_status_completed", "完了") ?: "完了"
