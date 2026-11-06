@@ -879,7 +879,6 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
                 IntentCompat.getParcelableExtra(intent, RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
             }
             uriStr = picked?.toString() ?: ""
-            prefs.edit { putString("alarm_uri", uriStr) }
         }
     }
 
@@ -892,7 +891,7 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                "時間設定は保存後、次に開始するセッションから反映されます。実行中のタイマーは変更されません。",
+                "集中・休憩時間とアラーム音は、保存後に次のセッションから反映されます。実行中のタイマーは変更されません。",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -954,7 +953,12 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
             OutlinedButton(onClick = { work = 25; sBreak = 5; lBreak = 15 }, Modifier.weight(1f)) { Text(stringResource(R.string.settings_pomodoro_default)) }
             Button(
                 onClick = {
-                    prefs.edit { putInt("work_duration_min", work); putInt("short_break_duration_min", sBreak); putInt("long_break_duration_min", lBreak) }
+                    prefs.edit {
+                        putInt("work_duration_min", work)
+                        putInt("short_break_duration_min", sBreak)
+                        putInt("long_break_duration_min", lBreak)
+                        putString("alarm_uri", uriStr)
+                    }
                     navController.popBackStack()
                 },
                 Modifier.weight(1f),
