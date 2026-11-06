@@ -1868,7 +1868,9 @@ fun LifeActivitySettingsSection(
                                 durationMinutes = duration,
                                 color = actColor,
                                 defaultStartTime = startTot,
-                                defaultEndTime = endTot
+                                defaultEndTime = endTot,
+                                // 編集では既存の表示順を変えない。新規は ViewModel が末尾へ配置する。
+                                sortOrder = editingActivity?.sortOrder ?: 0,
                             )
 
                             val changesExistingSchedule = editingActivity != null && (
