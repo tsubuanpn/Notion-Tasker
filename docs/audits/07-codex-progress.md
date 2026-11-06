@@ -40,3 +40,9 @@
 - Android instrumentation / 実機検証は未実施である。
 - T6-016、T6-028、T6-029、T6-034 は画面操作を含むため、タスク定義の最終完了には実機またはエミュレータでの確認が必要である。
 - 最終一括 `testDebugUnitTest lintDebug assembleDebug` は成功した。Gradle 10 互換性に関する既存の非推奨 API 警告が出力されたが、失敗や Lint エラーはない。
+
+## 実機代替の確認
+
+- Android Emulator 37.2.13 はクラウド SDK に導入した。
+- `emulator -accel-check` は終了コード 3 で `KVM requires a CPU that supports vmx or svm` を返した。`/dev/kvm` も利用できない。
+- API 35 Google APIs system image の取得を試みたが、完了前に停止した。KVM 非対応のソフトウェアエミュレーションは、この環境で回帰試験に使える性能・安定性を確認できないため AVD は作成していない。
