@@ -203,8 +203,13 @@ fun PlanOverviewScreen(
         }
         if (selectedTasks.isEmpty()) {
             item {
+                val message = when (tasksState) {
+                    TasksUiState.Loading -> "カレンダーを読み込んでいます"
+                    is TasksUiState.Error -> "タスクを読み込めませんでした。端末のデータを確認してください。"
+                    TasksUiState.Idle, is TasksUiState.Success -> "この日のタスクはありません。"
+                }
                 Text(
-                    "この日のタスクはありません。",
+                    message,
                     modifier = Modifier.padding(vertical = 24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

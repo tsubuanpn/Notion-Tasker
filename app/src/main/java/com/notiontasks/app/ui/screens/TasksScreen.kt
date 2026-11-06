@@ -108,7 +108,17 @@ fun TasksScreen(
                     onCycle = { viewModel.cycleTaskStatus(task, statusOptions) },
                 )
             }
-            if (visible.isEmpty()) item { Text("該当するタスクはありません", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 32.dp)) }
+            if (visible.isEmpty()) {
+                item {
+                    val message = when (tasksState) {
+                        TasksUiState.Loading -> "タスクを読み込んでいます"
+                        is TasksUiState.Error -> "タスクを読み込めませんでした。端末のデータを確認してください。"
+                        TasksUiState.Idle -> "タスクはまだありません"
+                        is TasksUiState.Success -> "条件に一致するタスクはありません"
+                    }
+                    Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 32.dp))
+                }
+            }
         }
     }
 }
