@@ -284,6 +284,7 @@ class TaskRepositoryTest {
 
         // Assert
         coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
+        coVerify(exactly = 1) { notionApi.updatePage(any(), any(), pageId, any()) }
         coVerify { 
             pendingSyncActionDao.insertPendingAction(match { action ->
                 action.actionType == "UPDATE_STATUS" &&

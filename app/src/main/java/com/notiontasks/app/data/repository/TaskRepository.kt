@@ -411,6 +411,15 @@ class TaskRepository(
             }
         } catch (firstFailure: Exception) {
             if (firstFailure is CancellationException) throw firstFailure
+            if (firstFailure.isRetryableSyncFailure()) {
+                // 接続断・429・サーバー障害では最初の PATCH が到達したか判別できない。
+                // 型を替えた再送は同じ意図を二度適用し得るため、元の操作だけを保留する。
+                val actionPayload = buildJsonObject {
+                    put("newStatus", trimmedStatus)
+                }.toString()
+                enqueuePendingAction("UPDATE_STATUS", pageId, actionPayload)
+                return@withLock
+            }
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
             try {
