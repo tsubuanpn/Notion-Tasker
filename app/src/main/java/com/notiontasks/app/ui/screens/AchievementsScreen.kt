@@ -82,7 +82,10 @@ import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
-import java.util.Calendar
+import com.notiontasks.app.utils.JapanTime
+import java.time.Instant
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private data class AchievementsData(
@@ -235,52 +238,11 @@ fun AchievementsScreen(
             is TasksUiState.Success -> {
                 val todayStr = rememberJapanToday()
 
-                val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
-                val startOfWeekCal = remember {
-                    Calendar.getInstance().apply {
-                        firstDayOfWeek = Calendar.MONDAY
-                        val day = get(Calendar.DAY_OF_WEEK)
-                        val diff = if (day == Calendar.SUNDAY) -6 else Calendar.MONDAY - day
-                        add(Calendar.DAY_OF_MONTH, diff)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                }
-                val endOfWeekCal = remember(startOfWeekCal) {
-                    Calendar.getInstance().apply {
-                        timeInMillis = startOfWeekCal.timeInMillis
-                        add(Calendar.DAY_OF_MONTH, 6)
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                        set(Calendar.MILLISECOND, 999)
-                    }
-                }
-                val startOfWeekStr = remember(startOfWeekCal) { sdf.format(startOfWeekCal.time) }
-                val endOfWeekStr = remember(endOfWeekCal) { sdf.format(endOfWeekCal.time) }
-
-                val startOfMonthCal = remember {
-                    Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_MONTH, 1)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                }
-                val endOfMonthCal = remember {
-                    Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                        set(Calendar.MILLISECOND, 999)
-                    }
-                }
-                val startOfMonthStr = remember(startOfMonthCal) { sdf.format(startOfMonthCal.time) }
-                val endOfMonthStr = remember(endOfMonthCal) { sdf.format(endOfMonthCal.time) }
+                val today = remember(todayStr) { LocalDate.parse(todayStr) }
+                val startOfWeekStr = remember(today) { JapanTime.startOfWeek(today).toString() }
+                val endOfWeekStr = remember(today) { JapanTime.endOfWeek(today).toString() }
+                val startOfMonthStr = remember(today) { today.withDayOfMonth(1).toString() }
+                val endOfMonthStr = remember(today) { today.withDayOfMonth(today.lengthOfMonth()).toString() }
 
                 // 1. 期限切れ、持ち越し、週、月、および警告の計算を remember で最適化
                 val achievementsData = remember(
@@ -749,22 +711,13 @@ private fun ReviewOverview(
     var period by remember { mutableStateOf("today") }
     val today = rememberJapanToday()
     val bounds = remember(period, today) {
-        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-        val calendar = Calendar.getInstance()
+        val date = LocalDate.parse(today)
         when (period) {
             "week" -> {
-                calendar.firstDayOfWeek = Calendar.MONDAY
-                val day = calendar.get(Calendar.DAY_OF_WEEK)
-                calendar.add(Calendar.DAY_OF_MONTH, if (day == Calendar.SUNDAY) -6 else Calendar.MONDAY - day)
-                val start = formatter.format(calendar.time)
-                calendar.add(Calendar.DAY_OF_MONTH, 6)
-                Triple(start, formatter.format(calendar.time), "今週")
+                Triple(JapanTime.startOfWeek(date).toString(), JapanTime.endOfWeek(date).toString(), "今週")
             }
             "month" -> {
-                calendar.set(Calendar.DAY_OF_MONTH, 1)
-                val start = formatter.format(calendar.time)
-                calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
-                Triple(start, formatter.format(calendar.time), "今月")
+                Triple(date.withDayOfMonth(1).toString(), date.withDayOfMonth(date.lengthOfMonth()).toString(), "今月")
             }
             else -> Triple(today, today, "今日")
         }
@@ -957,29 +910,12 @@ fun PomodoroStatsSubPage(
 
     var weekOffset by remember { mutableIntStateOf(0) }
 
-    val thisWeekDays = remember(weekOffset) {
-        val list = mutableListOf<Pair<String, String>>()
-        val sdfLabel = java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault())
-        val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-        
-        val cal = Calendar.getInstance()
-        val offsetToMonday = when (cal[Calendar.DAY_OF_WEEK]) {
-            Calendar.SUNDAY -> -6
-            Calendar.MONDAY -> 0
-            Calendar.TUESDAY -> -1
-            Calendar.WEDNESDAY -> -2
-            Calendar.THURSDAY -> -3
-            Calendar.FRIDAY -> -4
-            Calendar.SATURDAY -> -5
-            else -> 0
+    val thisWeekDays = remember(todayStr, weekOffset) {
+        val start = JapanTime.startOfWeek(LocalDate.parse(todayStr)).plusWeeks(weekOffset.toLong())
+        List(7) { index ->
+            val day = start.plusDays(index.toLong())
+            "%02d/%02d".format(java.util.Locale.getDefault(), day.monthValue, day.dayOfMonth) to day.toString()
         }
-        cal.add(Calendar.DAY_OF_MONTH, offsetToMonday + (weekOffset * 7))
-        
-        repeat(7) {
-            list.add(Pair(sdfLabel.format(cal.time), sdfIso.format(cal.time)))
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-        }
-        list
     }
 
     var selectedDate by remember { mutableStateOf<String?>(todayStr) }
@@ -1032,6 +968,13 @@ fun PomodoroStatsSubPage(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
+            Text(
+                text = "集中記録はこの端末だけに保存され、Notionには同期されません。設定した保持期間を過ぎた記録は端末から削除されます。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -1299,16 +1242,9 @@ fun PomodoroStatsSubPage(
             selectedDate?.let { selDate ->
                 val dateLogs = remember(pomodoroLogs, selDate) { pomodoroLogs.filter { it.date == selDate } }
                 val formattedSelectedDate = remember(selDate) {
-                    try {
-                        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(selDate)
-                        if (date != null) {
-                            java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault()).format(date)
-                        } else {
-                            selDate
-                        }
-                    } catch (_: Exception) {
-                        selDate
-                    }
+                    runCatching {
+                        LocalDate.parse(selDate).format(DateTimeFormatter.ofPattern("M月d日", java.util.Locale.getDefault()))
+                    }.getOrDefault(selDate)
                 }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1359,8 +1295,10 @@ fun PomodoroStatsSubPage(
                                 groupedLogs.forEach { group ->
                                     val colorName = group.categoryColor ?: categoryColorMap[group.category]
                                     val catColor = getCategoryChartColorInCompose(colorName)
-                                    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
-                                    val timeRange = "${timeFormat.format(group.startTime)} - ${timeFormat.format(group.endTime)}"
+                                    val timeFormat = remember {
+                                        DateTimeFormatter.ofPattern("HH:mm", java.util.Locale.getDefault()).withZone(JapanTime.zoneId)
+                                    }
+                                    val timeRange = "${timeFormat.format(Instant.ofEpochMilli(group.startTime))} - ${timeFormat.format(Instant.ofEpochMilli(group.endTime))}"
 
                                     Row(
                                         modifier = Modifier
