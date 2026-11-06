@@ -260,6 +260,19 @@ fun EmptyStateView(
     }
 }
 
+internal fun datePickerInitialCalendar(
+    selectedDate: String,
+    fallback: Calendar = Calendar.getInstance(),
+): Calendar {
+    if (selectedDate.isBlank()) return fallback
+    val parsed = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            isLenient = false
+        }.parse(selectedDate)
+    }.getOrNull() ?: return fallback
+    return Calendar.getInstance().apply { time = parsed }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTaskDialog(
@@ -280,7 +293,7 @@ fun AddTaskDialog(
     var isStatusDropdownExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val calendar = Calendar.getInstance()
+    val dueDateCalendar = remember(dueDate) { datePickerInitialCalendar(dueDate) }
     val dueDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -288,10 +301,11 @@ fun AddTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        dueDateCalendar.get(Calendar.YEAR),
+        dueDateCalendar.get(Calendar.MONTH),
+        dueDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
+    val scheduledDateCalendar = remember(scheduledDate) { datePickerInitialCalendar(scheduledDate) }
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -299,9 +313,9 @@ fun AddTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        scheduledDateCalendar.get(Calendar.YEAR),
+        scheduledDateCalendar.get(Calendar.MONTH),
+        scheduledDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
     ModalBottomSheet(
@@ -350,12 +364,14 @@ fun AddTaskDialog(
                     label = "予定",
                     value = scheduledDate.ifBlank { "予定なし" },
                     modifier = Modifier.weight(1f),
+                    onClear = scheduledDate.takeIf { it.isNotBlank() }?.let { { scheduledDate = "" } },
                     onClick = { scheduledDatePickerDialog.show() },
                 )
                 QuickAddChoice(
                     label = "締切",
                     value = dueDate.ifBlank { "未設定" },
                     modifier = Modifier.weight(1f),
+                    onClear = dueDate.takeIf { it.isNotBlank() }?.let { { dueDate = "" } },
                     onClick = { dueDatePickerDialog.show() },
                 )
             }
@@ -431,7 +447,7 @@ fun EditTaskDialog(
 
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val calendar = Calendar.getInstance()
+    val dueDateCalendar = remember(dueDate) { datePickerInitialCalendar(dueDate) }
 
     val dueDatePickerDialog = DatePickerDialog(
         context,
@@ -440,11 +456,12 @@ fun EditTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        dueDateCalendar.get(Calendar.YEAR),
+        dueDateCalendar.get(Calendar.MONTH),
+        dueDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
+    val scheduledDateCalendar = remember(scheduledDate) { datePickerInitialCalendar(scheduledDate) }
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -452,9 +469,9 @@ fun EditTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        scheduledDateCalendar.get(Calendar.YEAR),
+        scheduledDateCalendar.get(Calendar.MONTH),
+        scheduledDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
     Dialog(
