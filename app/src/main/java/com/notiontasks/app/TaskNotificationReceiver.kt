@@ -36,6 +36,15 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         if ((intent.action == Intent.ACTION_BOOT_COMPLETED) || 
             (intent.action == "android.intent.action.BOOT_COMPLETED") || 
             (intent.action == "android.intent.action.QUICKBOOT_POWERON")) {
+            val focusPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+            if (focusPrefs.getBoolean(PomodoroService.PREF_SESSION_ACTIVE, false)) {
+                runCatching {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, PomodoroService::class.java).setAction(PomodoroService.ACTION_RESTORE),
+                    )
+                }
+            }
             val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
