@@ -827,6 +827,11 @@ private fun ReviewOverview(
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${bounds.third}の振り返り", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text(summary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(
+                        "予定日・締切日を基準に、現在のタスク状態から集計しています。実際の完了日時の履歴ではありません。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("$completedCount / ${periodTasks.size} 件完了", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
