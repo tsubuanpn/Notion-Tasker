@@ -219,8 +219,7 @@ class PomodoroService : Service() {
                 }
                 ACTION_START_NEXT -> {
                     stopRingtonePlayback()
-                    onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
-                    startTimer()
+                    restartFromCompletionNotification()
                 }
             }
         }
@@ -279,6 +278,27 @@ class PomodoroService : Service() {
                 handleSessionFinished()
             }
         }.start()
+    }
+
+    /**
+     * 完了通知からの再開は、通常の画面の「開始」と同じ残り時間を使う。
+     * 完了した指定時間タイマーだけは 0 秒のまま CountDownTimer を作らないよう、
+     * 設定済みの duration から新しい区間を開始する。ポモドーロは完了時に次の
+     * フェーズへ遷移済みなので、その時間を維持する。ストップウォッチには完了通知
+     * がないため、古い PendingIntent を受けても新たな計測を開始しない。
+     */
+    private fun restartFromCompletionNotification() {
+        if (isRunning || focusType == FOCUS_TYPE_STOPWATCH) return
+
+        if (focusType == FOCUS_TYPE_TIMER && !isPaused) {
+            timeLeftMs = durationMs
+        }
+        if (focusType == FOCUS_TYPE_POMODORO && !isPaused && timeLeftMs <= 0L) {
+            timeLeftMs = durationMs
+        }
+
+        onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
+        startTimer()
     }
 
     private fun handleSessionFinished() {
