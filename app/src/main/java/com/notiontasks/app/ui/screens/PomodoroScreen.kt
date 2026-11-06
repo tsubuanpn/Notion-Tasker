@@ -862,6 +862,11 @@ private fun FocusTaskSelector(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    "候補: 締切超過・予定日超過・今日が予定日の未完了タスク",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (onCompleteTask != null) {
                 OutlinedButton(onClick = onCompleteTask) {
@@ -883,6 +888,11 @@ private fun FocusTaskSelector(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("集中するタスク", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "締切超過、予定日超過、または今日が予定日の未完了タスクを表示しています。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedButton(
                     onClick = {
                         onSelectTask(null)
@@ -893,6 +903,9 @@ private fun FocusTaskSelector(
                     Text("タスクを選択しない（一般作業）")
                 }
                 LazyColumn(modifier = Modifier.height(320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (availableTasks.isEmpty()) {
+                        item { Text("表示対象のタスクはありません。一般作業として開始できます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                     items(availableTasks, key = { it.id }) { task ->
                         Card(
                             modifier = Modifier
