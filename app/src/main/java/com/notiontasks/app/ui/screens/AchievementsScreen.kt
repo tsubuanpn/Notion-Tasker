@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -871,7 +872,11 @@ private fun ReviewOverview(
                             Text(if (attentionCount > 0) "対応が必要なタスク" else "計画の状態", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(if (attentionCount > 0) "${attentionCount}件の期限切れ・持ち越しがあります" else "期限切れ・持ち越しはありません", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                         }
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = if (attentionCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = if (attentionCount > 0) Icons.Default.WarningAmber else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = if (attentionCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
                     }
                     attentionTasks.forEach { task ->
                         TaskListCard(
