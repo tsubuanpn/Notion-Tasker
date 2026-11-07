@@ -548,6 +548,24 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun retryPermanentFailure_doesNotRetryActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 3,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+            state = "PERMANENT_FAILURE",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+
+        assertFalse(repository.retryPermanentFailure(otherScopeAction.id))
+
+        coVerify(exactly = 0) { pendingSyncActionDao.retryPermanentFailure(any(), any()) }
+    }
+
+    @Test
     fun cleanupCompletedTasks_limitsRetentionCleanupToCurrentConnectionScope() = runTest {
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
 

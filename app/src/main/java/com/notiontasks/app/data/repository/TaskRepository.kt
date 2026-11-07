@@ -372,7 +372,13 @@ class TaskRepository(
     ) { actions, scope -> actions.filter { scope != null && it.connectionScope == scope } }
         .flowOn(Dispatchers.Default)
 
-    suspend fun retryPermanentFailure(id: Long): Boolean = pendingSyncActionDao.retryPermanentFailure(id) > 0
+    suspend fun retryPermanentFailure(id: Long): Boolean {
+        val scope = connectionScope.value ?: return false
+        val action = pendingSyncActionDao.getAllPendingActions().firstOrNull { it.id == id }
+            ?: return false
+        if (action.state != "PERMANENT_FAILURE" || action.connectionScope != scope) return false
+        return pendingSyncActionDao.retryPermanentFailure(id, scope) > 0
+    }
 
     suspend fun discardPermanentFailure(id: Long): Boolean {
         val action = pendingSyncActionDao.getAllPendingActions().firstOrNull { it.id == id }

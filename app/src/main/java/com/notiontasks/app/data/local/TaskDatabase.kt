@@ -287,8 +287,8 @@ interface PendingSyncActionDao {
     @Query("SELECT * FROM pending_sync_actions WHERE state = 'PERMANENT_FAILURE' ORDER BY timestamp ASC")
     fun getPermanentFailuresFlow(): Flow<List<PendingSyncActionEntity>>
 
-    @Query("UPDATE pending_sync_actions SET state = 'PENDING', lastError = NULL WHERE id = :id AND state = 'PERMANENT_FAILURE'")
-    suspend fun retryPermanentFailure(id: Long): Int
+    @Query("UPDATE pending_sync_actions SET state = 'PENDING', lastError = NULL WHERE id = :id AND connectionScope = :connectionScope AND state = 'PERMANENT_FAILURE'")
+    suspend fun retryPermanentFailure(id: Long, connectionScope: String): Int
 
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
