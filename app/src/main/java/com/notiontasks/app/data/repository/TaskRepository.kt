@@ -492,17 +492,21 @@ class TaskRepository(
      */
     suspend fun cleanupCompletedTasks(keepType: String, keepValue: Int) {
         val completed = propStatusCompletedName
+        val scope = connectionScope.value ?: return
+        val protectedIds = pendingSyncActionDao.getAllPendingActions()
+            .filter { it.connectionScope == scope }
+            .map { it.taskId }
         when (keepType) {
             "date" -> {
                 if (keepValue > 0) {
                     val cal = java.util.Calendar.getInstance()
                     cal.add(java.util.Calendar.MONTH, -keepValue)
-                    taskDao.deleteCompletedTasksBefore(completed, cal.timeInMillis)
+                    taskDao.deleteCompletedTasksBefore(completed, cal.timeInMillis, protectedIds)
                 }
             }
             "count" -> {
                 if (keepValue > 0) {
-                    taskDao.keepOnlyLatestCompletedTasks(completed, keepValue)
+                    taskDao.keepOnlyLatestCompletedTasks(completed, keepValue, protectedIds)
                 }
             }
         }

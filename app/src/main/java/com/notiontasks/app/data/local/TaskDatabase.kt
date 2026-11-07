@@ -149,11 +149,11 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     fun getTaskFlowById(id: String): Flow<TaskEntity?>
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND lastEditedTime < :cutoffTimestamp")
-    suspend fun deleteCompletedTasksBefore(completedStatus: String, cutoffTimestamp: Long)
+    @Query("DELETE FROM tasks WHERE status = :completedStatus AND lastEditedTime < :cutoffTimestamp AND id NOT IN (:protectedIds)")
+    suspend fun deleteCompletedTasksBefore(completedStatus: String, cutoffTimestamp: Long, protectedIds: List<String>)
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)")
-    suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int)
+    @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount) AND id NOT IN (:protectedIds)")
+    suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int, protectedIds: List<String>)
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: String)
