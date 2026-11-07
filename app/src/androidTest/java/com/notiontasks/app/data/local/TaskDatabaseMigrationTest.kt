@@ -20,7 +20,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV1ToV11_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
+    fun migratesV1ToCurrent_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL(
@@ -46,7 +46,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV8ToV11_keepsCachedDataAndMarksItUnowned() = runBlocking {
+    fun migratesV8ToCurrent_keepsCachedDataAndMarksItUnowned() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL("CREATE TABLE tasks (id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, category TEXT NOT NULL, dueDate TEXT, scheduledDate TEXT, statusColor TEXT, categoryColor TEXT, lastEditedTime INTEGER NOT NULL, PRIMARY KEY(id))")
@@ -58,6 +58,7 @@ class TaskDatabaseMigrationTest {
             legacyDatabase.execSQL("CREATE TABLE sync_metadata (`key` TEXT NOT NULL, timestamp INTEGER NOT NULL, PRIMARY KEY(`key`))")
             legacyDatabase.execSQL("INSERT INTO tasks VALUES ('task-before-migration', '移行前タスク', '未着手', '学習', '2026-11-10', '2026-11-03', NULL, NULL, 1234)")
             legacyDatabase.execSQL("INSERT INTO pending_sync_actions (actionType, taskId, payloadJson, timestamp) VALUES ('UPDATE_TASK', 'task-before-migration', '{\"title\":\"移行前タスク\"}', 5678)")
+            legacyDatabase.execSQL("INSERT INTO schedule_blocks (id, type, title, associatedId, startTime, endTime, color, date) VALUES ('legacy-block', 'life', '旧予定', 'la_old', 60, 120, '#123456', '2026-11-03')")
             legacyDatabase.execSQL("PRAGMA user_version = 8")
         }
 
@@ -71,6 +72,11 @@ class TaskDatabaseMigrationTest {
             assertEquals("legacy-1", pending.operationId)
             assertEquals("legacy", pending.changedFields)
             assertEquals("PENDING", pending.state)
+            val migratedBlock = migratedDatabase.scheduleBlockDao.getAllBlocks().single()
+            assertEquals("legacy-block", migratedBlock.id)
+            assertEquals("legacy", migratedBlock.origin)
+            assertEquals(null, migratedBlock.presetId)
+            assertEquals(0L, migratedBlock.presetGeneration)
 
             migratedDatabase.syncMetadataDao.put(SyncMetadataEntity("remote_cursor", 9999L))
             assertEquals(9999L, migratedDatabase.syncMetadataDao.getTimestamp("remote_cursor"))

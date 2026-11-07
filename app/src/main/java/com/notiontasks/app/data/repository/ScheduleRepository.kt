@@ -69,6 +69,9 @@ class ScheduleRepository(
         endTime = endTime,
         color = color,
         date = date,
+        origin = origin,
+        presetId = presetId,
+        presetGeneration = presetGeneration,
     )
 
     private fun TimeBlock.toEntity() = ScheduleBlockEntity(
@@ -80,6 +83,9 @@ class ScheduleRepository(
         endTime = endTime,
         color = color,
         date = date,
+        origin = origin,
+        presetId = presetId,
+        presetGeneration = presetGeneration,
     )
 
     private fun LifeActivityEntity.toDomainModel() = LifeActivity(

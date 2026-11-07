@@ -44,6 +44,9 @@ data class ScheduleBlockEntity(
     val endTime: Int,
     val color: String,
     val date: String, // "yyyy-MM-dd"
+    val origin: String = "manual",
+    val presetId: String? = null,
+    val presetGeneration: Long = 0L,
 )
 
 // 生活習慣マスタ用エンティティ
@@ -378,7 +381,7 @@ interface SyncMetadataDao {
         TaskFieldGenerationEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -487,6 +490,18 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Existing blocks have no reliable provenance. Keep them as legacy so a
+         * future preset edit or delete can never overwrite or remove them.
+         */
+        private val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN presetId TEXT")
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN presetGeneration INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
                 .addMigrations(
@@ -501,6 +516,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
                 )
                 .build()
 
