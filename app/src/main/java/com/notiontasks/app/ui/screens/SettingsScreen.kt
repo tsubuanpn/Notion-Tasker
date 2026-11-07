@@ -1693,7 +1693,7 @@ fun LifeActivitySettingsSection(
                         modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally)
                     )
                 } else {
-                    lifeActivities.forEach { act ->
+                    lifeActivities.forEachIndexed { index, act ->
                         val colorParsed = try {
                             Color(act.color.toColorInt())
                         } catch (_: Exception) {
@@ -1727,6 +1727,7 @@ fun LifeActivitySettingsSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1768,35 +1769,32 @@ fun LifeActivitySettingsSection(
                             
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                Column {
-                                    IconButton(
-                                        onClick = { viewModel.moveLifeActivity(act.id, -1) },
-                                        enabled = lifeActivities.indexOf(act) > 0,
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowUp,
-                                            contentDescription = "上に移動",
-                                            tint = if (lifeActivities.indexOf(act) > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { viewModel.moveLifeActivity(act.id, 1) },
-                                        enabled = (lifeActivities.indexOf(act) < (lifeActivities.size - 1)),
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "下に移動",
-                                            tint = if (lifeActivities.indexOf(act) < (lifeActivities.size - 1)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
+                                IconButton(
+                                    onClick = { viewModel.moveLifeActivity(act.id, -1) },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "上に移動",
+                                        tint = if (index > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
-
+                                IconButton(
+                                    onClick = { viewModel.moveLifeActivity(act.id, 1) },
+                                    enabled = index < lifeActivities.lastIndex,
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "下に移動",
+                                        tint = if (index < lifeActivities.lastIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                                 IconButton(
                                     onClick = { pendingDeleteActivity = act },
                                     modifier = Modifier.size(48.dp)
