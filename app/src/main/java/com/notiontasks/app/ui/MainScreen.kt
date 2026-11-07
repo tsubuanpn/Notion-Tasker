@@ -454,9 +454,13 @@ fun MainAppScreen(
                     status = status,
                     dueDate = due,
                     scheduledDate = sched,
-                    onSuccess = {
+                    onConfirmed = {
                         showAddDialogState.value = false
                         Toast.makeText(context, "タスクを追加しました", Toast.LENGTH_SHORT).show()
+                    },
+                    onPending = {
+                        showAddDialogState.value = false
+                        Toast.makeText(context, "端末に保存しました。同期を再開すると追加されます", Toast.LENGTH_LONG).show()
                     }
                 ) { errorMsg ->
                     Toast.makeText(context, "エラー: $errorMsg", Toast.LENGTH_LONG).show()
@@ -480,9 +484,13 @@ fun MainAppScreen(
                 category = cat,
                 dueDate = due,
                 scheduledDate = sched,
-                onSuccess = {
+                onConfirmed = {
                     editingTaskState.value = null
                     Toast.makeText(context, "タスクを更新しました", Toast.LENGTH_SHORT).show()
+                },
+                onPending = {
+                    editingTaskState.value = null
+                    Toast.makeText(context, "端末に保存しました。同期を再開すると更新されます", Toast.LENGTH_LONG).show()
                 }
             ) { errorMsg ->
                 Toast.makeText(context, "エラー: $errorMsg", Toast.LENGTH_LONG).show()
@@ -496,7 +504,9 @@ private fun SyncStatusAction(state: SyncUiState, onClick: () -> Unit) {
     val (label, icon, containerColor, contentColor) = when (state) {
         is SyncUiState.Synced -> SyncBadge("同期済", Icons.Default.CloudDone, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         SyncUiState.Syncing -> SyncBadge("同期中", Icons.Default.Sync, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary)
-        else -> SyncBadge("未同期", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        is SyncUiState.PendingChanges -> SyncBadge("同期保留 (${state.count})", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        is SyncUiState.Failed -> SyncBadge("同期エラー", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        SyncUiState.NotConfigured -> SyncBadge("未設定", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
     }
     Row(
         modifier = Modifier

@@ -12,6 +12,7 @@ import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.TaskSaveResult
 import com.notiontasks.app.data.repository.PomodoroRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -771,7 +772,8 @@ class TaskViewModel(
         category: String,
         dueDate: String? = null,
         scheduledDate: String? = null,
-        onSuccess: () -> Unit = {},
+        onConfirmed: () -> Unit = {},
+        onPending: () -> Unit = {},
         onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
@@ -786,7 +788,7 @@ class TaskViewModel(
 
         launchTaskSaveOnce(id) {
             try {
-                repository.updateTask(
+                when (repository.updateTask(
                     token = token,
                     pageId = id,
                     title = title,
@@ -796,8 +798,10 @@ class TaskViewModel(
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                     statusColor = sColor?.ifBlank { null },
                     categoryColor = cColor?.ifBlank { null }
-                )
-                onSuccess()
+                )) {
+                    TaskSaveResult.Confirmed -> onConfirmed()
+                    TaskSaveResult.Pending -> onPending()
+                }
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの更新に失敗しました。")
             }
@@ -810,7 +814,8 @@ class TaskViewModel(
         status: String? = null,
         dueDate: String? = null,
         scheduledDate: String? = null,
-        onSuccess: () -> Unit = {},
+        onConfirmed: () -> Unit = {},
+        onPending: () -> Unit = {},
         onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
@@ -827,7 +832,7 @@ class TaskViewModel(
 
         launchTaskSaveOnce(CREATE_TASK_SAVE_KEY) {
             try {
-                repository.createTask(
+                when (repository.createTask(
                     token = token,
                     databaseId = dbId,
                     title = title,
@@ -837,8 +842,10 @@ class TaskViewModel(
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                     statusColor = sColor?.ifBlank { null },
                     categoryColor = cColor?.ifBlank { null }
-                )
-                onSuccess()
+                )) {
+                    TaskSaveResult.Confirmed -> onConfirmed()
+                    TaskSaveResult.Pending -> onPending()
+                }
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの作成に失敗しました。")
             }

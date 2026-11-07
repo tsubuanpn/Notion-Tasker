@@ -10,6 +10,7 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.TaskSaveResult
 import io.mockk.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -204,7 +205,7 @@ class TaskViewModelTest {
     fun addTask_whileCreateIsInFlight_acceptsOnlyOneRequest() = runTest {
         every { sharedPrefs.getString("notion_token", "") } returns "token"
         every { sharedPrefs.getString("database_id", "") } returns "database"
-        val completion = CompletableDeferred<Unit>()
+        val completion = CompletableDeferred<TaskSaveResult>()
         coEvery {
             repository.createTask(
                 token = any(),
@@ -225,8 +226,57 @@ class TaskViewModelTest {
         runCurrent()
 
         coVerify(exactly = 1) { repository.createTask(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
-        completion.complete(Unit)
+        completion.complete(TaskSaveResult.Confirmed)
         advanceUntilIdle()
+    }
+
+    @Test
+    fun updateTask_pendingSave_reportsPendingInsteadOfConfirmed() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        coEvery {
+            repository.updateTask(
+                token = any(), pageId = any(), title = any(), status = any(), category = any(),
+                dueDate = any(), scheduledDate = any(), statusColor = any(), categoryColor = any(),
+            )
+        } returns TaskSaveResult.Pending
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+        var confirmed = false
+        var pending = false
+
+        viewModel.updateTask(
+            id = "task", title = "Task", status = "進行中", category = "",
+            onConfirmed = { confirmed = true },
+            onPending = { pending = true },
+        )
+        advanceUntilIdle()
+
+        assertTrue(pending)
+        assertTrue(!confirmed)
+    }
+
+    @Test
+    fun updateTask_permanentFailure_doesNotReportSaved() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        coEvery {
+            repository.updateTask(
+                token = any(), pageId = any(), title = any(), status = any(), category = any(),
+                dueDate = any(), scheduledDate = any(), statusColor = any(), categoryColor = any(),
+            )
+        } throws IllegalArgumentException("invalid property")
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+        var saved = false
+        var failure = ""
+
+        viewModel.updateTask(
+            id = "task", title = "Task", status = "進行中", category = "",
+            onConfirmed = { saved = true },
+            onPending = { saved = true },
+            onFailure = { failure = it },
+        )
+        advanceUntilIdle()
+
+        assertTrue(!saved)
+        assertEquals("invalid property", failure)
     }
 
     @Test

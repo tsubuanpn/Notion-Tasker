@@ -107,6 +107,7 @@ fun PomodoroScreen(
     var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
     var selectedTaskId by remember { mutableStateOf(initialTaskId) }
+    var pendingCompletionTaskId by remember { mutableStateOf<String?>(null) }
     var isInitialSyncDone by remember { mutableStateOf(value = false) }
 
     val tasksState by viewModel.tasksState.collectAsState()
@@ -148,11 +149,6 @@ fun PomodoroScreen(
     fun selectedDurationSeconds(): Int = durationSecondsFor(focusType)
 
     fun completeFocusedTask(task: TaskModel) {
-        if (isRunning || boundService?.isPaused == true) {
-            triggerServiceAction(PomodoroService.ACTION_RESET)
-            isRunning = false
-            timeLeft = selectedDurationSeconds()
-        }
         viewModel.updateTask(
             id = task.id,
             title = task.title,
@@ -160,9 +156,18 @@ fun PomodoroScreen(
             category = task.category,
             dueDate = task.dueDate,
             scheduledDate = task.scheduledDate,
-            onSuccess = {
+            onConfirmed = {
+                if (isRunning || boundService?.isPaused == true) {
+                    triggerServiceAction(PomodoroService.ACTION_RESET)
+                    isRunning = false
+                    timeLeft = selectedDurationSeconds()
+                }
                 selectedTaskId = null
                 Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
+            },
+            onPending = {
+                pendingCompletionTaskId = task.id
+                Toast.makeText(context, "完了を端末に保存しました。同期を再開すると反映されます", Toast.LENGTH_LONG).show()
             },
             onFailure = { message ->
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -186,7 +191,7 @@ fun PomodoroScreen(
         prefs.edit { putString("selected_task_id", selectedTaskId) }
     }
 
-    LaunchedEffect(tasksState, selectedTaskId) {
+    LaunchedEffect(tasksState, selectedTaskId, pendingCompletionTaskId) {
         if (tasksState is TasksUiState.Success) {
             val successState = tasksState as TasksUiState.Success
             val selectedTask = successState.tasks.find { it.id == selectedTaskId }
@@ -198,7 +203,8 @@ fun PomodoroScreen(
                 }
             }
             // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
-            if (selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
+            val keepPendingCompletionFocused = selectedTaskId != null && selectedTaskId == pendingCompletionTaskId
+            if (!keepPendingCompletionFocused && selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
                 // 自動解除の前に、タイマーが動いていれば一時停止命令をサービスに送る（レースコンディション回避）
                 if (isRunning) {
                     triggerServiceAction(PomodoroService.ACTION_PAUSE)

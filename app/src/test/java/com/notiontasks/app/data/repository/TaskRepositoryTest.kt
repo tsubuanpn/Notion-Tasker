@@ -281,11 +281,12 @@ class TaskRepositoryTest {
         )
 
         // Act
-        repository.updateTaskStatus(token, pageId, newStatus)
+        val result = repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
         coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
         coVerify { notionApi.updatePage(any(), any(), pageId, any()) }
+        assertEquals(TaskSaveResult.Confirmed, result)
     }
 
     @Test
@@ -298,7 +299,7 @@ class TaskRepositoryTest {
         coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IOException("Offline")
 
         // Act
-        repository.updateTaskStatus(token, pageId, newStatus)
+        val result = repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
         coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
@@ -315,6 +316,7 @@ class TaskRepositoryTest {
             })
         }
         coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId, "database") }
+        assertEquals(TaskSaveResult.Pending, result)
     }
 
     @Test
@@ -323,7 +325,7 @@ class TaskRepositoryTest {
         coEvery { notionApi.createPage(any(), any(), any()) } throws IOException("Offline")
 
         // Act
-        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+        val result = repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
 
         // Assert
         coVerify { 
@@ -336,6 +338,7 @@ class TaskRepositoryTest {
                 action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
             })
         }
+        assertEquals(TaskSaveResult.Pending, result)
     }
 
     @Test

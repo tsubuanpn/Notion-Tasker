@@ -47,6 +47,15 @@ private const val FULL_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
 private const val REMOTE_SYNC_CURSOR_KEY = "notion_remote_sync_cursor"
 private const val CLIENT_IDENTIFIER_PROPERTY = "Notion Tasker ID"
 
+/**
+ * Whether a task change reached Notion now or has only been retained locally
+ * for the automatic retry queue. Non-retryable failures continue to throw.
+ */
+sealed interface TaskSaveResult {
+    data object Confirmed : TaskSaveResult
+    data object Pending : TaskSaveResult
+}
+
 private class PendingSyncActionException(message: String, cause: Throwable) : IOException(message, cause)
 
 private fun remoteSyncCursorKey(databaseId: String): String =
@@ -582,7 +591,7 @@ class TaskRepository(
         pageId: String,
         newStatus: String,
         newStatusColor: String? = null,
-    ) = syncMutex.withLock {
+    ): TaskSaveResult = syncMutex.withLock {
         val resolvedPageId = resolveTaskId(pageId)
         val actionGeneration = advanceFieldGeneration(resolvedPageId, "status")
         val trimmedStatus = newStatus.trim()
@@ -623,7 +632,7 @@ class TaskRepository(
                     put("newStatus", trimmedStatus)
                 }.toString()
                 enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status", generation = actionGeneration)
-                return@withLock
+                return@withLock TaskSaveResult.Pending
             }
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
             val alternateType = if (propStatusType == "select") "status" else "select"
@@ -661,8 +670,10 @@ class TaskRepository(
                     put("newStatus", trimmedStatus)
                 }.toString()
                 enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status", generation = actionGeneration)
+                return@withLock TaskSaveResult.Pending
             }
         }
+        TaskSaveResult.Confirmed
     }
 
     suspend fun updateTask(
@@ -675,7 +686,7 @@ class TaskRepository(
         scheduledDate: String?,
         statusColor: String? = null,
         categoryColor: String? = null,
-    ) = syncMutex.withLock {
+    ): TaskSaveResult = syncMutex.withLock {
         val resolvedPageId = resolveTaskId(pageId)
         val actionGeneration = advanceFieldGeneration(resolvedPageId, "title,status,category,dueDate,scheduledDate")
         val trimmedStatus = status.trim()
@@ -810,7 +821,9 @@ class TaskRepository(
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
             enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate", generation = actionGeneration)
+            return@withLock TaskSaveResult.Pending
         }
+        TaskSaveResult.Confirmed
     }
 
     suspend fun createTask(
@@ -823,7 +836,7 @@ class TaskRepository(
         scheduledDate: String?,
         statusColor: String? = null,
         categoryColor: String? = null,
-    ) = syncMutex.withLock {
+    ): TaskSaveResult = syncMutex.withLock {
         val trimmedStatus = status.trim()
         val trimmedCategory = category.trim()
         val authHeader = "Bearer $token"
@@ -913,7 +926,7 @@ class TaskRepository(
                     scheduledDate?.let { put("scheduledDate", it) }
                 }.toString()
                 enqueuePendingAction("CREATE_TASK", tempId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate")
-                return@withLock
+                return@withLock TaskSaveResult.Pending
             }
             if (!firstFailure.isRetryableSyncFailure()) throw firstFailure
 
@@ -946,7 +959,9 @@ class TaskRepository(
             // A lost create response can already have created the page.  Query by the stable
             // identifier before one automatic retry; network failure simply leaves it queued.
             processPendingSyncActionsInternal(token, dataSourceId)
+            return@withLock TaskSaveResult.Pending
         }
+        TaskSaveResult.Confirmed
     }
 
     // 保留中のオフライン同期アクションを順次処理
