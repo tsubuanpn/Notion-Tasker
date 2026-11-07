@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
+import com.notiontasks.app.data.model.TimeBlockOrigin
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
@@ -44,6 +45,7 @@ class TaskViewModel(
 ) : ViewModel() {
 
     private val taskSaveMutex = Mutex()
+    private val lifeScheduleMutex = Mutex()
     private val _activeTaskSaveKeys = MutableStateFlow<Set<String>>(emptySet())
     val activeTaskSaveKeys: StateFlow<Set<String>> = _activeTaskSaveKeys.asStateFlow()
     val isCreatingTask: StateFlow<Boolean> = activeTaskSaveKeys
@@ -389,7 +391,9 @@ class TaskViewModel(
         futureOnly: Boolean = false,
     ) {
         viewModelScope.launch {
-            syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly)
+            lifeScheduleMutex.withLock {
+                syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly)
+            }
         }
     }
 
@@ -409,7 +413,9 @@ class TaskViewModel(
         val todayStr = com.notiontasks.app.utils.JapanTime.todayIso()
         val currentMinutes = (now.hour * 60) + now.minute
 
-        val dayBlocks = timeBlocks.value.filter { (it.date == date) && (it.type == "life") }
+        // Use the database, not the asynchronously collected UI cache. This makes repeated
+        // opens and quick date changes observe writes made by a preceding generation.
+        val dayBlocks = scheduleRepository.getTimeBlocksForDate(date)
 
         defaults.forEach { act ->
             // futureOnly かつ 今日の日付の場合、終了時刻が過ぎているものはスキップ
@@ -417,7 +423,9 @@ class TaskViewModel(
                 return@forEach
             }
 
-            val existingBlock = dayBlocks.find { it.associatedId == act.id }
+            val existingBlock = dayBlocks.find {
+                it.origin == TimeBlockOrigin.PRESET && it.presetId == act.id
+            }
 
             if (existingBlock != null) {
                 // 既に存在する場合、内容（時間やタイトル、色）を更新
@@ -432,6 +440,7 @@ class TaskViewModel(
                         startTime = act.defaultStartTime!!,
                         endTime = act.defaultEndTime!!,
                         color = act.color,
+                        presetGeneration = DEFAULT_PRESET_GENERATION,
                     )
                     scheduleRepository.saveTimeBlock(updated)
                     com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, updated)
@@ -447,6 +456,9 @@ class TaskViewModel(
                     endTime = act.defaultEndTime!!,
                     color = act.color,
                     date = date,
+                    origin = TimeBlockOrigin.PRESET,
+                    presetId = act.id,
+                    presetGeneration = DEFAULT_PRESET_GENERATION,
                 )
                 scheduleRepository.saveTimeBlock(block)
                 com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
@@ -458,22 +470,14 @@ class TaskViewModel(
         if (_initializedDates.value.contains(date)) return
 
         viewModelScope.launch {
-            val currentBlocks = timeBlocks.value
-            val hasAnyLifeOnThisDate = currentBlocks.any { (it.date == date) && (it.type == "life") }
-            
-            // この日付に既に生活アクティビティブロックがある場合は初期化済みとして扱います
-            if (hasAnyLifeOnThisDate) {
+            lifeScheduleMutex.withLock {
+                // Mark completion only after every generated block was persisted. A process
+                // interruption therefore leaves the date eligible for a safe idempotent retry.
+                syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly = false)
                 val updated = _initializedDates.value + date
                 _initializedDates.value = updated
                 saveInitializedDates(updated)
-                return@launch
             }
-
-            syncDefaultLifeActivitiesForDate(context, date, futureOnly = false)
-
-            val updated = _initializedDates.value + date
-            _initializedDates.value = updated
-            saveInitializedDates(updated)
         }
     }
 
@@ -854,5 +858,6 @@ class TaskViewModel(
 
     private companion object {
         const val CREATE_TASK_SAVE_KEY = "create-task"
+        const val DEFAULT_PRESET_GENERATION = 1L
     }
 }

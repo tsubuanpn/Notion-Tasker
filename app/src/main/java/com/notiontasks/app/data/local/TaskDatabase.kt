@@ -227,6 +227,9 @@ interface ScheduleBlockDao {
     @Query("SELECT * FROM schedule_blocks WHERE date = :date ORDER BY startTime ASC")
     fun getBlocksByDateFlow(date: String): Flow<List<ScheduleBlockEntity>>
 
+    @Query("SELECT * FROM schedule_blocks WHERE date = :date ORDER BY startTime ASC")
+    suspend fun getBlocksByDate(date: String): List<ScheduleBlockEntity>
+
     @Query("SELECT * FROM schedule_blocks ORDER BY startTime ASC")
     suspend fun getAllBlocks(): List<ScheduleBlockEntity>
 

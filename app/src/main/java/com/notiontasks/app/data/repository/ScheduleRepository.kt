@@ -34,6 +34,10 @@ class ScheduleRepository(
         scheduleBlockDao.getAllBlocks().map { it.toDomainModel() }
     }
 
+    suspend fun getTimeBlocksForDate(date: String): List<TimeBlock> = withContext(Dispatchers.IO) {
+        scheduleBlockDao.getBlocksByDate(date).map { it.toDomainModel() }
+    }
+
     suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
         scheduleBlockDao.deleteBlockById(id)
     }

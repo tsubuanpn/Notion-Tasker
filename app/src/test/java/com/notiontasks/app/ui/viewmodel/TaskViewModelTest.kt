@@ -7,6 +7,7 @@ import app.cash.turbine.test
 import com.notiontasks.app.TaskNotificationReceiver
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.model.TimeBlockOrigin
 import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
@@ -297,7 +298,14 @@ class TaskViewModelTest {
 
         // Assert
         // 保存処理 (saveTimeBlock) が呼ばれることを確認
-        coVerify { scheduleRepository.saveTimeBlock(match { it.associatedId == "la_sleep" }) }
+        coVerify {
+            scheduleRepository.saveTimeBlock(match {
+                it.associatedId == "la_sleep" &&
+                    it.origin == TimeBlockOrigin.PRESET &&
+                    it.presetId == "la_sleep" &&
+                    it.presetGeneration == 1L
+            })
+        }
         // 初期化済み日付として保存されることを確認
         verify { sharedPrefs.edit() }
     }
