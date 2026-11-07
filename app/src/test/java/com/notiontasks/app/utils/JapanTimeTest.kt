@@ -21,6 +21,11 @@ class JapanTimeTest {
     }
 
     @Test
+    fun `naive datetime keeps its stated calendar day`() {
+        assertEquals("2026-11-07", JapanTime.projectedDateKey("2026-11-07T23:59:00"))
+    }
+
+    @Test
     fun `invalid Notion date is not silently truncated`() {
         assertNull(JapanTime.projectedDateKey("not-a-date"))
     }

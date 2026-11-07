@@ -570,7 +570,7 @@ class TaskRepository(
         when (keepType) {
             "date" -> {
                 if (keepValue > 0) {
-                    val cal = java.util.Calendar.getInstance()
+                    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
                     cal.add(java.util.Calendar.MONTH, -keepValue)
                     taskDao.deleteCompletedTasksBefore(scope, completed, cal.timeInMillis, protectedIds)
                 }

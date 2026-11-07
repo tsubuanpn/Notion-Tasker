@@ -50,8 +50,9 @@ import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
 import com.notiontasks.app.utils.ScheduleExporter
 import android.content.Intent
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.LocalDate
+import java.util.Locale
+import java.util.UUID
 
 private const val TIME_SNAP_MINUTES = 5
 private const val GRID_SNAP_MINUTES = 15
@@ -78,7 +79,7 @@ fun ScheduleScreen(
     }
 
     // 現在時刻の状態管理（1分ごとに更新）
-    var currentTime by remember { mutableStateOf(Calendar.getInstance()) }
+    var currentTime by remember { mutableStateOf(JapanTime.now()) }
     val isToday = remember(selectedDateStr, currentTime) {
         val todayStr = JapanTime.todayIso()
         selectedDateStr == todayStr
@@ -86,10 +87,10 @@ fun ScheduleScreen(
 
     LaunchedEffect(Unit) {
         while (true) {
-            val now = Calendar.getInstance()
+            val now = JapanTime.now()
             currentTime = now
             // 次の00秒まで待機して1分間隔を維持
-            val secondsToNextMinute = 60 - now.get(Calendar.SECOND)
+            val secondsToNextMinute = 60 - now.second
             kotlinx.coroutines.delay(secondsToNextMinute * 1000L)
         }
     }
@@ -99,8 +100,8 @@ fun ScheduleScreen(
         viewModel.autoInitializeDefaultLifeActivities(context, selectedDateStr)
     }
     val displayName = remember(selectedDateStr) {
-        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-        SimpleDateFormat("yyyy年MM月dd日 (E)", Locale.JAPAN).format(parsed)
+        runCatching { LocalDate.parse(selectedDateStr) }.getOrElse { JapanTime.today() }
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日 (E)", Locale.JAPAN))
     }
 
     // 選択された日付の有効なタスクをロードする
@@ -236,18 +237,14 @@ fun ScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = {
-                    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                    val cal = Calendar.getInstance().apply { 
-                        time = parsed
-                        add(Calendar.DATE, -1)
-                    }
-                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+                    selectedDateStr = runCatching { LocalDate.parse(selectedDateStr).minusDays(1) }
+                        .getOrElse { JapanTime.today().minusDays(1) }
+                        .toString()
                 }) {
                     Icon(Icons.Default.ChevronLeft, "前日")
                 }
 
-                val parsedDateForPicker = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                val dateCalendar = Calendar.getInstance().apply { time = parsedDateForPicker }
+                val dateForPicker = runCatching { LocalDate.parse(selectedDateStr) }.getOrElse { JapanTime.today() }
 
                 Box(
                     modifier = Modifier.weight(1f),
@@ -259,16 +256,11 @@ fun ScheduleScreen(
                                 android.app.DatePickerDialog(
                                     context,
                                     { _, year, month, dayOfMonth ->
-                                        val newCal = Calendar.getInstance().apply {
-                                            set(Calendar.YEAR, year)
-                                            set(Calendar.MONTH, month)
-                                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                                        }
-                                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
+                                        selectedDateStr = LocalDate.of(year, month + 1, dayOfMonth).toString()
                                     },
-                                    dateCalendar.get(Calendar.YEAR),
-                                    dateCalendar.get(Calendar.MONTH),
-                                    dateCalendar.get(Calendar.DAY_OF_MONTH)
+                                    dateForPicker.year,
+                                    dateForPicker.monthValue - 1,
+                                    dateForPicker.dayOfMonth
                                 ).show()
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -292,12 +284,9 @@ fun ScheduleScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
-                        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                        val cal = Calendar.getInstance().apply { 
-                            time = parsed
-                            add(Calendar.DATE, 1)
-                        }
-                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+                        selectedDateStr = runCatching { LocalDate.parse(selectedDateStr).plusDays(1) }
+                            .getOrElse { JapanTime.today().plusDays(1) }
+                            .toString()
                     }) {
                         Icon(Icons.Default.ChevronRight, "翌日")
                     }
@@ -334,9 +323,9 @@ fun ScheduleScreen(
             // 初期ロード時または「今日」選択時に現在時刻または午前7時に自動スクロール
             LaunchedEffect(isToday) {
                 val scrollTargetMinutes = if (isToday) {
-                    val now = Calendar.getInstance()
+                    val now = JapanTime.now()
                     // 現在時刻が画面中央に来るようにオフセット（例：3時間分引く）
-                    (now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE) - 180).coerceAtLeast(0)
+                    (now.hour * 60 + now.minute - 180).coerceAtLeast(0)
                 } else {
                     7 * 60
                 }
@@ -637,7 +626,7 @@ fun ScheduleScreen(
                 // 現在時刻インジケーター（今日の日付の時のみ表示 - スケジュールブロックの上に重ねる）
                 if (isToday) {
                     val now = currentTime
-                    val currentMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+                    val currentMinutes = now.hour * 60 + now.minute
                     val indicatorTopDp = 80.dp * (currentMinutes / 60f)
                     val indicatorColor = MaterialTheme.colorScheme.error
                     

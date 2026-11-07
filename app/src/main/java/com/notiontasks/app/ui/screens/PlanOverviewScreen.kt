@@ -52,8 +52,8 @@ import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
+import java.time.LocalDate
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -72,8 +72,9 @@ fun PlanOverviewScreen(
     val today = rememberJapanToday()
     val tasks = (tasksState as? TasksUiState.Success)?.tasks.orEmpty()
     val selectedDate = selectedCalendarDate.value ?: today
-    var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)) }
-    var month by remember { mutableIntStateOf((selectedDate.substringAfter("-").take(2).toIntOrNull() ?: Calendar.getInstance().get(Calendar.MONTH) + 1) - 1) }
+    val japanToday = remember(today) { LocalDate.parse(today) }
+    var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: japanToday.year) }
+    var month by remember { mutableIntStateOf((selectedDate.substringAfter("-").take(2).toIntOrNull() ?: japanToday.monthValue) - 1) }
     val tasksByDate = remember(tasks) {
         buildMap<String, MutableList<TaskModel>> {
             tasks.forEach { task ->

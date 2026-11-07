@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.util.Calendar
+import java.util.TimeZone
 
 // 画面操作のステータス状態
 sealed interface TasksUiState {
@@ -198,7 +199,7 @@ class TaskViewModel(
     private suspend fun cleanupOldPomodoroLogs() {
         val months = _statsStorageDuration.value
         if (months > 0) {
-            val calendar = Calendar.getInstance()
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
             calendar.add(Calendar.MONTH, -months)
             pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
         }
@@ -234,7 +235,7 @@ class TaskViewModel(
             if (months == -1) {
                 pomodoroRepository.clearAllLogs()
             } else {
-                val calendar = Calendar.getInstance()
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
                 calendar.add(Calendar.MONTH, -months)
                 pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
             }
@@ -647,7 +648,7 @@ class TaskViewModel(
             if (months == -1) {
                 pomodoroRepository.clearAllLogs()
             } else {
-                val calendar = Calendar.getInstance()
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
                 calendar.add(Calendar.MONTH, -months)
                 pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
             }
