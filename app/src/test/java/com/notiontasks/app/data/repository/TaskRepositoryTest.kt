@@ -7,6 +7,7 @@ import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.local.TaskIdAliasDao
+import com.notiontasks.app.data.local.TaskFieldGenerationDao
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.*
 import io.mockk.*
@@ -29,6 +30,7 @@ class TaskRepositoryTest {
     private val pendingSyncActionDao: PendingSyncActionDao = mockk(relaxed = true)
     private val syncMetadataDao: SyncMetadataDao = mockk(relaxed = true)
     private val taskIdAliasDao: TaskIdAliasDao = mockk(relaxed = true)
+    private val taskFieldGenerationDao: TaskFieldGenerationDao = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
 
@@ -36,7 +38,7 @@ class TaskRepositoryTest {
 
     @Before
     fun setup() {
-        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao, taskIdAliasDao)
+        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao, taskIdAliasDao, taskFieldGenerationDao)
         repository.updateDataSourceId("data_source")
         repository.updateConnectionScope("database")
         coEvery { taskIdAliasDao.getRemoteTaskId(any(), any()) } returns null

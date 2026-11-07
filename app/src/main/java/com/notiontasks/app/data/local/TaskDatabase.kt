@@ -91,6 +91,14 @@ data class TaskIdAliasEntity(
     val connectionScope: String,
 )
 
+@Entity(tableName = "task_field_generations", primaryKeys = ["taskId", "connectionScope", "field"])
+data class TaskFieldGenerationEntity(
+    val taskId: String,
+    val connectionScope: String,
+    val field: String,
+    val generation: Long,
+)
+
 /** リモート由来の同期時刻だけを保持するためのメタデータです。 */
 @Entity(tableName = "sync_metadata")
 data class SyncMetadataEntity(
@@ -305,6 +313,18 @@ interface TaskIdAliasDao {
 }
 
 @Dao
+interface TaskFieldGenerationDao {
+    @Query("SELECT MAX(generation) FROM task_field_generations WHERE taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun getLatestGeneration(taskId: String, connectionScope: String): Long?
+
+    @Query("SELECT generation FROM task_field_generations WHERE taskId = :taskId AND connectionScope = :connectionScope AND field = :field LIMIT 1")
+    suspend fun getFieldGeneration(taskId: String, connectionScope: String, field: String): Long?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGenerations(entries: List<TaskFieldGenerationEntity>)
+}
+
+@Dao
 interface SyncMetadataDao {
     @Query("SELECT timestamp FROM sync_metadata WHERE key = :key LIMIT 1")
     suspend fun getTimestamp(key: String): Long?
@@ -322,9 +342,10 @@ interface SyncMetadataDao {
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
         TaskIdAliasEntity::class,
+        TaskFieldGenerationEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -334,6 +355,7 @@ abstract class TaskDatabase : RoomDatabase() {
     abstract val lifeActivityDao: LifeActivityDao
     abstract val pendingSyncActionDao: PendingSyncActionDao
     abstract val taskIdAliasDao: TaskIdAliasDao
+    abstract val taskFieldGenerationDao: TaskFieldGenerationDao
     abstract val syncMetadataDao: SyncMetadataDao
 
     companion object {
@@ -426,6 +448,12 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : androidx.room.migration.Migration(11, 12) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS task_field_generations (taskId TEXT NOT NULL, connectionScope TEXT NOT NULL, field TEXT NOT NULL, generation INTEGER NOT NULL, PRIMARY KEY(taskId, connectionScope, field))")
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
                 .addMigrations(
@@ -439,6 +467,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
+                    MIGRATION_11_12,
                 )
                 .build()
 

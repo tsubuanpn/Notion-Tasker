@@ -9,6 +9,8 @@ import com.notiontasks.app.data.local.SyncMetadataEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.local.TaskIdAliasDao
+import com.notiontasks.app.data.local.TaskFieldGenerationDao
+import com.notiontasks.app.data.local.TaskFieldGenerationEntity
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
@@ -125,6 +127,7 @@ class TaskRepository(
     private val pendingSyncActionDao: PendingSyncActionDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val taskIdAliasDao: TaskIdAliasDao,
+    private val taskFieldGenerationDao: TaskFieldGenerationDao,
 ) {
 
     // 非同期処理およびリレーショナル整合性のための Mutex 排他制御
@@ -146,13 +149,19 @@ class TaskRepository(
         taskId: String,
         payloadJson: String,
         changedFields: String = "legacy",
+        generation: Long? = null,
     ) {
         val scope = requireNotNull(connectionScope.value) {
             "接続先が未確認のため、保留中の変更として保存できません。Notionの接続設定を確認してください。"
         }
         // 同じ操作は最新の状態だけを残し、オフライン中の連打でキューを肥大化させない。
         pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId)
-        val generation = (pendingSyncActionDao.getLatestGeneration(taskId, scope) ?: 0L) + 1L
+        val resolvedGeneration = generation ?: maxOf(
+            pendingSyncActionDao.getLatestGeneration(taskId, scope) ?: 0L,
+            taskFieldGenerationDao.getLatestGeneration(taskId, scope) ?: 0L,
+        ) + 1L
+        val fields = changedFields.split(',').map { it.trim() }.filter { it.isNotBlank() && it != "legacy" }
+        taskFieldGenerationDao.upsertGenerations(fields.map { TaskFieldGenerationEntity(taskId, scope, it, resolvedGeneration) })
         pendingSyncActionDao.insertPendingAction(
             PendingSyncActionEntity(
                 actionType = actionType,
@@ -162,10 +171,24 @@ class TaskRepository(
                 connectionScope = scope,
                 operationId = UUID.randomUUID().toString(),
                 changedFields = changedFields,
-                generation = generation,
+                generation = resolvedGeneration,
             ),
         )
     }
+
+    private suspend fun advanceFieldGeneration(taskId: String, changedFields: String): Long {
+        val scope = requireNotNull(connectionScope.value)
+        val generation = maxOf(
+            pendingSyncActionDao.getLatestGeneration(taskId, scope) ?: 0L,
+            taskFieldGenerationDao.getLatestGeneration(taskId, scope) ?: 0L,
+        ) + 1L
+        val fields = changedFields.split(',').map { it.trim() }.filter { it.isNotBlank() && it != "legacy" }
+        taskFieldGenerationDao.upsertGenerations(fields.map { TaskFieldGenerationEntity(taskId, scope, it, generation) })
+        return generation
+    }
+
+    private suspend fun isSuperseded(action: PendingSyncActionEntity, field: String, scope: String): Boolean =
+        action.changedFields != "legacy" && (taskFieldGenerationDao.getFieldGeneration(action.taskId, scope, field) ?: action.generation) > action.generation
 
     // 設定画面から構成された動的なマッピングキー
     var propTitleName: String = "名前"
@@ -490,6 +513,7 @@ class TaskRepository(
         newStatusColor: String? = null,
     ) = syncMutex.withLock {
         val resolvedPageId = resolveTaskId(pageId)
+        val actionGeneration = advanceFieldGeneration(resolvedPageId, "status")
         val trimmedStatus = newStatus.trim()
         // 楽観的な UI/ローカルの更新
         val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(trimmedStatus)
@@ -527,7 +551,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status")
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status", generation = actionGeneration)
                 return@withLock
             }
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
@@ -565,7 +589,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status")
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status", generation = actionGeneration)
             }
         }
     }
@@ -582,6 +606,7 @@ class TaskRepository(
         categoryColor: String? = null,
     ) = syncMutex.withLock {
         val resolvedPageId = resolveTaskId(pageId)
+        val actionGeneration = advanceFieldGeneration(resolvedPageId, "title,status,category,dueDate,scheduledDate")
         val trimmedStatus = status.trim()
         val trimmedCategory = category.trim()
         // 楽観的な UI/ローカルの更新
@@ -713,7 +738,7 @@ class TaskRepository(
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
-            enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate")
+            enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate", generation = actionGeneration)
         }
     }
 
@@ -873,6 +898,10 @@ class TaskRepository(
                 
                 when (action.actionType) {
                     "UPDATE_STATUS" -> {
+                        if (isSuperseded(action, "status", scope)) {
+                            pendingSyncActionDao.deletePendingActionById(action.id)
+                            continue
+                        }
                         val newStatus = payloadObj["newStatus"]?.jsonPrimitive?.content
                             ?: throw IllegalArgumentException("UPDATE_STATUS action is missing newStatus")
                         val request = NotionUpdateRequest(
@@ -892,7 +921,7 @@ class TaskRepository(
                         val scheduledDate = payloadObj["scheduledDate"]?.jsonPrimitive?.contentOrNull
 
                         val properties = mutableMapOf<String, JsonElement>()
-                        properties[propTitleName] = buildJsonObject {
+                        if (!isSuperseded(action, "title", scope)) properties[propTitleName] = buildJsonObject {
                             put(
                                 "title",
                                 buildJsonArray {
@@ -900,24 +929,24 @@ class TaskRepository(
                                 },
                             )
                         }
-                        properties[propStatusName] = buildJsonObject {
+                        if (!isSuperseded(action, "status", scope)) properties[propStatusName] = buildJsonObject {
                             put(propStatusType, buildJsonObject { put("name", status) })
                         }
-                        if (propCategoryName.isNotBlank()) {
+                        if (propCategoryName.isNotBlank() && !isSuperseded(action, "category", scope)) {
                             properties[propCategoryName] = buildJsonObject { put("select", buildJsonObject { put("name", category) }) }
                         }
-                        if (propDueDateName.isNotBlank()) {
+                        if (propDueDateName.isNotBlank() && !isSuperseded(action, "dueDate", scope)) {
                             properties[propDueDateName] = buildJsonObject {
                                 if (dueDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", dueDate) })
                             }
                         }
-                        if (propScheduledDateName.isNotBlank()) {
+                        if (propScheduledDateName.isNotBlank() && !isSuperseded(action, "scheduledDate", scope)) {
                             properties[propScheduledDateName] = buildJsonObject {
                                 if (scheduledDate.isNullOrBlank()) put("date", JsonNull) else put("date", buildJsonObject { put("start", scheduledDate) })
                             }
                         }
 
-                        notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
+                        if (properties.isNotEmpty()) notionApi.updatePage(token = authHeader, pageId = taskId, request = NotionUpdateRequest(properties = properties))
                     }
                     "CREATE_TASK" -> {
                         val title = payloadObj["title"]?.jsonPrimitive?.content ?: ""
