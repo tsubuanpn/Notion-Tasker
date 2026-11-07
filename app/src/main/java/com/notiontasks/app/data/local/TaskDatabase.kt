@@ -266,8 +266,8 @@ interface PendingSyncActionDao {
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
 
-    @Query("DELETE FROM pending_sync_actions WHERE actionType = :actionType AND taskId = :taskId")
-    suspend fun deletePendingActionsForTask(actionType: String, taskId: String)
+    @Query("DELETE FROM pending_sync_actions WHERE actionType = :actionType AND taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun deletePendingActionsForTask(actionType: String, taskId: String, connectionScope: String)
 
     @Query("DELETE FROM pending_sync_actions")
     suspend fun clearAllPendingActions()

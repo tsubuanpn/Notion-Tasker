@@ -19,6 +19,7 @@ import kotlinx.serialization.json.put
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import java.io.IOException
 
@@ -313,7 +314,7 @@ class TaskRepositoryTest {
                 action.state == "PENDING"
             })
         }
-        coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId) }
+        coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId, "database") }
     }
 
     @Test
@@ -486,6 +487,44 @@ class TaskRepositoryTest {
 
         coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(pending.id) }
         coVerify { pendingSyncActionDao.updatePendingActionState(1, "PERMANENT_FAILURE", "invalid status") }
+    }
+
+    @Test
+    fun syncTasks_doesNotSendPendingActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify(exactly = 0) { notionApi.updatePage(any(), any(), "page_from_other_database", any()) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(otherScopeAction.id) }
+    }
+
+    @Test
+    fun discardPermanentFailure_doesNotRemoveActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+            state = "PERMANENT_FAILURE",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+
+        val discarded = repository.discardPermanentFailure(otherScopeAction.id)
+
+        assertFalse(discarded)
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(otherScopeAction.id) }
     }
 
     @Test

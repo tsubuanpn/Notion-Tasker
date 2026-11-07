@@ -155,7 +155,7 @@ class TaskRepository(
             "接続先が未確認のため、保留中の変更として保存できません。Notionの接続設定を確認してください。"
         }
         // 同じ操作は最新の状態だけを残し、オフライン中の連打でキューを肥大化させない。
-        pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId)
+        pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId, scope)
         val resolvedGeneration = generation ?: maxOf(
             pendingSyncActionDao.getLatestGeneration(taskId, scope) ?: 0L,
             taskFieldGenerationDao.getLatestGeneration(taskId, scope) ?: 0L,
@@ -342,7 +342,7 @@ class TaskRepository(
     suspend fun discardPermanentFailure(id: Long): Boolean {
         val action = pendingSyncActionDao.getAllPendingActions().firstOrNull { it.id == id }
             ?: return false
-        if (action.state != "PERMANENT_FAILURE") return false
+        if (action.state != "PERMANENT_FAILURE" || action.connectionScope != connectionScope.value) return false
         pendingSyncActionDao.deletePendingActionById(id)
         return true
     }
