@@ -416,6 +416,64 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun pendingCreate_resolvesBeforeSendingItsLaterEdit() = runTest {
+        val create = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"Original","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+            connectionScope = "db",
+        )
+        val edit = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"Latest","status":"Doing","category":"Life"}""",
+            timestamp = 2L,
+            connectionScope = "db",
+            changedFields = "title,status,category",
+            generation = 1,
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(create, edit) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+        coEvery { notionApi.createPage(any(), any(), any()) } returns NotionPage(id = "page_123", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } returns NotionPage(id = "page_123", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { taskDao.getTaskById("pending_client-123") } returns TaskEntity(
+            id = "pending_client-123", title = "Latest", status = "Doing", category = "Life",
+            dueDate = null, scheduledDate = null, connectionScope = "db",
+        )
+
+        repository.syncTasks("token", "db")
+
+        coVerify { taskIdAliasDao.resolveCreatedTask("pending_client-123", match { it.id == "page_123" && it.title == "Latest" }, "db") }
+        coVerify { notionApi.updatePage(any(), any(), "page_123", any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(2) }
+    }
+
+    @Test
+    fun pendingCreate_withDuplicateClientIdentifier_stopsWithoutCreatingAgain() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"New Task","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+            connectionScope = "db",
+        )
+        val duplicate = NotionPage(id = "page_duplicate", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        val duplicateTwo = NotionPage(id = "page_duplicate_2", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(listOf(duplicate, duplicateTwo)) andThen NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "db")
+
+        coVerify(exactly = 0) { notionApi.createPage(any(), any(), any()) }
+        coVerify { pendingSyncActionDao.updatePendingActionState(1, "PERMANENT_FAILURE", match { it.contains("複数") }) }
+    }
+
+    @Test
     fun pendingUpdate_resolvesPersistentAliasAfterProcessRestart() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,
