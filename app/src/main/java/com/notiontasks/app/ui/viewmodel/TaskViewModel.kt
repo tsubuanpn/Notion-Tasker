@@ -7,6 +7,7 @@ import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.data.repository.ScheduleRepository
@@ -90,6 +91,19 @@ class TaskViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SyncUiState.NotConfigured,
     )
+
+    val permanentSyncFailures: StateFlow<List<PendingSyncActionEntity>> = repository.permanentFailures
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun retryPermanentSyncFailure(id: Long) {
+        viewModelScope.launch {
+            if (repository.retryPermanentFailure(id)) syncWithNotion()
+        }
+    }
+
+    fun discardPermanentSyncFailure(id: Long) {
+        viewModelScope.launch { repository.discardPermanentFailure(id) }
+    }
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 

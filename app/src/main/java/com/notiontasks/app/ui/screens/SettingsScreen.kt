@@ -58,6 +58,7 @@ import androidx.navigation.NavController
 import com.notiontasks.app.R
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.theme.AppThemePalettes
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
@@ -71,9 +72,13 @@ fun SettingsScreen(
     navController: NavController,
     syncState: SyncUiState,
     onSync: () -> Unit,
+    permanentFailures: List<PendingSyncActionEntity>,
+    onRetryFailure: (Long) -> Unit,
+    onDiscardFailure: (Long) -> Unit,
 ) {
     val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
     var showSyncFailureDetails by remember { mutableStateOf(false) }
+    var discardTarget by remember { mutableStateOf<PendingSyncActionEntity?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -89,6 +94,24 @@ fun SettingsScreen(
             onSync = onSync,
             onShowFailureDetails = { showSyncFailureDetails = true },
         )
+
+        if (permanentFailures.isNotEmpty()) {
+            SettingsGroup("同期の修復") {
+                Text("修正が必要な変更があります。破棄しても他の変更は自動削除されません。", style = MaterialTheme.typography.bodySmall)
+                permanentFailures.forEach { failure ->
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${failure.actionType}: ${failure.taskId}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text(failure.lastError ?: "同期できませんでした", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onRetryFailure(failure.id) }) { Text("再試行") }
+                                TextButton(onClick = { discardTarget = failure }) { Text("破棄") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         SettingsGroup("日常の設定") {
             SettingsMenuItem(
@@ -169,6 +192,15 @@ fun SettingsScreen(
                 }) { Text("再試行") }
             },
             dismissButton = { TextButton(onClick = { showSyncFailureDetails = false }) { Text("閉じる") } },
+        )
+    }
+    discardTarget?.let { failure ->
+        AlertDialog(
+            onDismissRequest = { discardTarget = null },
+            title = { Text("同期変更を破棄しますか？") },
+            text = { Text("${failure.actionType} の保留操作だけを破棄します。関連する他の保留操作は残ります。") },
+            confirmButton = { Button(onClick = { onDiscardFailure(failure.id); discardTarget = null }) { Text("破棄する") } },
+            dismissButton = { TextButton(onClick = { discardTarget = null }) { Text("キャンセル") } },
         )
     }
 }

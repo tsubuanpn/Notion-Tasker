@@ -102,6 +102,7 @@ fun MainAppScreen(
     val setupCompleted by settingsViewModel.setupCompleted.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val permanentSyncFailures by viewModel.permanentSyncFailures.collectAsState()
     val isCreatingTask by viewModel.isCreatingTask.collectAsState()
     val activeTaskSaveKeys by viewModel.activeTaskSaveKeys.collectAsState()
 
@@ -373,6 +374,9 @@ fun MainAppScreen(
                     navController = navController,
                     syncState = syncState,
                     onSync = { viewModel.syncWithNotion() },
+                    permanentFailures = permanentSyncFailures,
+                    onRetryFailure = viewModel::retryPermanentSyncFailure,
+                    onDiscardFailure = viewModel::discardPermanentSyncFailure,
                 )
             }
             composable(Screen.Setup.route) {
