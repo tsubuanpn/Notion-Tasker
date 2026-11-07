@@ -182,7 +182,16 @@ class TaskViewModel(
     val statusCompleted: StateFlow<String> = _statusCompleted.asStateFlow()
 
     private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
-    val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
+    val categoryOptions: StateFlow<List<NotionOptionInfo>> = combine(
+        _categoryOptions,
+        repository.allTasks,
+    ) { savedOptions, cachedTasks ->
+        categoryOptionsForTaskUi(savedOptions, cachedTasks)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = _categoryOptions.value,
+    )
 
     init {
         viewModelScope.launch {

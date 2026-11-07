@@ -244,6 +244,7 @@ class MainActivity : ComponentActivity() {
                     statusOptions = statusOptions,
                 ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mStatusUnstarted, mStatusInProgress, mStatusCompleted, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
                     // オプションを自動的に文字列化して SharedPrefs に保存する
+                    val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
 
                     settingsViewModel.updateMorningTime(morning)
@@ -269,6 +270,7 @@ class MainActivity : ComponentActivity() {
                             put("mapping_prop_category", mCategory)
                             put("mapping_prop_scheduled_date", mScheduled)
                             put("mapping_prop_due_date", mDue)
+                            if (catJson.isNotBlank()) put("category_options_v2", catJson)
                             if (statJson.isNotBlank()) put("status_options_v2", statJson)
                         },
                     )
