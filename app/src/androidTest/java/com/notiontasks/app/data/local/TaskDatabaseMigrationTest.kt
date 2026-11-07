@@ -20,7 +20,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV1ToV9_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
+    fun migratesV1ToV10_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL(
@@ -46,7 +46,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV8ToV9_keepsCachedDataAndMarksItUnowned() = runBlocking {
+    fun migratesV8ToV10_keepsCachedDataAndMarksItUnowned() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL("CREATE TABLE tasks (id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, category TEXT NOT NULL, dueDate TEXT, scheduledDate TEXT, statusColor TEXT, categoryColor TEXT, lastEditedTime INTEGER NOT NULL, PRIMARY KEY(id))")
@@ -71,6 +71,13 @@ class TaskDatabaseMigrationTest {
 
             migratedDatabase.syncMetadataDao.put(SyncMetadataEntity("remote_cursor", 9999L))
             assertEquals(9999L, migratedDatabase.syncMetadataDao.getTimestamp("remote_cursor"))
+            migratedDatabase.taskIdAliasDao.upsertAlias(
+                TaskIdAliasEntity("pending_task", "page_123", "database"),
+            )
+            assertEquals(
+                "page_123",
+                migratedDatabase.taskIdAliasDao.getRemoteTaskId("pending_task", "database"),
+            )
         } finally {
             migratedDatabase.close()
         }

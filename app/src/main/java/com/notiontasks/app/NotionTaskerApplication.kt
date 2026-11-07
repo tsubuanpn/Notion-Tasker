@@ -36,6 +36,7 @@ class AppContainer(application: Application) {
         taskDao = database.taskDao,
         pendingSyncActionDao = database.pendingSyncActionDao,
         syncMetadataDao = database.syncMetadataDao,
+        taskIdAliasDao = database.taskIdAliasDao,
     )
     val scheduleRepository = ScheduleRepository(
         scheduleBlockDao = database.scheduleBlockDao,

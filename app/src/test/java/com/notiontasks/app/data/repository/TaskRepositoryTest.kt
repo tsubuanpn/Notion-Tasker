@@ -6,6 +6,7 @@ import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
+import com.notiontasks.app.data.local.TaskIdAliasDao
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.*
 import io.mockk.*
@@ -27,6 +28,7 @@ class TaskRepositoryTest {
     private val taskDao: TaskDao = mockk(relaxed = true)
     private val pendingSyncActionDao: PendingSyncActionDao = mockk(relaxed = true)
     private val syncMetadataDao: SyncMetadataDao = mockk(relaxed = true)
+    private val taskIdAliasDao: TaskIdAliasDao = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
 
@@ -34,9 +36,10 @@ class TaskRepositoryTest {
 
     @Before
     fun setup() {
-        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao)
+        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao, taskIdAliasDao)
         repository.updateDataSourceId("data_source")
         repository.updateConnectionScope("database")
+        coEvery { taskIdAliasDao.getRemoteTaskId(any(), any()) } returns null
         coEvery { notionApi.getDataSource(any(), any(), any()) } returns NotionDatabaseResponse(
             id = "data_source",
             properties = mapOf(
@@ -393,7 +396,37 @@ class TaskRepositoryTest {
 
         coVerify(exactly = 0) { notionApi.createPage(any(), any(), any()) }
         coVerify { pendingSyncActionDao.deletePendingActionById(1) }
-        coVerify { taskDao.upsertTasks(match { it.single().id == "page_123" }) }
+        coVerify {
+            taskIdAliasDao.resolveCreatedTask(
+                localTaskId = "pending_client-123",
+                remoteTask = match { it.id == "page_123" },
+                connectionScope = "db",
+            )
+        }
+    }
+
+    @Test
+    fun pendingUpdate_resolvesPersistentAliasAfterProcessRestart() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "pending_client-123",
+            payloadJson = """{"newStatus":"進行中"}""",
+            timestamp = 1L,
+            connectionScope = "database",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { taskIdAliasDao.getRemoteTaskId("pending_client-123", "database") } returns "page_123"
+        coEvery { notionApi.updatePage(any(), any(), "page_123", any()) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify { notionApi.updatePage(any(), any(), "page_123", any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
     }
 
     @Test

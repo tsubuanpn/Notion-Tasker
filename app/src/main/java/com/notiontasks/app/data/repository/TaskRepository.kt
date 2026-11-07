@@ -8,6 +8,7 @@ import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.SyncMetadataEntity
 import com.notiontasks.app.data.local.TaskDao
 import com.notiontasks.app.data.local.TaskEntity
+import com.notiontasks.app.data.local.TaskIdAliasDao
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
@@ -123,6 +124,7 @@ class TaskRepository(
     private val taskDao: TaskDao,
     private val pendingSyncActionDao: PendingSyncActionDao,
     private val syncMetadataDao: SyncMetadataDao,
+    private val taskIdAliasDao: TaskIdAliasDao,
 ) {
 
     // 非同期処理およびリレーショナル整合性のための Mutex 排他制御
@@ -180,6 +182,12 @@ class TaskRepository(
     /** Switches the visible and sendable cache to one explicitly configured database. */
     fun updateConnectionScope(databaseId: String) {
         connectionScope.value = databaseId.trim().ifBlank { null }
+    }
+
+    /** Returns the Notion page ID for a locally generated ID, if this connection has resolved it. */
+    suspend fun resolveTaskId(taskId: String): String {
+        val scope = connectionScope.value ?: return taskId
+        return taskIdAliasDao.getRemoteTaskId(taskId, scope) ?: taskId
     }
 
     /** Adds the identifier column once per connected data source without altering other properties. */
@@ -476,11 +484,12 @@ class TaskRepository(
         newStatus: String,
         newStatusColor: String? = null,
     ) = syncMutex.withLock {
+        val resolvedPageId = resolveTaskId(pageId)
         val trimmedStatus = newStatus.trim()
         // 楽観的な UI/ローカルの更新
         val statusColor = newStatusColor ?: taskDao.getStatusColorForStatus(trimmedStatus)
         val localEditTime = System.currentTimeMillis()
-        taskDao.updateTaskStatusLocal(pageId, trimmedStatus, statusColor, localEditTime)
+        taskDao.updateTaskStatusLocal(resolvedPageId, trimmedStatus, statusColor, localEditTime)
 
         // リモートの Patch 呼び出しを実行する
         val authHeader = "Bearer $token"
@@ -498,12 +507,12 @@ class TaskRepository(
                     },
                 )
             )
-            val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = request)
+            val updatedPage = notionApi.updatePage(token = authHeader, pageId = resolvedPageId, request = request)
             
             // APIからの最新の色情報を反映させる（Notion側での変更を追従）
             val finalStatusColor = updatedPage.properties.getStatusColor(propStatusName)
             if (finalStatusColor != null) {
-                taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor, localEditTime)
+                taskDao.updateTaskStatusLocal(resolvedPageId, trimmedStatus, finalStatusColor, localEditTime)
             }
         } catch (firstFailure: Exception) {
             if (firstFailure is CancellationException) throw firstFailure
@@ -513,7 +522,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", pageId, actionPayload)
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload)
                 return@withLock
             }
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
@@ -531,7 +540,7 @@ class TaskRepository(
                         },
                     ),
                 )
-                val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = retryRequest)
+                val updatedPage = notionApi.updatePage(token = authHeader, pageId = resolvedPageId, request = retryRequest)
                 // 再試行が成功した場合は、構成をシームレスに更新します
                 propStatusType = alternateType
                 
@@ -541,7 +550,7 @@ class TaskRepository(
                     updatedPage.properties.getSelectColor(propStatusName)
                 }
                 if (finalStatusColor != null) {
-                    taskDao.updateTaskStatusLocal(pageId, trimmedStatus, finalStatusColor, localEditTime)
+                    taskDao.updateTaskStatusLocal(resolvedPageId, trimmedStatus, finalStatusColor, localEditTime)
                 }
             } catch (retryFailure: Exception) {
                 if (retryFailure is CancellationException) throw retryFailure
@@ -551,7 +560,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", pageId, actionPayload)
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload)
             }
         }
     }
@@ -567,10 +576,11 @@ class TaskRepository(
         statusColor: String? = null,
         categoryColor: String? = null,
     ) = syncMutex.withLock {
+        val resolvedPageId = resolveTaskId(pageId)
         val trimmedStatus = status.trim()
         val trimmedCategory = category.trim()
         // 楽観的な UI/ローカルの更新
-        val currentLocalTask = taskDao.getTaskById(pageId)
+        val currentLocalTask = taskDao.getTaskById(resolvedPageId)
         val finalStatusColor = statusColor ?: if (currentLocalTask?.status == trimmedStatus) {
             currentLocalTask.statusColor
         } else {
@@ -582,7 +592,7 @@ class TaskRepository(
             taskDao.getCategoryColorForCategory(trimmedCategory)
         }
         val updatedLocalRef = TaskEntity(
-            id = pageId,
+            id = resolvedPageId,
             title = title,
             status = trimmedStatus,
             category = trimmedCategory,
@@ -670,7 +680,7 @@ class TaskRepository(
                 buildPropertiesPayload(alternateType)
             }
             
-            val updatedPage = notionApi.updatePage(token = authHeader, pageId = pageId, request = NotionUpdateRequest(properties = payload))
+            val updatedPage = notionApi.updatePage(token = authHeader, pageId = resolvedPageId, request = NotionUpdateRequest(properties = payload))
             
             // APIからの最新の色情報を反映させる
             val apiStatusColor = if (propStatusType == "status") {
@@ -698,7 +708,7 @@ class TaskRepository(
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
-            enqueuePendingAction("UPDATE_TASK", pageId, actionPayload)
+            enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload)
         }
     }
 
@@ -852,7 +862,7 @@ class TaskRepository(
         for (action in pendingActions) {
             try {
                 // 各アクションを独立して処理し、1つのエラーが全体を止めないようにする
-                val taskId = idMapping[action.taskId] ?: action.taskId
+                val taskId = idMapping[action.taskId] ?: resolveTaskId(action.taskId)
                 val payloadJson = action.payloadJson
                 val payloadObj = json.parseToJsonElement(payloadJson).jsonObject
                 
@@ -937,25 +947,29 @@ class TaskRepository(
                             ),
                         )
                         
+                        // Preserve the latest local edit made before CREATE completed.  Its
+                        // queued UPDATE is also rewritten below, so it survives a restart.
+                        val latestLocalTask = taskDao.getTaskById(action.taskId)
+                        val resolvedTask = TaskEntity(
+                            id = created.id,
+                            title = latestLocalTask?.title ?: title,
+                            status = latestLocalTask?.status ?: status,
+                            category = latestLocalTask?.category ?: category,
+                            dueDate = latestLocalTask?.dueDate ?: dueDate,
+                            scheduledDate = latestLocalTask?.scheduledDate ?: scheduledDate,
+                            statusColor = latestLocalTask?.statusColor,
+                            categoryColor = latestLocalTask?.categoryColor,
+                            lastEditedTime = latestLocalTask?.lastEditedTime ?: System.currentTimeMillis(),
+                            connectionScope = scope,
+                        )
+
                         // IDマッピングを記録
                         idMapping[action.taskId] = created.id
-
-                        // 仮タスクを正式な ID で入れ替え
-                        taskDao.getTaskById(action.taskId)?.let { tempTask ->
-                            taskDao.deleteTask(tempTask)
-                        }
-                        taskDao.upsertTasks(listOf(
-                            TaskEntity(
-                                id = created.id,
-                                title = title,
-                                status = status,
-                                category = category,
-                                dueDate = dueDate,
-                                scheduledDate = scheduledDate,
-                                lastEditedTime = System.currentTimeMillis(),
-                                connectionScope = scope,
-                            )
-                        ))
+                        taskIdAliasDao.resolveCreatedTask(
+                            localTaskId = action.taskId,
+                            remoteTask = resolvedTask,
+                            connectionScope = scope,
+                        )
                     }
                     else -> throw IllegalArgumentException("Unknown pending action type: ${action.actionType}")
                 }

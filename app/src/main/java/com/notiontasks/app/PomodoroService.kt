@@ -20,11 +20,15 @@ import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.local.TaskDatabase
+import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 import com.notiontasks.app.utils.JapanTime
 
@@ -56,6 +60,7 @@ class PomodoroService : Service() {
 
     // タスクのステータス監視用 Job
     private var taskMonitoringJob: Job? = null
+    private var aliasResolutionJob: Job? = null
 
     // セッション内での累積作業時間（ミリ秒）
     private var sessionAccumulatedMs: Long = 0L
@@ -150,6 +155,33 @@ class PomodoroService : Service() {
         }
     }
 
+    /** Rebinds a restored focus selection without trusting an ID from another Notion connection. */
+    private fun resolvePersistedTaskAlias() {
+        val localTaskId = associatedTaskId ?: return
+        if (!localTaskId.startsWith("pending_")) return
+        aliasResolutionJob?.cancel()
+        aliasResolutionJob = serviceScope.launch {
+            val scope = SecurityUtils.getSecurePreferences(this@PomodoroService)
+                .getString("database_id", "")
+                ?.trim()
+                .orEmpty()
+            if (scope.isBlank()) return@launch
+            val remoteTaskId = TaskDatabase.getInstance(this@PomodoroService)
+                .taskIdAliasDao
+                .observeRemoteTaskId(localTaskId, scope)
+                .filterNotNull()
+                .first()
+            if (associatedTaskId != localTaskId) return@launch
+
+            associatedTaskId = remoteTaskId
+            sessionPrefs.edit {
+                putString(PREF_SESSION_TASK_ID, remoteTaskId)
+                putString("selected_task_id", remoteTaskId)
+            }
+            if (isRunning && isFocusWorkSession()) startTaskMonitoring(remoteTaskId)
+        }
+    }
+
     private fun isFocusWorkSession(): Boolean =
         focusType != FOCUS_TYPE_POMODORO || currentMode == "work"
 
@@ -231,6 +263,7 @@ class PomodoroService : Service() {
         durationMs = getDurationMsForMode(currentMode)
         timeLeftMs = durationMs
         restoreSessionSnapshot()
+        resolvePersistedTaskAlias()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -251,6 +284,7 @@ class PomodoroService : Service() {
             associatedTaskId = taskId
             associatedTaskCategory = taskCategory
             associatedTaskCategoryColor = taskCategoryColor
+            resolvePersistedTaskAlias()
             
             if (!requestedFocusType.isNullOrBlank() && !isRunning && !isPaused) {
                 focusType = requestedFocusType

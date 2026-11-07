@@ -606,6 +606,9 @@ class TaskViewModel(
         }
     }
 
+    /** Keeps persisted UI selections usable after an offline task receives its Notion page ID. */
+    suspend fun resolveTaskId(id: String): String = repository.resolveTaskId(id)
+
     private suspend fun cleanupData() {
         val keepType = sharedPrefs.getString("data_keep_type", "date") ?: "date"
         val keepVal = if (keepType == "date") {

@@ -70,6 +70,18 @@ data class PendingSyncActionEntity(
     val connectionScope: String? = null,
 )
 
+/** Resolves a locally generated task ID to its Notion page ID within one connection. */
+@Entity(
+    tableName = "task_id_aliases",
+    primaryKeys = ["localTaskId", "connectionScope"],
+    indices = [Index(value = ["remoteTaskId", "connectionScope"])],
+)
+data class TaskIdAliasEntity(
+    val localTaskId: String,
+    val remoteTaskId: String,
+    val connectionScope: String,
+)
+
 /** リモート由来の同期時刻だけを保持するためのメタデータです。 */
 @Entity(tableName = "sync_metadata")
 data class SyncMetadataEntity(
@@ -232,6 +244,51 @@ interface PendingSyncActionDao {
     suspend fun clearAllPendingActions()
 }
 
+/**
+ * Keeps every local reference on a task together when an offline CREATE receives its Notion ID.
+ * The alias remains afterwards so a queued action restored after process death still resolves.
+ */
+@Dao
+interface TaskIdAliasDao {
+    @Query("SELECT remoteTaskId FROM task_id_aliases WHERE localTaskId = :localTaskId AND connectionScope = :connectionScope LIMIT 1")
+    suspend fun getRemoteTaskId(localTaskId: String, connectionScope: String): String?
+
+    @Query("SELECT remoteTaskId FROM task_id_aliases WHERE localTaskId = :localTaskId AND connectionScope = :connectionScope LIMIT 1")
+    fun observeRemoteTaskId(localTaskId: String, connectionScope: String): Flow<String?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAlias(alias: TaskIdAliasEntity)
+
+    @Query("UPDATE pending_sync_actions SET taskId = :remoteTaskId WHERE taskId = :localTaskId AND connectionScope = :connectionScope")
+    suspend fun replacePendingTaskReferences(localTaskId: String, remoteTaskId: String, connectionScope: String)
+
+    @Query("UPDATE schedule_blocks SET associatedId = :remoteTaskId WHERE type = 'task' AND associatedId = :localTaskId")
+    suspend fun replaceScheduleTaskReferences(localTaskId: String, remoteTaskId: String)
+
+    @Query("UPDATE pomodoro_logs SET taskId = :remoteTaskId WHERE taskId = :localTaskId")
+    suspend fun replacePomodoroTaskReferences(localTaskId: String, remoteTaskId: String)
+
+    @Query("DELETE FROM tasks WHERE id = :localTaskId")
+    suspend fun deleteTemporaryTask(localTaskId: String)
+
+    @Upsert
+    suspend fun upsertResolvedTask(task: TaskEntity)
+
+    @Transaction
+    suspend fun resolveCreatedTask(
+        localTaskId: String,
+        remoteTask: TaskEntity,
+        connectionScope: String,
+    ) {
+        upsertAlias(TaskIdAliasEntity(localTaskId, remoteTask.id, connectionScope))
+        replacePendingTaskReferences(localTaskId, remoteTask.id, connectionScope)
+        replaceScheduleTaskReferences(localTaskId, remoteTask.id)
+        replacePomodoroTaskReferences(localTaskId, remoteTask.id)
+        deleteTemporaryTask(localTaskId)
+        upsertResolvedTask(remoteTask)
+    }
+}
+
 @Dao
 interface SyncMetadataDao {
     @Query("SELECT timestamp FROM sync_metadata WHERE key = :key LIMIT 1")
@@ -249,9 +306,10 @@ interface SyncMetadataDao {
         ScheduleBlockEntity::class,
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
+        TaskIdAliasEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -260,6 +318,7 @@ abstract class TaskDatabase : RoomDatabase() {
     abstract val scheduleBlockDao: ScheduleBlockDao
     abstract val lifeActivityDao: LifeActivityDao
     abstract val pendingSyncActionDao: PendingSyncActionDao
+    abstract val taskIdAliasDao: TaskIdAliasDao
     abstract val syncMetadataDao: SyncMetadataDao
 
     companion object {
@@ -330,6 +389,17 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS task_id_aliases (localTaskId TEXT NOT NULL, remoteTaskId TEXT NOT NULL, connectionScope TEXT NOT NULL, PRIMARY KEY(localTaskId, connectionScope))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_task_id_aliases_remoteTaskId_connectionScope ON task_id_aliases (remoteTaskId, connectionScope)",
+                )
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
                 .addMigrations(
@@ -341,6 +411,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
 

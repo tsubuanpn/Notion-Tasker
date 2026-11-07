@@ -186,10 +186,17 @@ fun PomodoroScreen(
         prefs.edit { putString("selected_task_id", selectedTaskId) }
     }
 
-    LaunchedEffect(tasksState) {
+    LaunchedEffect(tasksState, selectedTaskId) {
         if (tasksState is TasksUiState.Success) {
             val successState = tasksState as TasksUiState.Success
             val selectedTask = successState.tasks.find { it.id == selectedTaskId }
+            if (selectedTask == null && selectedTaskId != null) {
+                val resolvedTaskId = viewModel.resolveTaskId(selectedTaskId!!)
+                if (resolvedTaskId != selectedTaskId && successState.tasks.any { it.id == resolvedTaskId }) {
+                    selectedTaskId = resolvedTaskId
+                    return@LaunchedEffect
+                }
+            }
             // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
             if (selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
                 // 自動解除の前に、タイマーが動いていれば一時停止命令をサービスに送る（レースコンディション回避）
