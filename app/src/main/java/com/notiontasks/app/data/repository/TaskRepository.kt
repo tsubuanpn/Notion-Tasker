@@ -557,12 +557,12 @@ class TaskRepository(
                 if (keepValue > 0) {
                     val cal = java.util.Calendar.getInstance()
                     cal.add(java.util.Calendar.MONTH, -keepValue)
-                    taskDao.deleteCompletedTasksBefore(completed, cal.timeInMillis, protectedIds)
+                    taskDao.deleteCompletedTasksBefore(scope, completed, cal.timeInMillis, protectedIds)
                 }
             }
             "count" -> {
                 if (keepValue > 0) {
-                    taskDao.keepOnlyLatestCompletedTasks(completed, keepValue, protectedIds)
+                    taskDao.keepOnlyLatestCompletedTasks(scope, completed, keepValue, protectedIds)
                 }
             }
         }

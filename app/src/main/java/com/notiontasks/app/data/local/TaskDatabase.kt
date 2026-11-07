@@ -149,11 +149,38 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     fun getTaskFlowById(id: String): Flow<TaskEntity?>
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND lastEditedTime < :cutoffTimestamp AND id NOT IN (:protectedIds)")
-    suspend fun deleteCompletedTasksBefore(completedStatus: String, cutoffTimestamp: Long, protectedIds: List<String>)
+    @Query("""
+        DELETE FROM tasks
+        WHERE connectionScope = :connectionScope AND status = :completedStatus AND lastEditedTime < :cutoffTimestamp
+          AND id NOT IN (:protectedIds)
+          AND id NOT IN (SELECT localTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT remoteTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT associatedId FROM schedule_blocks WHERE type = 'task' AND associatedId IS NOT NULL)
+          AND id NOT IN (SELECT taskId FROM pomodoro_logs WHERE taskId IS NOT NULL)
+    """)
+    suspend fun deleteCompletedTasksBefore(
+        connectionScope: String,
+        completedStatus: String,
+        cutoffTimestamp: Long,
+        protectedIds: List<String>,
+    )
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount) AND id NOT IN (:protectedIds)")
-    suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int, protectedIds: List<String>)
+    @Query("""
+        DELETE FROM tasks
+        WHERE connectionScope = :connectionScope AND status = :completedStatus
+          AND id NOT IN (SELECT id FROM tasks WHERE connectionScope = :connectionScope AND status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)
+          AND id NOT IN (:protectedIds)
+          AND id NOT IN (SELECT localTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT remoteTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT associatedId FROM schedule_blocks WHERE type = 'task' AND associatedId IS NOT NULL)
+          AND id NOT IN (SELECT taskId FROM pomodoro_logs WHERE taskId IS NOT NULL)
+    """)
+    suspend fun keepOnlyLatestCompletedTasks(
+        connectionScope: String,
+        completedStatus: String,
+        maxCount: Int,
+        protectedIds: List<String>,
+    )
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: String)

@@ -421,6 +421,7 @@ class TaskRepositoryTest {
             payloadJson = """{"newStatus":"進行中"}""",
             timestamp = 1L,
             connectionScope = "database",
+            changedFields = "status",
         )
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
         coEvery { taskIdAliasDao.getRemoteTaskId("pending_client-123", "database") } returns "page_123"
@@ -445,6 +446,7 @@ class TaskRepositoryTest {
             payloadJson = """{"newStatus":"進行中"}""",
             timestamp = 1L,
             connectionScope = "database",
+            changedFields = "status",
         )
         val remotePage = NotionPage(
             id = "page_123",
@@ -543,6 +545,22 @@ class TaskRepositoryTest {
 
         assertFalse(discarded)
         coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(otherScopeAction.id) }
+    }
+
+    @Test
+    fun cleanupCompletedTasks_limitsRetentionCleanupToCurrentConnectionScope() = runTest {
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+
+        repository.cleanupCompletedTasks("count", 3)
+
+        coVerify {
+            taskDao.keepOnlyLatestCompletedTasks(
+                connectionScope = "database",
+                completedStatus = repository.propStatusCompletedName,
+                maxCount = 3,
+                protectedIds = emptyList(),
+            )
+        }
     }
 
     @Test
