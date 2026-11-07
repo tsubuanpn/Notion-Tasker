@@ -303,7 +303,12 @@ class TaskRepository(
     // 信頼できる唯一の情報源（SSOT）としてのメインのローカルフロー。Entity をドメインモデルに変換します
     val allTasks: Flow<List<TaskModel>> = combine(taskDao.getAllTasksFlow(), connectionScope) { entities, scope ->
             entities.asSequence()
-                .filter { scope != null && it.connectionScope == scope }
+                // When connection settings are unavailable after restore, retain only legacy/
+                // unowned cache rows for read-only recovery.  Once a connection is selected,
+                // never mix those rows into a verified connection's cache.
+                .filter { entity ->
+                    if (scope == null) entity.connectionScope == null else entity.connectionScope == scope
+                }
                 .map { entity ->
                 TaskModel(
                     id = entity.id,
