@@ -257,6 +257,12 @@ interface PendingSyncActionDao {
     @Query("UPDATE pending_sync_actions SET state = :state, lastError = :lastError WHERE id = :id")
     suspend fun updatePendingActionState(id: Long, state: String, lastError: String?)
 
+    @Query("SELECT * FROM pending_sync_actions WHERE state = 'PERMANENT_FAILURE' ORDER BY timestamp ASC")
+    fun getPermanentFailuresFlow(): Flow<List<PendingSyncActionEntity>>
+
+    @Query("UPDATE pending_sync_actions SET state = 'PENDING', lastError = NULL WHERE id = :id AND state = 'PERMANENT_FAILURE'")
+    suspend fun retryPermanentFailure(id: Long): Int
+
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
 

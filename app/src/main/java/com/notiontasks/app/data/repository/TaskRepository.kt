@@ -330,6 +330,23 @@ class TaskRepository(
     }
         .flowOn(Dispatchers.Default)
 
+    /** Failed actions remain visible and require an explicit retry or discard decision. */
+    val permanentFailures: Flow<List<PendingSyncActionEntity>> = combine(
+        pendingSyncActionDao.getPermanentFailuresFlow(),
+        connectionScope,
+    ) { actions, scope -> actions.filter { scope != null && it.connectionScope == scope } }
+        .flowOn(Dispatchers.Default)
+
+    suspend fun retryPermanentFailure(id: Long): Boolean = pendingSyncActionDao.retryPermanentFailure(id) > 0
+
+    suspend fun discardPermanentFailure(id: Long): Boolean {
+        val action = pendingSyncActionDao.getAllPendingActions().firstOrNull { it.id == id }
+            ?: return false
+        if (action.state != "PERMANENT_FAILURE") return false
+        pendingSyncActionDao.deletePendingActionById(id)
+        return true
+    }
+
     fun getTaskFlowById(id: String): Flow<TaskModel?> = combine(taskDao.getTaskFlowById(id), connectionScope) { entity, scope ->
             entity?.takeIf { scope != null && it.connectionScope == scope }?.let {
                 TaskModel(
@@ -897,8 +914,10 @@ class TaskRepository(
         val authHeader = "Bearer $token"
         // 仮IDから本番IDへのマッピング
         val idMapping = mutableMapOf<String, String>()
+        val blockedTaskIds = mutableSetOf<String>()
 
         for (action in pendingActions) {
+            if (action.taskId in blockedTaskIds) continue
             try {
                 // 各アクションを独立して処理し、1つのエラーが全体を止めないようにする
                 val taskId = idMapping[action.taskId] ?: resolveTaskId(action.taskId)
@@ -1037,7 +1056,10 @@ class TaskRepository(
                     state = "PERMANENT_FAILURE",
                     lastError = failure.message,
                 )
-                throw PendingSyncActionException("保留中の変更を同期できません。Notionの接続設定とプロパティマッピングを確認してください。", failure)
+                // Keep dependent operations for this task untouched, while independent tasks
+                // and the subsequent remote read continue to make progress.
+                blockedTaskIds += action.taskId
+                continue
             }
         }
     }

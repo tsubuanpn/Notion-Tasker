@@ -469,25 +469,23 @@ class TaskRepositoryTest {
     }
 
     @Test
-    fun syncTasks_permanentPendingFailure_keepsTheUserAction() = runTest {
+    fun syncTasks_permanentPendingFailure_keepsTheUserActionAndContinuesRead() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,
             actionType = "UPDATE_STATUS",
             taskId = "page_123",
             payloadJson = "{\"newStatus\":\"Done\"}",
             timestamp = 1L,
+            connectionScope = "database",
         )
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending)
         coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IllegalArgumentException("invalid status")
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
 
-        try {
-            repository.syncTasks("token", "database")
-            fail("Expected a permanent pending-action failure to be reported")
-        } catch (_: IOException) {
-            // Expected: the user action remains queued for repair and retry.
-        }
+        repository.syncTasks("token", "database")
 
         coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(pending.id) }
+        coVerify { pendingSyncActionDao.updatePendingActionState(1, "PERMANENT_FAILURE", "invalid status") }
     }
 
     @Test
