@@ -59,7 +59,6 @@ import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 

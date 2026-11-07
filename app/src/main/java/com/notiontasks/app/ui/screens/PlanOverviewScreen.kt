@@ -53,9 +53,10 @@ import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
 import java.time.LocalDate
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val planSelectedDateFormatter = DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPAN)
 
 /** カレンダーを既定に、時間割を同一階層で切り替える計画画面。 */
 @Composable
@@ -295,7 +296,6 @@ private fun monthCells(year: Int, month: Int): List<PlanCalendarDay?> {
     return cells
 }
 
-private fun formatSelectedDate(date: String): String = try {
-    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date) ?: return date
-    SimpleDateFormat("M月d日（E）", Locale.JAPAN).format(parsed)
+internal fun formatSelectedDate(date: String): String = try {
+    LocalDate.parse(date).format(planSelectedDateFormatter)
 } catch (_: Exception) { date }
