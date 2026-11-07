@@ -12,6 +12,9 @@ class SettingsViewModel(
     private val sharedPrefs: SharedPreferences
 ) : ViewModel() {
 
+    data class NotionConnectionDraft(val token: String, val databaseId: String)
+    private var notionConnectionDraft: NotionConnectionDraft? = null
+
     init {
         // データソースはデータベースから自動検出するため、旧版の手入力値は移行時に破棄する。
         sharedPrefs.edit { remove("notion_data_source_id") }
@@ -88,6 +91,38 @@ class SettingsViewModel(
     fun updateDatabaseId(dbId: String) {
         _databaseId.value = dbId
         sharedPrefs.edit { putString("database_id", dbId) }
+    }
+
+    /** Keeps a candidate connection out of persistent settings until its mapping is confirmed. */
+    fun stageNotionConnection(token: String, databaseId: String) {
+        notionConnectionDraft = NotionConnectionDraft(token.trim(), databaseId.trim())
+    }
+
+    fun connectionForMapping(): NotionConnectionDraft = notionConnectionDraft
+        ?: NotionConnectionDraft(_notionToken.value, _databaseId.value)
+
+    fun discardStagedNotionConnection() {
+        notionConnectionDraft = null
+    }
+
+    /** Commits the verified connection and all required mappings in one SharedPreferences edit. */
+    fun commitNotionConnection(
+        token: String,
+        databaseId: String,
+        mappings: Map<String, String>,
+    ) {
+        val cleanToken = token.trim()
+        val cleanDatabaseId = databaseId.trim()
+        sharedPrefs.edit {
+            putString("notion_token", cleanToken)
+            putString("database_id", cleanDatabaseId)
+            mappings.forEach { (key, value) -> putString(key, value) }
+            putBoolean("setup_completed", true)
+        }
+        _notionToken.value = cleanToken
+        _databaseId.value = cleanDatabaseId
+        _setupCompleted.value = true
+        notionConnectionDraft = null
     }
 
     fun markSetupCompleted() {

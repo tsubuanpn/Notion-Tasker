@@ -7,6 +7,7 @@ import com.notiontasks.app.data.local.ScheduleBlockDao
 import com.notiontasks.app.data.local.ScheduleBlockEntity
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TimeBlock
+import com.notiontasks.app.data.model.TimeBlockOrigin
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,6 +55,9 @@ class ScheduleRepositoryTest {
             endTime = 120,
             color = "#FFFFFF",
             date = "2026-08-02",
+            origin = TimeBlockOrigin.PRESET,
+            presetId = "la_sleep",
+            presetGeneration = 3L,
         )
         every { scheduleBlockDao.getAllBlocksFlow() } returns flowOf(listOf(entity))
         repository = createRepository()
@@ -64,6 +68,9 @@ class ScheduleRepositoryTest {
             assertEquals(1, result.size)
             assertEquals("Task 1", result[0].title)
             assertEquals("task", result[0].type)
+            assertEquals(TimeBlockOrigin.PRESET, result[0].origin)
+            assertEquals("la_sleep", result[0].presetId)
+            assertEquals(3L, result[0].presetGeneration)
             awaitComplete()
         }
     }
@@ -81,6 +88,9 @@ class ScheduleRepositoryTest {
             endTime = 480,
             color = "#000000",
             date = "2026-08-02",
+            origin = TimeBlockOrigin.PRESET,
+            presetId = "la_sleep",
+            presetGeneration = 2L,
         )
 
         // Act
@@ -90,7 +100,9 @@ class ScheduleRepositoryTest {
         coVerify { 
             scheduleBlockDao.insertBlock(
                 match { 
-                    (it.id == "1") && (it.title == "Sleep") && (it.type == "life")
+                    (it.id == "1") && (it.title == "Sleep") && (it.type == "life") &&
+                        (it.origin == TimeBlockOrigin.PRESET) && (it.presetId == "la_sleep") &&
+                        (it.presetGeneration == 2L)
                 },
             )
         }

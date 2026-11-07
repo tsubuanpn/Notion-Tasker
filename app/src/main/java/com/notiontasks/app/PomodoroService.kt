@@ -20,14 +20,27 @@ import androidx.core.net.toUri
 import android.content.pm.ServiceInfo
 import kotlin.math.ceil
 import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.local.TaskDatabase
+import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import com.notiontasks.app.utils.JapanTime
+
+internal fun elapsedSinceFocusSnapshot(savedElapsedRealtimeMs: Long, currentElapsedRealtimeMs: Long): Long =
+    if (savedElapsedRealtimeMs > 0L && currentElapsedRealtimeMs >= savedElapsedRealtimeMs) {
+        currentElapsedRealtimeMs - savedElapsedRealtimeMs
+    } else {
+        // elapsedRealtime resets on boot. Do not invent elapsed focus time from wall-clock changes.
+        0L
+    }
 
 class PomodoroService : Service() {
 
@@ -57,10 +70,213 @@ class PomodoroService : Service() {
 
     // タスクのステータス監視用 Job
     private var taskMonitoringJob: Job? = null
+    private var aliasResolutionJob: Job? = null
 
     // セッション内での累積作業時間（ミリ秒）
     private var sessionAccumulatedMs: Long = 0L
     private var stopwatchSegmentStartedAtMs: Long? = null
+    private var sessionStartedDate: String? = null
+    private var sessionTaskTitle: String? = null
+    private var sessionTaskCategory: String? = null
+    private var sessionTaskCategoryColor: String? = null
+    private val focusLogWriteMutex = Mutex()
+
+    private val sessionPrefs by lazy { getSharedPreferences("pomodoro_prefs", MODE_PRIVATE) }
+
+    private fun persistSessionSnapshot() {
+        val active = currentSessionId != null && (isRunning || isPaused)
+        sessionPrefs.edit {
+            putBoolean(PREF_SESSION_ACTIVE, active)
+            if (!active) return@edit
+            putBoolean(PREF_SESSION_RUNNING, isRunning)
+            putString(PREF_SESSION_ID, currentSessionId)
+            putString(PREF_SESSION_MODE, currentMode)
+            putString(PREF_SESSION_FOCUS_TYPE, focusType)
+            putLong(PREF_SESSION_DURATION_MS, durationMs)
+            putLong(PREF_SESSION_LEFT_MS, timeLeftMs)
+            putLong(PREF_SESSION_FOCUS_START_LEFT_MS, focusStartLeftMs)
+            putLong(PREF_SESSION_ACCUMULATED_MS, sessionAccumulatedMs)
+            putString(PREF_SESSION_STARTED_DATE, sessionStartedDate)
+            putString(PREF_SESSION_TASK_TITLE_SNAPSHOT, sessionTaskTitle)
+            putString(PREF_SESSION_TASK_CATEGORY_SNAPSHOT, sessionTaskCategory)
+            putString(PREF_SESSION_TASK_COLOR_SNAPSHOT, sessionTaskCategoryColor)
+            putLong(PREF_SESSION_SAVED_AT, System.currentTimeMillis())
+            putLong(PREF_SESSION_SAVED_ELAPSED_REALTIME, SystemClock.elapsedRealtime())
+            putLong(PREF_SESSION_DEADLINE, if (isRunning && focusType != FOCUS_TYPE_STOPWATCH) System.currentTimeMillis() + timeLeftMs else 0L)
+            putString(PREF_SESSION_TASK_ID, associatedTaskId)
+            putString(PREF_SESSION_TASK_TITLE, associatedTaskTitle)
+            putString(PREF_SESSION_TASK_CATEGORY, associatedTaskCategory)
+            putString(PREF_SESSION_TASK_COLOR, associatedTaskCategoryColor)
+        }
+    }
+
+    private fun clearSessionSnapshot() {
+        sessionPrefs.edit {
+            putBoolean(PREF_SESSION_ACTIVE, false)
+            remove(PREF_SESSION_ID)
+            remove(PREF_SESSION_DEADLINE)
+        }
+    }
+
+    private fun clearInMemorySession() {
+        currentSessionId = null
+        sessionAccumulatedMs = 0L
+        focusStartLeftMs = 0L
+        stopwatchSegmentStartedAtMs = null
+    }
+
+    /**
+     * A final focus log must survive the gap between receiving Stop and Room finishing its write.
+     * The fixed log id makes replay an upsert, so recovering this record cannot duplicate a session.
+     */
+    private data class PendingFocusLog(val generation: Long, val log: PomodoroLog)
+
+    private fun persistPendingFocusLog(log: PomodoroLog): PendingFocusLog {
+        val generation = sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) + 1L
+        check(sessionPrefs.edit()
+            .putLong(PREF_PENDING_LOG_GENERATION, generation)
+            .putString(PREF_PENDING_LOG_ID, log.id)
+            .putString(PREF_PENDING_LOG_TASK_ID, log.taskId)
+            .putString(PREF_PENDING_LOG_TITLE, log.taskTitle)
+            .putString(PREF_PENDING_LOG_CATEGORY, log.category)
+            .putString(PREF_PENDING_LOG_COLOR, log.categoryColor)
+            .putString(PREF_PENDING_LOG_DATE, log.date)
+            .putInt(PREF_PENDING_LOG_MINUTES, log.minutes)
+            .putLong(PREF_PENDING_LOG_TIMESTAMP, log.timestamp)
+            .putString(PREF_PENDING_LOG_TYPE, log.sessionType)
+            .commit()) { "Failed to persist pending focus log" }
+        return PendingFocusLog(generation, log)
+    }
+
+    private fun readPendingFocusLog(): PendingFocusLog? {
+        val id = sessionPrefs.getString(PREF_PENDING_LOG_ID, null) ?: return null
+        val type = sessionPrefs.getString(PREF_PENDING_LOG_TYPE, null) ?: return null
+        val date = sessionPrefs.getString(PREF_PENDING_LOG_DATE, null) ?: return null
+        val category = sessionPrefs.getString(PREF_PENDING_LOG_CATEGORY, null) ?: return null
+        return PendingFocusLog(
+            generation = sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L),
+            log = PomodoroLog(
+                id = id,
+                taskId = sessionPrefs.getString(PREF_PENDING_LOG_TASK_ID, null),
+                taskTitle = sessionPrefs.getString(PREF_PENDING_LOG_TITLE, null),
+                category = category,
+                categoryColor = sessionPrefs.getString(PREF_PENDING_LOG_COLOR, null),
+                date = date,
+                minutes = sessionPrefs.getInt(PREF_PENDING_LOG_MINUTES, 0),
+                timestamp = sessionPrefs.getLong(PREF_PENDING_LOG_TIMESTAMP, 0L),
+                sessionType = type,
+            ),
+        )
+    }
+
+    private fun clearPendingFocusLog(generation: Long) {
+        if (sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) != generation) return
+        sessionPrefs.edit()
+            .remove(PREF_PENDING_LOG_ID)
+            .remove(PREF_PENDING_LOG_TASK_ID)
+            .remove(PREF_PENDING_LOG_TITLE)
+            .remove(PREF_PENDING_LOG_CATEGORY)
+            .remove(PREF_PENDING_LOG_COLOR)
+            .remove(PREF_PENDING_LOG_DATE)
+            .remove(PREF_PENDING_LOG_MINUTES)
+            .remove(PREF_PENDING_LOG_TIMESTAMP)
+            .remove(PREF_PENDING_LOG_TYPE)
+            .commit()
+    }
+
+    private fun enqueuePendingFocusLog(pending: PendingFocusLog) {
+        serviceScope.launch {
+            focusLogWriteMutex.withLock {
+                // A newer checkpoint supersedes an earlier coroutine before it can overwrite Room.
+                if (sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) != pending.generation) return@withLock
+                runCatching {
+                    (application as NotionTaskerApplication).container.pomodoroRepository
+                        .insertPomodoroLog(pending.log)
+                }.onSuccess {
+                    clearPendingFocusLog(pending.generation)
+                }
+                // On failure keep the committed preferences record for the next service creation.
+            }
+        }
+    }
+
+    private fun flushPendingFocusLog() {
+        readPendingFocusLog()?.let(::enqueuePendingFocusLog)
+    }
+
+    private fun restoreSessionSnapshot() {
+        if (!sessionPrefs.getBoolean(PREF_SESSION_ACTIVE, false)) return
+        val sessionId = sessionPrefs.getString(PREF_SESSION_ID, null) ?: run {
+            clearSessionSnapshot()
+            return
+        }
+        currentSessionId = sessionId
+        currentMode = sessionPrefs.getString(PREF_SESSION_MODE, "work") ?: "work"
+        focusType = sessionPrefs.getString(PREF_SESSION_FOCUS_TYPE, FOCUS_TYPE_POMODORO) ?: FOCUS_TYPE_POMODORO
+        durationMs = sessionPrefs.getLong(PREF_SESSION_DURATION_MS, getDurationMsForMode(currentMode))
+        timeLeftMs = sessionPrefs.getLong(PREF_SESSION_LEFT_MS, durationMs)
+        focusStartLeftMs = sessionPrefs.getLong(PREF_SESSION_FOCUS_START_LEFT_MS, timeLeftMs)
+        sessionAccumulatedMs = sessionPrefs.getLong(PREF_SESSION_ACCUMULATED_MS, 0L)
+        sessionStartedDate = sessionPrefs.getString(PREF_SESSION_STARTED_DATE, JapanTime.todayIso())
+        sessionTaskTitle = sessionPrefs.getString(PREF_SESSION_TASK_TITLE_SNAPSHOT, null)
+        sessionTaskCategory = sessionPrefs.getString(PREF_SESSION_TASK_CATEGORY_SNAPSHOT, null)
+        sessionTaskCategoryColor = sessionPrefs.getString(PREF_SESSION_TASK_COLOR_SNAPSHOT, null)
+        associatedTaskId = sessionPrefs.getString(PREF_SESSION_TASK_ID, null)
+        associatedTaskTitle = sessionPrefs.getString(PREF_SESSION_TASK_TITLE, null)
+        associatedTaskCategory = sessionPrefs.getString(PREF_SESSION_TASK_CATEGORY, null)
+        associatedTaskCategoryColor = sessionPrefs.getString(PREF_SESSION_TASK_COLOR, null)
+        isPaused = !sessionPrefs.getBoolean(PREF_SESSION_RUNNING, false)
+        isRunning = false
+
+        if (isPaused) return
+        val elapsedSinceSnapshotMs = elapsedSinceFocusSnapshot(
+            savedElapsedRealtimeMs = sessionPrefs.getLong(PREF_SESSION_SAVED_ELAPSED_REALTIME, 0L),
+            currentElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+        )
+        if (focusType == FOCUS_TYPE_STOPWATCH) {
+            sessionAccumulatedMs += elapsedSinceSnapshotMs
+            timeLeftMs = sessionAccumulatedMs
+            startTimer(restoring = true)
+            return
+        }
+
+        timeLeftMs = (timeLeftMs - elapsedSinceSnapshotMs).coerceAtLeast(0L)
+        if (timeLeftMs == 0L) {
+            handleSessionFinished()
+        } else {
+            startTimer(restoring = true)
+        }
+    }
+
+    /** Rebinds a restored focus selection without trusting an ID from another Notion connection. */
+    private fun resolvePersistedTaskAlias() {
+        val localTaskId = associatedTaskId ?: return
+        if (!localTaskId.startsWith("pending_")) return
+        aliasResolutionJob?.cancel()
+        aliasResolutionJob = serviceScope.launch {
+            val securePreferences = runCatching {
+                SecurityUtils.getSecurePreferences(this@PomodoroService)
+            }.getOrNull() ?: return@launch
+            val scope = securePreferences
+                .getString("database_id", "")
+                ?.trim()
+                .orEmpty()
+            if (scope.isBlank()) return@launch
+            val remoteTaskId = TaskDatabase.getInstance(this@PomodoroService)
+                .taskIdAliasDao
+                .observeRemoteTaskId(localTaskId, scope)
+                .filterNotNull()
+                .first()
+            if (associatedTaskId != localTaskId) return@launch
+
+            associatedTaskId = remoteTaskId
+            sessionPrefs.edit {
+                putString(PREF_SESSION_TASK_ID, remoteTaskId)
+                putString("selected_task_id", remoteTaskId)
+            }
+            if (isRunning && isFocusWorkSession()) startTaskMonitoring(remoteTaskId)
+        }
+    }
 
     private fun isFocusWorkSession(): Boolean =
         focusType != FOCUS_TYPE_POMODORO || currentMode == "work"
@@ -85,14 +301,14 @@ class PomodoroService : Service() {
 
     fun getCompletedCountToday(): Int {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val todayStr = JapanTime.todayIso()
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         return if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     }
 
     private fun transitionToNextMode() {
         val prefs = getSharedPreferences("pomodoro_prefs", MODE_PRIVATE)
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val todayStr = JapanTime.todayIso()
         
         val savedCompletedCountDate = prefs.getString("completed_count_date", "") ?: ""
         var pomodoroCompletedCount = if (savedCompletedCountDate == todayStr) {
@@ -142,6 +358,9 @@ class PomodoroService : Service() {
         createNotificationChannel()
         durationMs = getDurationMsForMode(currentMode)
         timeLeftMs = durationMs
+        flushPendingFocusLog()
+        restoreSessionSnapshot()
+        resolvePersistedTaskAlias()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -162,6 +381,7 @@ class PomodoroService : Service() {
             associatedTaskId = taskId
             associatedTaskCategory = taskCategory
             associatedTaskCategoryColor = taskCategoryColor
+            resolvePersistedTaskAlias()
             
             if (!requestedFocusType.isNullOrBlank() && !isRunning && !isPaused) {
                 focusType = requestedFocusType
@@ -223,15 +443,19 @@ class PomodoroService : Service() {
                 }
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
-    private fun startTimer() {
+    private fun startTimer(restoring: Boolean = false) {
         if (isRunning) return
         
-        if (!isPaused || currentSessionId == null) {
+        if (!restoring && currentSessionId == null) {
             currentSessionId = "pomo_session_${UUID.randomUUID()}"
             sessionAccumulatedMs = 0L
+            sessionStartedDate = JapanTime.todayIso()
+            sessionTaskTitle = associatedTaskTitle
+            sessionTaskCategory = associatedTaskCategory
+            sessionTaskCategoryColor = associatedTaskCategoryColor
         }
         
         isRunning = true
@@ -239,9 +463,12 @@ class PomodoroService : Service() {
         onStateChangedListener?.invoke(true)
         
         if (isFocusWorkSession()) {
-            focusStartLeftMs = timeLeftMs
+            if (!restoring) {
+                focusStartLeftMs = timeLeftMs
+            }
             startTaskMonitoring(associatedTaskId)
         }
+        persistSessionSnapshot()
         
         // Android 14 以降では、特別な用途や短いサービスのタイプに対して即座に startForeground を呼び出す必要があります
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -308,6 +535,8 @@ class PomodoroService : Service() {
         onStateChangedListener?.invoke(false)
 
         commitFocusSession()
+        clearSessionSnapshot()
+        clearInMemorySession()
 
         val completedMode = currentMode
         if (focusType == FOCUS_TYPE_POMODORO) {
@@ -362,6 +591,7 @@ class PomodoroService : Service() {
         stopRingtonePlayback()
         
         updateNotification("${formatTime(timeLeftMs)} (一時停止中)")
+        persistSessionSnapshot()
     }
 
     private fun stopTimer() {
@@ -373,6 +603,8 @@ class PomodoroService : Service() {
         isPaused = false
         timeLeftMs = if (focusType == FOCUS_TYPE_STOPWATCH) 0L else durationMs
         onStateChangedListener?.invoke(false)
+        clearSessionSnapshot()
+        clearInMemorySession()
         
         stopRingtonePlayback()
         
@@ -426,6 +658,8 @@ class PomodoroService : Service() {
             countDownTimer = null
             isRunning = false
         }
+        clearSessionSnapshot()
+        clearInMemorySession()
         
         isPaused = false
         stopRingtonePlayback()
@@ -467,12 +701,13 @@ class PomodoroService : Service() {
         val totalMinutes = ceil(sessionAccumulatedMs / 60000.0).toInt()
 
         if (totalMinutes > 0) {
-            val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+            val startDate = sessionStartedDate ?: JapanTime.todayIso()
 
-            val taskTitleVal = associatedTaskTitle ?: "一般作業の集中セッション"
-            val categoryVal = associatedTaskCategory ?: "一般作業"
-            val categoryColorVal = if (!associatedTaskCategoryColor.isNullOrBlank() && associatedTaskCategoryColor != "default") {
-                associatedTaskCategoryColor!!.lowercase()
+            val taskTitleVal = sessionTaskTitle ?: associatedTaskTitle ?: "一般作業の集中セッション"
+            val categoryVal = sessionTaskCategory ?: associatedTaskCategory ?: "一般作業"
+            val snapshotColor = sessionTaskCategoryColor ?: associatedTaskCategoryColor
+            val categoryColorVal = if (!snapshotColor.isNullOrBlank() && snapshotColor != "default") {
+                snapshotColor.lowercase()
             } else {
                 "default"
             }
@@ -486,15 +721,13 @@ class PomodoroService : Service() {
                 taskTitle = taskTitleVal,
                 category = categoryVal,
                 categoryColor = categoryColorVal,
-                date = todayStr,
+                date = startDate,
                 minutes = totalMinutes,
                 timestamp = System.currentTimeMillis(),
                 sessionType = focusType,
             )
 
-            serviceScope.launch {
-                (application as NotionTaskerApplication).container.pomodoroRepository.insertPomodoroLog(newLog)
-            }
+            enqueuePendingFocusLog(persistPendingFocusLog(newLog))
         }
 
         // 次のチャンクのために focusStartLeftMs を現在の timeLeftMs にリセットする
@@ -504,10 +737,11 @@ class PomodoroService : Service() {
     }
 
     fun updateFocusedTask(taskId: String?, taskTitle: String?, category: String?, categoryColor: String?) {
+        val taskChanged = associatedTaskId != taskId
         if (isFocusWorkSession()) {
             if (isRunning || isPaused) {
                 // タスクが変更される、または解除される場合、現在のセッション（の累積時間）を確定させる
-                if (associatedTaskId != taskId) {
+                if (taskChanged) {
                     commitFocusSession()
                     // 別のタスクに切り替わる、または解除される場合は新しいセッションIDを発行する
                     currentSessionId = "pomo_session_${UUID.randomUUID()}"
@@ -521,10 +755,18 @@ class PomodoroService : Service() {
         associatedTaskCategory = category
         associatedTaskCategoryColor = categoryColor
 
+        if (taskChanged && (isRunning || isPaused)) {
+            sessionStartedDate = JapanTime.todayIso()
+            sessionTaskTitle = taskTitle
+            sessionTaskCategory = category
+            sessionTaskCategoryColor = categoryColor
+        }
+
         if (isFocusWorkSession() && isRunning) {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
+        persistSessionSnapshot()
     }
 
     /**
@@ -545,6 +787,10 @@ class PomodoroService : Service() {
         currentSessionId = null
         sessionAccumulatedMs = 0L
         stopwatchSegmentStartedAtMs = null
+        sessionStartedDate = null
+        sessionTaskTitle = null
+        sessionTaskCategory = null
+        sessionTaskCategoryColor = null
 
         when (type) {
             FOCUS_TYPE_POMODORO -> updateModeAndDuration("work")
@@ -559,6 +805,7 @@ class PomodoroService : Service() {
         }
 
         stopRingtonePlayback()
+        clearSessionSnapshot()
         onSessionTransitionListener?.invoke(currentMode, timeLeftMs)
         onStateChangedListener?.invoke(false)
     }
@@ -574,7 +821,9 @@ class PomodoroService : Service() {
                 .distinctUntilChanged()
                 .collect { task ->
                     // 判定の都度最新の完了ステータス名を取得
-                    val prefs = com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+                    val prefs = runCatching {
+                        com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+                    }.getOrNull() ?: return@collect
                     val completedStatus = prefs.getString("mapping_status_completed", "完了") ?: "完了"
                     
                     if (task?.status?.trim() == completedStatus.trim() && isRunning) {
@@ -793,6 +1042,7 @@ class PomodoroService : Service() {
         const val ACTION_COMPLETE = "com.notiontasks.app.ACTION_COMPLETE"
         const val ACTION_STOP_ALARM = "com.notiontasks.app.ACTION_STOP_ALARM"
         const val ACTION_START_NEXT = "com.notiontasks.app.ACTION_START_NEXT"
+        const val ACTION_RESTORE = "com.notiontasks.app.ACTION_RESTORE"
 
         const val EXTRA_TASK_TITLE = "extra_task_title"
         const val EXTRA_TASK_ID = "extra_task_id"
@@ -805,5 +1055,36 @@ class PomodoroService : Service() {
         const val FOCUS_TYPE_POMODORO = "pomodoro"
         const val FOCUS_TYPE_TIMER = "timer"
         const val FOCUS_TYPE_STOPWATCH = "stopwatch"
+
+        const val PREF_SESSION_ACTIVE = "focus_session_active"
+        private const val PREF_SESSION_RUNNING = "focus_session_running"
+        private const val PREF_SESSION_ID = "focus_session_id"
+        private const val PREF_SESSION_MODE = "focus_session_mode"
+        private const val PREF_SESSION_FOCUS_TYPE = "focus_session_type"
+        private const val PREF_SESSION_DURATION_MS = "focus_session_duration_ms"
+        private const val PREF_SESSION_LEFT_MS = "focus_session_left_ms"
+        private const val PREF_SESSION_FOCUS_START_LEFT_MS = "focus_session_focus_start_left_ms"
+        private const val PREF_SESSION_ACCUMULATED_MS = "focus_session_accumulated_ms"
+        private const val PREF_SESSION_SAVED_AT = "focus_session_saved_at"
+        private const val PREF_SESSION_SAVED_ELAPSED_REALTIME = "focus_session_saved_elapsed_realtime"
+        private const val PREF_SESSION_DEADLINE = "focus_session_deadline"
+        private const val PREF_SESSION_TASK_ID = "focus_session_task_id"
+        private const val PREF_SESSION_TASK_TITLE = "focus_session_task_title"
+        private const val PREF_SESSION_TASK_CATEGORY = "focus_session_task_category"
+        private const val PREF_SESSION_TASK_COLOR = "focus_session_task_color"
+        private const val PREF_SESSION_STARTED_DATE = "focus_session_started_date"
+        private const val PREF_SESSION_TASK_TITLE_SNAPSHOT = "focus_session_task_title_snapshot"
+        private const val PREF_SESSION_TASK_CATEGORY_SNAPSHOT = "focus_session_task_category_snapshot"
+        private const val PREF_SESSION_TASK_COLOR_SNAPSHOT = "focus_session_task_color_snapshot"
+        private const val PREF_PENDING_LOG_GENERATION = "pending_focus_log_generation"
+        private const val PREF_PENDING_LOG_ID = "pending_focus_log_id"
+        private const val PREF_PENDING_LOG_TASK_ID = "pending_focus_log_task_id"
+        private const val PREF_PENDING_LOG_TITLE = "pending_focus_log_title"
+        private const val PREF_PENDING_LOG_CATEGORY = "pending_focus_log_category"
+        private const val PREF_PENDING_LOG_COLOR = "pending_focus_log_color"
+        private const val PREF_PENDING_LOG_DATE = "pending_focus_log_date"
+        private const val PREF_PENDING_LOG_MINUTES = "pending_focus_log_minutes"
+        private const val PREF_PENDING_LOG_TIMESTAMP = "pending_focus_log_timestamp"
+        private const val PREF_PENDING_LOG_TYPE = "pending_focus_log_type"
     }
 }

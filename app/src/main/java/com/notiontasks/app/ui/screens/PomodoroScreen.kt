@@ -68,9 +68,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import com.notiontasks.app.PomodoroService
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 
 private const val POMODOROS_BEFORE_LONG_BREAK = 4
 
@@ -90,11 +92,8 @@ fun PomodoroScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = rememberJapanToday()
     val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
-    val initialCompletedCount = if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     
     var timeLeft by remember { mutableIntStateOf(prefs.getInt("work_duration_min", 25) * 60) }
     var isRunning by remember { mutableStateOf(value = false) }
@@ -104,9 +103,9 @@ fun PomodoroScreen(
     var freeTimerMinutes by remember { mutableIntStateOf(prefs.getInt("free_timer_duration_min", 30)) }
     var showTimerDurationSheet by remember { mutableStateOf(false) }
     var pendingTimerMinutes by remember { mutableIntStateOf(freeTimerMinutes) }
-    var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
     var selectedTaskId by remember { mutableStateOf(initialTaskId) }
+    var pendingCompletionTaskId by remember { mutableStateOf<String?>(null) }
     var isInitialSyncDone by remember { mutableStateOf(value = false) }
 
     val tasksState by viewModel.tasksState.collectAsState()
@@ -148,11 +147,6 @@ fun PomodoroScreen(
     fun selectedDurationSeconds(): Int = durationSecondsFor(focusType)
 
     fun completeFocusedTask(task: TaskModel) {
-        if (isRunning || boundService?.isPaused == true) {
-            triggerServiceAction(PomodoroService.ACTION_RESET)
-            isRunning = false
-            timeLeft = selectedDurationSeconds()
-        }
         viewModel.updateTask(
             id = task.id,
             title = task.title,
@@ -160,9 +154,18 @@ fun PomodoroScreen(
             category = task.category,
             dueDate = task.dueDate,
             scheduledDate = task.scheduledDate,
-            onSuccess = {
+            onConfirmed = {
+                if (isRunning || boundService?.isPaused == true) {
+                    triggerServiceAction(PomodoroService.ACTION_RESET)
+                    isRunning = false
+                    timeLeft = selectedDurationSeconds()
+                }
                 selectedTaskId = null
                 Toast.makeText(context, "タスクを完了しました！", Toast.LENGTH_SHORT).show()
+            },
+            onPending = {
+                pendingCompletionTaskId = task.id
+                Toast.makeText(context, "完了を端末に保存しました。同期を再開すると反映されます", Toast.LENGTH_LONG).show()
             },
             onFailure = { message ->
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -186,12 +189,20 @@ fun PomodoroScreen(
         prefs.edit { putString("selected_task_id", selectedTaskId) }
     }
 
-    LaunchedEffect(tasksState) {
+    LaunchedEffect(tasksState, selectedTaskId, pendingCompletionTaskId) {
         if (tasksState is TasksUiState.Success) {
             val successState = tasksState as TasksUiState.Success
             val selectedTask = successState.tasks.find { it.id == selectedTaskId }
+            if (selectedTask == null && selectedTaskId != null) {
+                val resolvedTaskId = viewModel.resolveTaskId(selectedTaskId!!)
+                if (resolvedTaskId != selectedTaskId && successState.tasks.any { it.id == resolvedTaskId }) {
+                    selectedTaskId = resolvedTaskId
+                    return@LaunchedEffect
+                }
+            }
             // 選択中のタスクが存在しない、または既に「完了」ステータスの場合は選択を解除する
-            if (selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
+            val keepPendingCompletionFocused = selectedTaskId != null && selectedTaskId == pendingCompletionTaskId
+            if (!keepPendingCompletionFocused && selectedTaskId != null && (selectedTask == null || selectedTask.status.trim() == completedStatus.trim())) {
                 // 自動解除の前に、タイマーが動いていれば一時停止命令をサービスに送る（レースコンディション回避）
                 if (isRunning) {
                     triggerServiceAction(PomodoroService.ACTION_PAUSE)
@@ -217,13 +228,13 @@ fun PomodoroScreen(
                 state.tasks.asSequence().filter { task ->
                     val isUncompleted = task.status.trim() != completedTrimmed
                     isUncompleted && (
-                        (task.scheduledDate == todayStr) ||
-                        ((task.scheduledDate != null) && (task.scheduledDate < todayStr)) ||
-                        ((task.dueDate != null) && (task.dueDate < todayStr))
+                        (JapanTime.projectedDateKey(task.scheduledDate) == todayStr) ||
+                        (JapanTime.projectedDateKey(task.scheduledDate)?.let { it < todayStr } == true) ||
+                        (JapanTime.projectedDateKey(task.dueDate)?.let { it < todayStr } == true)
                     )
                 }.sortedWith(
-                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                        .thenBy(nullsLast(naturalOrder())) { it.dueDate }
+                    compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
+                        .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
                         .thenBy { it.id },
                 ).toList()
             }
@@ -268,7 +279,6 @@ fun PomodoroScreen(
             isRunning = boundService.isRunning
             mode = boundService.currentMode
             focusType = boundService.focusType
-            pomodoroCompletedCount = boundService.getCompletedCountToday()
             selectedTaskId = if (boundService.isRunning) {
                 boundService.associatedTaskId
             } else {
@@ -289,7 +299,6 @@ fun PomodoroScreen(
                 } else {
                     val nextMode = boundService.currentMode
                     val nextTimeLeftSec = (boundService.timeLeftMs / 1000).toInt()
-                    val nextCompletedCount = boundService.getCompletedCountToday()
 
                     when (nextMode) {
                         "work" -> {
@@ -305,12 +314,18 @@ fun PomodoroScreen(
 
                     mode = nextMode
                     timeLeft = nextTimeLeftSec
-                    pomodoroCompletedCount = nextCompletedCount
                     isRunning = false
                 }
             }
             boundService.onStateChangedListener = { running ->
                 isRunning = running
+                // 通知の「終了」や画面内リセットでは、サービスが残り時間を初期値に
+                // 戻してから停止状態を通知する。onTick は停止後に来ないため、この時点で
+                // 同期しないと画面だけが終了時点の残り時間を表示し続ける。
+                // 一時停止は残り時間を保持して再開できるよう、ここでは上書きしない。
+                if (!running && !boundService.isPaused) {
+                    timeLeft = (boundService.timeLeftMs / 1000).toInt()
+                }
             }
             boundService.onRingtoneStateChangedListener = { playing ->
                 isAlarmPlaying = playing
@@ -318,7 +333,6 @@ fun PomodoroScreen(
             boundService.onSessionTransitionListener = { nextMode, ms ->
                 mode = nextMode
                 timeLeft = (ms / 1000).toInt()
-                pomodoroCompletedCount = boundService.getCompletedCountToday()
             }
         }
         onDispose {
@@ -886,6 +900,9 @@ private fun FocusTaskSelector(
                     Text("タスクを選択しない（一般作業）")
                 }
                 LazyColumn(modifier = Modifier.height(320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (availableTasks.isEmpty()) {
+                        item { Text("表示対象のタスクはありません。一般作業として開始できます。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                     items(availableTasks, key = { it.id }) { task ->
                         Card(
                             modifier = Modifier

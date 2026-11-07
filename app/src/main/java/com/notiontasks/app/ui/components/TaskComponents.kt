@@ -30,7 +30,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.theme.*
+import com.notiontasks.app.utils.JapanTime
 import java.util.Calendar
+import java.util.TimeZone
 
 fun getNotionCategoryColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
     return when (colorName) {
@@ -59,15 +61,15 @@ fun TaskItemCard(
     onStatusClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = JapanTime.todayIso()
 
     val isCompleted = task.status == completedStatus
     val isInProgress = task.status == inProgressStatus
 
-    val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
-    val isOverdueScheduled = !isCompleted && task.scheduledDate != null && task.scheduledDate < todayStr
+    val dueDate = JapanTime.projectedDateKey(task.dueDate)
+    val scheduledDate = JapanTime.projectedDateKey(task.scheduledDate)
+    val isOverdueDue = !isCompleted && dueDate != null && dueDate < todayStr
+    val isOverdueScheduled = !isCompleted && scheduledDate != null && scheduledDate < todayStr
 
     val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
@@ -194,8 +196,8 @@ fun TaskItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (task.dueDate != null) {
-                        val isDueOver = task.status != completedStatus && task.dueDate < todayStr
-                        val isDueToday = task.status != completedStatus && task.dueDate == todayStr
+                        val isDueOver = task.status != completedStatus && dueDate != null && dueDate < todayStr
+                        val isDueToday = task.status != completedStatus && dueDate == todayStr
                         Text(
                             text = if (isDueOver) "⚠️ 締切: ${task.dueDate}" else "締切: ${task.dueDate}",
                             style = MaterialTheme.typography.bodySmall,
@@ -211,8 +213,8 @@ fun TaskItemCard(
                     }
 
                     if (task.scheduledDate != null) {
-                        val isSchedOver = task.status != completedStatus && task.scheduledDate < todayStr
-                        val isSchedToday = task.status != completedStatus && task.scheduledDate == todayStr
+                        val isSchedOver = task.status != completedStatus && scheduledDate != null && scheduledDate < todayStr
+                        val isSchedToday = task.status != completedStatus && scheduledDate == todayStr
                         Text(
                             text = if (isSchedOver) "持ち越し: ${task.scheduledDate}" else "予定: ${task.scheduledDate}",
                             style = MaterialTheme.typography.bodySmall,
@@ -262,15 +264,16 @@ fun EmptyStateView(
 
 internal fun datePickerInitialCalendar(
     selectedDate: String,
-    fallback: Calendar = Calendar.getInstance(),
+    fallback: Calendar = Calendar.getInstance(TimeZone.getTimeZone(JapanTime.zoneId.id)),
 ): Calendar {
     if (selectedDate.isBlank()) return fallback
     val parsed = runCatching {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
             isLenient = false
+            timeZone = TimeZone.getTimeZone(JapanTime.zoneId.id)
         }.parse(selectedDate)
     }.getOrNull() ?: return fallback
-    return Calendar.getInstance().apply { time = parsed }
+    return Calendar.getInstance(TimeZone.getTimeZone(JapanTime.zoneId.id)).apply { time = parsed }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

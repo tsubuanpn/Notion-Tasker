@@ -148,7 +148,13 @@ data class PropertyUpdate(
     @SerialName("status") val status: StatusValue? = null,
     @SerialName("select") val select: SelectValue? = null,
     @SerialName("date") val date: DateValue? = null,
-    @SerialName("title") val title: List<RichTextObject>? = null
+    @SerialName("title") val title: List<RichTextObject>? = null,
+    @SerialName("rich_text") val richText: List<RichTextObject>? = null,
+)
+
+@Serializable
+data class NotionDataSourceUpdateRequest(
+    @SerialName("properties") val properties: Map<String, JsonElement>,
 )
 
 @Serializable
