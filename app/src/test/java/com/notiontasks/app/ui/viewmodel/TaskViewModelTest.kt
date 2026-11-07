@@ -8,6 +8,7 @@ import com.notiontasks.app.TaskNotificationReceiver
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlockOrigin
+import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
@@ -43,6 +44,7 @@ class TaskViewModelTest {
         // AlarmManager と通知関連のスタティックメソッドをモック
         mockkObject(TaskNotificationReceiver.Companion)
         every { TaskNotificationReceiver.scheduleBlockAlarm(any(), any()) } returns Unit
+        every { TaskNotificationReceiver.cancelBlockAlarm(any(), any()) } returns Unit
 
         val alarmManager: AlarmManager = mockk(relaxed = true)
         every { context.getSystemService(Context.ALARM_SERVICE) } returns alarmManager
@@ -325,5 +327,22 @@ class TaskViewModelTest {
         // Assert
         // 既に初期化済みなので、保存処理は呼ばれない
         coVerify(exactly = 0) { scheduleRepository.saveTimeBlocks(any()) }
+    }
+
+    @Test
+    fun deleteLifeActivity_removesOnlyFutureBlocksGeneratedByThatPreset() = runTest {
+        coEvery { scheduleRepository.getAllTimeBlocks() } returns listOf(
+            TimeBlock("generated", "life", "Generated", "la_sleep", 0, 60, "#000", "2999-01-01", TimeBlockOrigin.PRESET, "la_sleep", 1),
+            TimeBlock("manual", "life", "Manual", "la_sleep", 70, 130, "#000", "2999-01-01", TimeBlockOrigin.MANUAL),
+            TimeBlock("legacy", "life", "Legacy", "la_sleep", 140, 200, "#000", "2999-01-01", TimeBlockOrigin.LEGACY),
+        )
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+
+        viewModel.deleteLifeActivity(context, "la_sleep")
+        advanceUntilIdle()
+
+        coVerify { scheduleRepository.deleteTimeBlockById("generated") }
+        coVerify(exactly = 0) { scheduleRepository.deleteTimeBlockById("manual") }
+        coVerify(exactly = 0) { scheduleRepository.deleteTimeBlockById("legacy") }
     }
 }
