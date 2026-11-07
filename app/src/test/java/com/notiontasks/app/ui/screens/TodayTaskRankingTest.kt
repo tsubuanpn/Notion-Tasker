@@ -26,6 +26,18 @@ class TodayTaskRankingTest {
         assertEquals("due-earlier", representativeInProgressTask(tasks, "進行中")?.id)
     }
 
+    @Test
+    fun `ranks offset schedule dates by their Japan calendar day`() {
+        val tasks = listOf(
+            // The lexical source date is November 8, but this is November 9 in JST.
+            task(id = "later-in-japan", status = "進行中", scheduled = "2026-11-08T23:30:00-02:00", due = null),
+            // The lexical source date is November 9, but this is November 8 in JST.
+            task(id = "earlier-in-japan", status = "進行中", scheduled = "2026-11-09T00:30:00+14:00", due = null),
+        )
+
+        assertEquals("earlier-in-japan", representativeInProgressTask(tasks, "進行中")?.id)
+    }
+
     private fun task(id: String, status: String, scheduled: String?, due: String?) = TaskModel(
         id = id,
         title = id,
