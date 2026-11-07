@@ -3,6 +3,7 @@ package com.notiontasks.app.ui.screens
 import com.notiontasks.app.data.model.TaskModel
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.LocalDate
 
 class TodayTaskRankingTest {
     @Test
@@ -36,6 +37,11 @@ class TodayTaskRankingTest {
         )
 
         assertEquals("earlier-in-japan", representativeInProgressTask(tasks, "進行中")?.id)
+    }
+
+    @Test
+    fun `formats the Today header from a Japan calendar date`() {
+        assertEquals("11月7日（土）", formatJapanTodayHeader(LocalDate.of(2026, 11, 7)))
     }
 
     private fun task(id: String, status: String, scheduled: String?, due: String?) = TaskModel(

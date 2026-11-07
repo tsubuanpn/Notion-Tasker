@@ -30,10 +30,15 @@ import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val japanTodayHeaderFormatter = DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPAN)
+
+/** Renders the Home date from the app-wide JST calendar, never the device default zone. */
+internal fun formatJapanTodayHeader(date: LocalDate = JapanTime.today()): String =
+    date.format(japanTodayHeaderFormatter)
 
 /** 毎日同じ三つの情報枠で、次の行動を判断するホーム画面。 */
 @Composable
@@ -81,7 +86,7 @@ fun TodayScreen(
                     .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text(SimpleDateFormat("M月d日（E）", Locale.JAPAN).format(Date()), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
+                Text(formatJapanTodayHeader(), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
                 InProgressSection(
                     task = inProgressTask,
                     totalCount = activeTasks.count { it.status.trim() == inProgressStatus.trim() },
