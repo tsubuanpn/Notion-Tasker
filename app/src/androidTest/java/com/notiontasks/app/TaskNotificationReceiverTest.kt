@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -89,7 +90,47 @@ class TaskNotificationReceiverTest {
                 delay(50L)
             }
         }
-        assertTrue(notificationManager.activeNotifications.any { it.id == notificationId })
+        val notification = notificationManager.activeNotifications.firstOrNull { it.id == notificationId }
+        assertTrue(notification != null)
+        // The values carried by the alarm Intent are stale. The current Room block is
+        // authoritative for the notification content.
+        assertEquals(
+            "時間割: instrumentation notification block",
+            notification?.notification?.extras?.getCharSequence("android.title")?.toString(),
+        )
+    }
+
+    @Test
+    fun blockNotificationSuppressesOrphanedAndDeletedBlockTargets() = runBlocking {
+        val securePreferences = SecurityUtils.getSecurePreferences(context)
+        val scope = securePreferences.getString("database_id", "")?.trim().orEmpty()
+        assumeTrue("A configured Notion connection is required", scope.isNotBlank())
+
+        // A task block whose current association cannot be found must not notify. This
+        // emulates a task that was deleted after its alarm had already been scheduled.
+        database.scheduleBlockDao.insertBlock(
+            ScheduleBlockEntity(
+                id = blockId,
+                type = "task",
+                title = "instrumentation orphaned block",
+                associatedId = "instrumented-missing-notification-task",
+                startTime = 0,
+                endTime = 30,
+                color = "#000000",
+                date = JapanTime.todayIso(),
+            ),
+        )
+        notificationManager.cancel(notificationId)
+        dispatchBlockStart()
+        delay(700L)
+        assertFalse(notificationManager.activeNotifications.any { it.id == notificationId })
+
+        // A stale alarm for a block that has been removed must not recreate a
+        // notification from the old Intent payload either.
+        database.scheduleBlockDao.deleteBlockById(blockId)
+        dispatchBlockStart()
+        delay(700L)
+        assertFalse(notificationManager.activeNotifications.any { it.id == notificationId })
     }
 
     private fun dispatchBlockStart() {
