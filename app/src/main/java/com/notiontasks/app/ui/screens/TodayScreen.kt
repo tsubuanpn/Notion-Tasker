@@ -171,4 +171,3 @@ private fun MoreTasksButton(onClick: () -> Unit) {
         color = MaterialTheme.colorScheme.primary,
     )
 }
-
