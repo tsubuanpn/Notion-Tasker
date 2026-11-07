@@ -457,13 +457,31 @@ class TaskRepositoryTest {
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen listOf(pending)
         coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IOException("offline")
         coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(results = listOf(remotePage))
+        coEvery { taskDao.getTaskById("page_123") } returns TaskEntity(
+            id = "page_123",
+            title = "Local title",
+            status = "進行中",
+            category = "Local category",
+            dueDate = "2026-11-08",
+            scheduledDate = "2026-11-09",
+            lastEditedTime = 10L,
+            connectionScope = "database",
+        )
 
         repository.syncTasks("token", "database")
 
         coVerify {
             taskDao.syncTasksTransactionally(
                 connectionScope = "database",
-                activeEntities = match { it.isEmpty() },
+                activeEntities = match { entities ->
+                    entities.singleOrNull()?.let { entity ->
+                        entity.title == "Remote title" &&
+                            entity.status == "進行中" &&
+                            entity.category == "Life" &&
+                            entity.dueDate == null &&
+                            entity.scheduledDate == null
+                    } == true
+                },
                 protectedTaskIds = match { it == listOf("page_123") },
             )
         }

@@ -190,6 +190,41 @@ class TaskRepository(
     private suspend fun isSuperseded(action: PendingSyncActionEntity, field: String, scope: String): Boolean =
         action.changedFields != "legacy" && (taskFieldGenerationDao.getFieldGeneration(action.taskId, scope, field) ?: action.generation) > action.generation
 
+    /**
+     * Keeps only fields with an unresolved local intent while still applying fresh remote
+     * values for every other field. Legacy actions have no field metadata, so they retain
+     * the entire local row until a user resolves them.
+     */
+    private suspend fun mergeRemoteWithPendingLocalFields(
+        remote: TaskEntity,
+        pendingActions: List<PendingSyncActionEntity>,
+    ): TaskEntity {
+        val taskActions = pendingActions.filter { it.taskId == remote.id }
+        if (taskActions.isEmpty()) return remote
+
+        val local = taskDao.getTaskById(remote.id)
+            ?.takeIf { it.connectionScope == remote.connectionScope }
+            ?: return remote
+        if (taskActions.any { it.changedFields == "legacy" }) return local
+
+        val protectedFields = taskActions
+            .flatMap { action -> action.changedFields.split(',') }
+            .map { it.trim() }
+            .toSet()
+        if (protectedFields.isEmpty()) return remote
+
+        return remote.copy(
+            title = if ("title" in protectedFields) local.title else remote.title,
+            status = if ("status" in protectedFields) local.status else remote.status,
+            category = if ("category" in protectedFields) local.category else remote.category,
+            dueDate = if ("dueDate" in protectedFields) local.dueDate else remote.dueDate,
+            scheduledDate = if ("scheduledDate" in protectedFields) local.scheduledDate else remote.scheduledDate,
+            statusColor = if ("status" in protectedFields) local.statusColor else remote.statusColor,
+            categoryColor = if ("category" in protectedFields) local.categoryColor else remote.categoryColor,
+            lastEditedTime = maxOf(local.lastEditedTime, remote.lastEditedTime),
+        )
+    }
+
     // 設定画面から構成された動的なマッピングキー
     var propTitleName: String = "名前"
     var propStatusName: String = "状態"
@@ -389,8 +424,9 @@ class TaskRepository(
         processPendingSyncActionsInternal(token, dataSourceId)
         // A retryable local operation is newer than any fetched remote snapshot. Keep its
         // task row unchanged until that operation is confirmed, including during a full sync.
-        val protectedTaskIds = pendingSyncActionDao.getAllPendingActions()
+        val pendingActions = pendingSyncActionDao.getAllPendingActions()
             .filter { it.connectionScope == databaseId }
+        val protectedTaskIds = pendingActions
             .map { it.taskId }
             .toSet()
 
@@ -468,7 +504,11 @@ class TaskRepository(
                         connectionScope = databaseId,
                     )
                 }
-                allFetchedEntities.addAll(pageEntities)
+                allFetchedEntities.addAll(
+                    pageEntities.map { remote ->
+                        mergeRemoteWithPendingLocalFields(remote, pendingActions)
+                    },
+                )
                 
                 hasMore = response.hasMore
                 nextCursor = response.nextCursor
@@ -481,13 +521,12 @@ class TaskRepository(
 
             // 3. トランザクションを用いて更新
             // 差分同期の場合は upsert のみを行い、全件同期の場合のみ不要データを削除する
-            val remoteEntitiesSafeToApply = allFetchedEntities.filter { it.id !in protectedTaskIds }
             if (!performFullSync && lastSync > 0) {
-                taskDao.upsertTasks(remoteEntitiesSafeToApply)
+                taskDao.upsertTasks(allFetchedEntities)
             } else {
                 taskDao.syncTasksTransactionally(
                     connectionScope = databaseId,
-                    activeEntities = remoteEntitiesSafeToApply,
+                    activeEntities = allFetchedEntities,
                     protectedTaskIds = protectedTaskIds.toList(),
                 )
                 lastFullSyncAt = now
