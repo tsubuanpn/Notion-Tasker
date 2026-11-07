@@ -3,6 +3,7 @@ package com.notiontasks.app.ui.screens
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -65,6 +66,22 @@ import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.utils.SecurityUtils
+
+/** Writes one coherent next-session focus configuration in a single preferences edit. */
+internal fun savePomodoroSettings(
+    preferences: SharedPreferences,
+    workMinutes: Int,
+    shortBreakMinutes: Int,
+    longBreakMinutes: Int,
+    alarmUri: String,
+) {
+    preferences.edit {
+        putInt("work_duration_min", workMinutes)
+        putInt("short_break_duration_min", shortBreakMinutes)
+        putInt("long_break_duration_min", longBreakMinutes)
+        putString("alarm_uri", alarmUri)
+    }
+}
 
 @Composable
 fun SettingsScreen(
@@ -999,12 +1016,7 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
             OutlinedButton(onClick = { work = 25; sBreak = 5; lBreak = 15 }, Modifier.weight(1f)) { Text(stringResource(R.string.settings_pomodoro_default)) }
             Button(
                 onClick = {
-                    prefs.edit {
-                        putInt("work_duration_min", work)
-                        putInt("short_break_duration_min", sBreak)
-                        putInt("long_break_duration_min", lBreak)
-                        putString("alarm_uri", uriStr)
-                    }
+                    savePomodoroSettings(prefs, work, sBreak, lBreak, uriStr)
                     navController.popBackStack()
                 },
                 Modifier.weight(1f),
