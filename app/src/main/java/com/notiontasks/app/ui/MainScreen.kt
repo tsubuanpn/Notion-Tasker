@@ -379,9 +379,7 @@ fun MainAppScreen(
                 NotionSetupScreen(
                     viewModel = viewModel,
                     onConnectionVerified = { token, dbId ->
-                        settingsViewModel.updateNotionToken(token)
-                        settingsViewModel.updateDatabaseId(dbId)
-                        viewModel.updateCredentials(token, dbId)
+                        settingsViewModel.stageNotionConnection(token, dbId)
                         navController.navigate(Screen.SettingsMapping.route) {
                             launchSingleTop = true
                         }

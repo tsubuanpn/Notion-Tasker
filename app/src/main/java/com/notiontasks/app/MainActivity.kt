@@ -167,8 +167,6 @@ class MainActivity : ComponentActivity() {
                     // オプションを自動的に文字列化して SharedPrefs に保存する
                     val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
 
-                    settingsViewModel.updateNotionToken(token)
-                    settingsViewModel.updateDatabaseId(dbId)
                     settingsViewModel.updateMorningTime(morning)
                     settingsViewModel.updateEveningTime(evening)
                     settingsViewModel.toggleMorningNotif(mEnabled)
@@ -179,20 +177,22 @@ class MainActivity : ComponentActivity() {
                     settingsViewModel.toggleDevMode(devMode)
                     settingsViewModel.toggleDevCompleteButton(devCompleteButton)
 
-                    sharedPreferences.edit {
-                        putString("mapping_prop_title", mTitle)
-                        putString("mapping_prop_status", mStatus)
-                        putString("mapping_prop_status_type", mStatusType)
-                        putString("mapping_status_unstarted", mStatusUnstarted)
-                        putString("mapping_status_in_progress", mStatusInProgress)
-                        putString("mapping_status_completed", mStatusCompleted)
-                        putString("mapping_prop_category", mCategory)
-                        putString("mapping_prop_scheduled_date", mScheduled)
-                        putString("mapping_prop_due_date", mDue)
-                        if (statJson.isNotBlank()) {
-                            putString("status_options_v2", statJson)
-                        }
-                    }
+                    settingsViewModel.commitNotionConnection(
+                        token = token,
+                        databaseId = dbId,
+                        mappings = buildMap {
+                            put("mapping_prop_title", mTitle)
+                            put("mapping_prop_status", mStatus)
+                            put("mapping_prop_status_type", mStatusType)
+                            put("mapping_status_unstarted", mStatusUnstarted)
+                            put("mapping_status_in_progress", mStatusInProgress)
+                            put("mapping_status_completed", mStatusCompleted)
+                            put("mapping_prop_category", mCategory)
+                            put("mapping_prop_scheduled_date", mScheduled)
+                            put("mapping_prop_due_date", mDue)
+                            if (statJson.isNotBlank()) put("status_options_v2", statJson)
+                        },
+                    )
 
                     propTitle.value = mTitle
                     propStatus.value = mStatus

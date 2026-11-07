@@ -612,9 +612,7 @@ fun NotionSettingsScreen(
                         draftDbId,
                         onSuccess = {
                             isLoadingSchema = false
-                            settingsViewModel.updateNotionToken(draftToken)
-                            settingsViewModel.updateDatabaseId(draftDbId)
-                            settingsViewModel.markSetupIncomplete()
+                            settingsViewModel.stageNotionConnection(draftToken, draftDbId)
                             navController.navigate(Screen.SettingsMapping.route)
                         },
                         onFailure = {
@@ -655,24 +653,30 @@ fun MappingSettingsScreen(
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember { SecurityUtils.getSecurePreferences(context) }
+    val mappingConnection = settingsViewModel.connectionForMapping()
+    val mappingStartsFresh = mappingConnection.databaseId != sharedPrefs.getString("database_id", "")
+    DisposableEffect(Unit) {
+        onDispose { settingsViewModel.discardStagedNotionConnection() }
+    }
     
-    var propTitle by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_title", "") ?: "") }
-    var propStatus by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_status", "") ?: "") }
-    var propStatusType by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status") }
-    var propStatusUnstarted by remember { mutableStateOf(sharedPrefs.getString("mapping_status_unstarted", "未着手") ?: "未着手") }
-    var propStatusInProgress by remember { mutableStateOf(sharedPrefs.getString("mapping_status_in_progress", "進行中") ?: "進行中") }
-    var propStatusCompleted by remember { mutableStateOf(sharedPrefs.getString("mapping_status_completed", "完了") ?: "完了") }
-    var propCategory by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_category", "") ?: "") }
-    var propScheduled by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_scheduled_date", "") ?: "") }
-    var propDue by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_due_date", "") ?: "") }
+    var propTitle by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_title", "") ?: "") }
+    var propStatus by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_status", "") ?: "") }
+    var propStatusType by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "status" else sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status") }
+    var propStatusUnstarted by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_unstarted", "未着手") ?: "未着手") }
+    var propStatusInProgress by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_in_progress", "進行中") ?: "進行中") }
+    var propStatusCompleted by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_completed", "完了") ?: "完了") }
+    var propCategory by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_category", "") ?: "") }
+    var propScheduled by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_scheduled_date", "") ?: "") }
+    var propDue by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_due_date", "") ?: "") }
 
     var metadata by remember { mutableStateOf<NotionDatabaseResponse?>(null) }
     var isMetadataLoading by remember { mutableStateOf(false) }
     var metadataError by remember { mutableStateOf<String?>(null) }
 
     val loadMetadata = {
-        val token = settingsViewModel.notionToken.value
-        val dbId = settingsViewModel.databaseId.value
+        val connection = settingsViewModel.connectionForMapping()
+        val token = connection.token
+        val dbId = connection.databaseId
         if (token.isNotBlank() && dbId.isNotBlank()) {
             isMetadataLoading = true
             metadataError = null
@@ -843,8 +847,8 @@ fun MappingSettingsScreen(
                 }
 
                 onSave(
-                    settingsViewModel.notionToken.value,
-                    settingsViewModel.databaseId.value,
+                    settingsViewModel.connectionForMapping().token,
+                    settingsViewModel.connectionForMapping().databaseId,
                     settingsViewModel.morningNotifTime.value,
                     settingsViewModel.eveningNotifTime.value,
                     settingsViewModel.morningNotifEnabled.value,
