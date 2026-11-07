@@ -250,12 +250,18 @@ fun AchievementsScreen(
                     startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
                 ) {
                     val completedStatusTrimmed = completedStatus.trim()
-                    val overdueCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.dueDate != null) && (it.dueDate < todayStr) }
-                    val carriedOverCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.scheduledDate != null) && (it.scheduledDate < todayStr) }
+                    val overdueCountVal = state.tasks.count {
+                        it.status.trim() != completedStatusTrimmed &&
+                            (JapanTime.projectedDateKey(it.dueDate)?.let { date -> date < todayStr } == true)
+                    }
+                    val carriedOverCountVal = state.tasks.count {
+                        it.status.trim() != completedStatusTrimmed &&
+                            (JapanTime.projectedDateKey(it.scheduledDate)?.let { date -> date < todayStr } == true)
+                    }
 
                     val weekTasksVal = state.tasks.filter {
-                        val sched = it.scheduledDate
-                        val due = it.dueDate
+                        val sched = JapanTime.projectedDateKey(it.scheduledDate)
+                        val due = JapanTime.projectedDateKey(it.dueDate)
                         ((sched != null) && (sched >= startOfWeekStr) && (sched <= endOfWeekStr)) ||
                         ((due != null) && (due >= startOfWeekStr) && (due <= endOfWeekStr))
                     }
@@ -263,8 +269,8 @@ fun AchievementsScreen(
                     val weekRateVal = if (weekTasksVal.isNotEmpty()) (completedWeekCountVal * 100) / weekTasksVal.size else 0
 
                     val monthTasksVal = state.tasks.filter {
-                        val sched = it.scheduledDate
-                        val due = it.dueDate
+                        val sched = JapanTime.projectedDateKey(it.scheduledDate)
+                        val due = JapanTime.projectedDateKey(it.dueDate)
                         ((sched != null) && (sched >= startOfMonthStr) && (sched <= endOfMonthStr)) ||
                         ((due != null) && (due >= startOfMonthStr) && (due <= endOfMonthStr))
                     }
@@ -273,12 +279,12 @@ fun AchievementsScreen(
 
                     val warningTasksVal = state.tasks.asSequence().filter {
                         (it.status.trim() != completedStatusTrimmed) && (
-                            ((it.dueDate != null) && (it.dueDate < todayStr)) ||
-                            ((it.scheduledDate != null) && (it.scheduledDate < todayStr))
+                            (JapanTime.projectedDateKey(it.dueDate)?.let { date -> date < todayStr } == true) ||
+                            (JapanTime.projectedDateKey(it.scheduledDate)?.let { date -> date < todayStr } == true)
                         )
                     }.sortedWith(
-                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                            .thenBy(nullsLast(naturalOrder())) { it.dueDate }
+                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
+                            .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
                             .thenBy { it.id }
                     ).toList()
 
@@ -731,10 +737,15 @@ private fun ReviewOverview(
     val attentionTasks = remember(tasks, completedTrimmed, today) {
         tasks.filter { task ->
             task.status.trim() != completedTrimmed &&
-                ((task.dueDate != null && task.dueDate < today) || (task.scheduledDate != null && task.scheduledDate < today))
+                (JapanTime.projectedDateKey(task.dueDate)?.let { date -> date < today } == true ||
+                    JapanTime.projectedDateKey(task.scheduledDate)?.let { date -> date < today } == true)
         }.sortedWith(
-            compareBy<TaskModel> { it.dueDate ?: it.scheduledDate ?: "9999-12-31" }
-                .thenBy { it.scheduledDate ?: "9999-12-31" }
+            compareBy<TaskModel> {
+                JapanTime.projectedDateKey(it.dueDate)
+                    ?: JapanTime.projectedDateKey(it.scheduledDate)
+                    ?: "9999-12-31"
+            }
+                .thenBy { JapanTime.projectedDateKey(it.scheduledDate) ?: "9999-12-31" }
                 .thenBy { it.title },
         )
     }

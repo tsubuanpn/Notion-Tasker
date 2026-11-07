@@ -28,6 +28,7 @@ import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -68,7 +69,11 @@ fun TodayScreen(
             val assignedIds = remember(dayBlocks) { dayBlocks.mapNotNull { it.associatedId }.toSet() }
             val unplannedTasks = remember(activeTasks, assignedIds, inProgressTask) {
                 activeTasks.asSequence().filter { it.id !in assignedIds && it.id != inProgressTask?.id }
-                    .sortedBy { it.scheduledDate ?: it.dueDate ?: "9999-12-31" }.take(2).toList()
+                    .sortedBy {
+                        JapanTime.projectedDateKey(it.scheduledDate)
+                            ?: JapanTime.projectedDateKey(it.dueDate)
+                            ?: "9999-12-31"
+                    }.take(2).toList()
             }
 
             Column(

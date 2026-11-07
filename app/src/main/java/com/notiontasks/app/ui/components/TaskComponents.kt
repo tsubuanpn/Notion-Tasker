@@ -196,8 +196,8 @@ fun TaskItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (task.dueDate != null) {
-                        val isDueOver = task.status != completedStatus && task.dueDate < todayStr
-                        val isDueToday = task.status != completedStatus && task.dueDate == todayStr
+                        val isDueOver = task.status != completedStatus && dueDate != null && dueDate < todayStr
+                        val isDueToday = task.status != completedStatus && dueDate == todayStr
                         Text(
                             text = if (isDueOver) "⚠️ 締切: ${task.dueDate}" else "締切: ${task.dueDate}",
                             style = MaterialTheme.typography.bodySmall,
@@ -213,8 +213,8 @@ fun TaskItemCard(
                     }
 
                     if (task.scheduledDate != null) {
-                        val isSchedOver = task.status != completedStatus && task.scheduledDate < todayStr
-                        val isSchedToday = task.status != completedStatus && task.scheduledDate == todayStr
+                        val isSchedOver = task.status != completedStatus && scheduledDate != null && scheduledDate < todayStr
+                        val isSchedToday = task.status != completedStatus && scheduledDate == todayStr
                         Text(
                             text = if (isSchedOver) "持ち越し: ${task.scheduledDate}" else "予定: ${task.scheduledDate}",
                             style = MaterialTheme.typography.bodySmall,

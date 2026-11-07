@@ -90,7 +90,11 @@ fun TasksScreen(
         val periodMatch = periods.isEmpty() || ("今日" in periods && date == today) || ("今週" in periods && date != null && date in weekStart..weekEnd)
         periodMatch && (categories.isEmpty() || task.category in categories) && (statuses.isEmpty() || task.status in statuses) &&
             (query.isBlank() || task.title.contains(query, true) || task.category.contains(query, true))
-    }.sortedBy { it.scheduledDate ?: it.dueDate ?: "9999-12-31" }
+    }.sortedBy {
+        JapanTime.projectedDateKey(it.scheduledDate)
+            ?: JapanTime.projectedDateKey(it.dueDate)
+            ?: "9999-12-31"
+    }
     val hasActiveConditions = query.isNotBlank() || periods.isNotEmpty() || categories.isNotEmpty() || statuses.isNotEmpty()
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
