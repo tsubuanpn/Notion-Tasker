@@ -374,6 +374,20 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun createTask_withoutCategory_omitsTheOptionalSelectProperty() = runTest {
+        val requestSlot = slot<NotionCreateRequest>()
+        coEvery { notionApi.createPage(any(), any(), capture(requestSlot)) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+
+        val result = repository.createTask("token", "db", "New Task", "Todo", "", null, null)
+
+        assertEquals(TaskSaveResult.Confirmed, result)
+        assertFalse(requestSlot.captured.properties.containsKey("種類"))
+    }
+
+    @Test
     fun pendingCreate_reconcilesExistingPageBeforeRetrying() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,

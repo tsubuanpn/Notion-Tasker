@@ -750,12 +750,16 @@ class TaskRepository(
             
             if (propCategoryName.isNotBlank()) {
                 properties[propCategoryName] = buildJsonObject {
-                    put(
-                        "select",
-                        buildJsonObject {
-                            put("name", trimmedCategory)
-                        },
-                    )
+                    if (trimmedCategory.isBlank()) {
+                        put("select", JsonNull)
+                    } else {
+                        put(
+                            "select",
+                            buildJsonObject {
+                                put("name", trimmedCategory)
+                            },
+                        )
+                    }
                 }
             }
             
@@ -851,7 +855,7 @@ class TaskRepository(
             } else {
                 PropertyUpdate(status = StatusValue(name = trimmedStatus))
             }
-            if (propCategoryName.isNotBlank()) {
+            if (propCategoryName.isNotBlank() && trimmedCategory.isNotBlank()) {
                 properties[propCategoryName] = PropertyUpdate(select = SelectValue(name = trimmedCategory))
             }
             
@@ -1021,7 +1025,9 @@ class TaskRepository(
                             put(propStatusType, buildJsonObject { put("name", status) })
                         }
                         if (propCategoryName.isNotBlank() && !isSuperseded(action, "category", scope)) {
-                            properties[propCategoryName] = buildJsonObject { put("select", buildJsonObject { put("name", category) }) }
+                            properties[propCategoryName] = buildJsonObject {
+                                if (category.isBlank()) put("select", JsonNull) else put("select", buildJsonObject { put("name", category) })
+                            }
                         }
                         if (propDueDateName.isNotBlank() && !isSuperseded(action, "dueDate", scope)) {
                             properties[propDueDateName] = buildJsonObject {
@@ -1054,7 +1060,7 @@ class TaskRepository(
                         val propMap = mutableMapOf<String, PropertyUpdate>()
                         propMap[propTitleName] = PropertyUpdate(title = listOf(RichTextObject(text = TextContent(content = title))))
                         propMap[propStatusName] = if (propStatusType == "select") PropertyUpdate(select = SelectValue(name = status)) else PropertyUpdate(status = StatusValue(name = status))
-                        if (propCategoryName.isNotBlank()) propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
+                        if (propCategoryName.isNotBlank() && category.isNotBlank()) propMap[propCategoryName] = PropertyUpdate(select = SelectValue(name = category))
                         if (propDueDateName.isNotBlank() && !dueDate.isNullOrBlank()) propMap[propDueDateName] = PropertyUpdate(date = DateValue(start = dueDate))
                         if (propScheduledDateName.isNotBlank() && !scheduledDate.isNullOrBlank()) propMap[propScheduledDateName] = PropertyUpdate(date = DateValue(start = scheduledDate))
                         propMap[CLIENT_IDENTIFIER_PROPERTY] = PropertyUpdate(
