@@ -76,6 +76,8 @@ class PomodoroServiceCheckpointTest {
         val restored = TaskDatabase.getInstance(context).pomodoroLogDao.getAllLogs().single { it.id == logId }
         assertEquals(3, restored.minutes)
         assertEquals("2026-11-07", restored.date)
+        assertEquals("instrumentation checkpoint", restored.taskTitle)
+        assertEquals(PomodoroService.FOCUS_TYPE_TIMER, restored.sessionType)
         assertFalse(prefs.contains("pending_focus_log_id"))
     }
 }
