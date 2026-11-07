@@ -143,6 +143,7 @@ fun MainAppScreen(
     val editingTaskState = remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
     var isTaskSearchActive by rememberSaveable { mutableStateOf(false) }
+    var taskPeriods by remember { mutableStateOf(emptySet<String>()) }
 
     val activity = context as? ComponentActivity
     LaunchedEffect(activity?.intent, setupCompleted, tasksState, completedStatus) {
@@ -346,6 +347,8 @@ fun MainAppScreen(
                     categoryOptions = categoryOptions,
                     onEditTask = { editingTaskState.value = it },
                     searchActive = isTaskSearchActive,
+                    periods = taskPeriods,
+                    onPeriodsChange = { taskPeriods = it },
                 )
             }
             composable(Screen.Plan.route) {

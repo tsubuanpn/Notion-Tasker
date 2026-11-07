@@ -69,31 +69,24 @@ fun TasksScreen(
     categoryOptions: List<NotionOptionInfo>,
     onEditTask: (TaskModel) -> Unit,
     searchActive: Boolean,
+    periods: Set<String>,
+    onPeriodsChange: (Set<String>) -> Unit,
 ) {
     val tasksState by viewModel.tasksState.collectAsState()
     val completed by viewModel.statusCompleted.collectAsState()
     val inProgress by viewModel.statusInProgress.collectAsState()
     var query by remember { mutableStateOf("") }
-    var periods by remember { mutableStateOf(emptySet<String>()) }
     var categories by remember { mutableStateOf(emptySet<String>()) }
     var statuses by remember { mutableStateOf(emptySet<String>()) }
     var periodExpanded by remember { mutableStateOf(false) }
     var categoryExpanded by remember { mutableStateOf(false) }
     var statusExpanded by remember { mutableStateOf(false) }
     val today = rememberJapanToday()
-    val source = (tasksState as? TasksUiState.Success)?.tasks.orEmpty().filter { it.status.trim() != completed.trim() }
-    val weekStart = JapanTime.startOfWeek().toString()
-    val weekEnd = JapanTime.endOfWeek().toString()
-    val visible = source.filter { task ->
-        val date = JapanTime.projectedDateKey(task.scheduledDate) ?: JapanTime.projectedDateKey(task.dueDate)
-        val periodMatch = periods.isEmpty() || ("今日" in periods && date == today) || ("今週" in periods && date != null && date in weekStart..weekEnd)
-        periodMatch && (categories.isEmpty() || task.category in categories) && (statuses.isEmpty() || task.status in statuses) &&
+    val source = (tasksState as? TasksUiState.Success)?.tasks.orEmpty()
+    val visible = filterOpenTasksByPeriod(source, completed, periods, today).filter { task ->
+        (categories.isEmpty() || task.category in categories) && (statuses.isEmpty() || task.status in statuses) &&
             (query.isBlank() || task.title.contains(query, true) || task.category.contains(query, true))
-    }.sortedBy {
-        JapanTime.projectedDateKey(it.scheduledDate)
-            ?: JapanTime.projectedDateKey(it.dueDate)
-            ?: "9999-12-31"
-    }
+    }.sortedBy(::taskPeriodSortKey)
     val hasActiveConditions = query.isNotBlank() || periods.isNotEmpty() || categories.isNotEmpty() || statuses.isNotEmpty()
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -102,7 +95,7 @@ fun TasksScreen(
             shape = RoundedCornerShape(18.dp), leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, placeholder = { Text("タスクを検索") },
         )
         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box { FilterChip(selected = periods.isNotEmpty(), onClick = { periodExpanded = true }, label = { Text("期間${if (periods.isEmpty()) "▼" else "：${periods.size}"}") }); DropdownMenu(expanded = periodExpanded, onDismissRequest = { periodExpanded = false }) { listOf("今日", "今週").forEach { value -> DropdownMenuItem(text = { Text(if (value in periods) "✓ $value" else value) }, onClick = { periods = periods.toggle(value) }) } } }
+            Box { FilterChip(selected = periods.isNotEmpty(), onClick = { periodExpanded = true }, label = { Text("期間${if (periods.isEmpty()) "▼" else "：${periods.size}"}") }); DropdownMenu(expanded = periodExpanded, onDismissRequest = { periodExpanded = false }) { TaskPeriod.all.forEach { value -> DropdownMenuItem(text = { Text(if (value in periods) "✓ $value" else value) }, onClick = { onPeriodsChange(periods.toggle(value)) }) } } }
             Box { FilterChip(selected = categories.isNotEmpty(), onClick = { categoryExpanded = true }, label = { Text("種類${if (categories.isEmpty()) "▼" else "：${categories.size}"}") }); DropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) { categoryOptions.forEach { option -> DropdownMenuItem(text = { Text(if (option.name in categories) "✓ ${option.name}" else option.name) }, onClick = { categories = categories.toggle(option.name) }) } } }
             Box { FilterChip(selected = statuses.isNotEmpty(), onClick = { statusExpanded = true }, label = { Text("状態${if (statuses.isEmpty()) "▼" else "：${statuses.size}"}") }); DropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) { statusOptions.forEach { option -> DropdownMenuItem(text = { Text(if (option.name in statuses) "✓ ${option.name}" else option.name) }, onClick = { statuses = statuses.toggle(option.name) }) } } }
         }
@@ -120,7 +113,7 @@ fun TasksScreen(
                     )
                 }
                 periods.sorted().forEach { value ->
-                    FilterChip(selected = true, onClick = { periods = periods - value }, label = { Text("期間: $value ×") })
+                    FilterChip(selected = true, onClick = { onPeriodsChange(periods - value) }, label = { Text("期間: $value ×") })
                 }
                 categories.sorted().forEach { value ->
                     FilterChip(selected = true, onClick = { categories = categories - value }, label = { Text("種類: $value ×") })
@@ -131,7 +124,7 @@ fun TasksScreen(
                 TextButton(
                     onClick = {
                         query = ""
-                        periods = emptySet()
+                        onPeriodsChange(emptySet())
                         categories = emptySet()
                         statuses = emptySet()
                     },
