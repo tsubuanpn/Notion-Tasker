@@ -304,7 +304,11 @@ class TaskRepositoryTest {
             pendingSyncActionDao.insertPendingAction(match { action ->
                 action.actionType == "UPDATE_STATUS" &&
                 action.taskId == pageId &&
-                action.payloadJson.contains("Done")
+                action.payloadJson.contains("Done") &&
+                action.operationId.isNotBlank() &&
+                action.changedFields == "status" &&
+                action.generation == 1L &&
+                action.state == "PENDING"
             })
         }
         coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId) }

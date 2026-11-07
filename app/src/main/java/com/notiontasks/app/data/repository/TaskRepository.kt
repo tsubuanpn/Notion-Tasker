@@ -145,12 +145,14 @@ class TaskRepository(
         actionType: String,
         taskId: String,
         payloadJson: String,
+        changedFields: String = "legacy",
     ) {
         val scope = requireNotNull(connectionScope.value) {
             "接続先が未確認のため、保留中の変更として保存できません。Notionの接続設定を確認してください。"
         }
         // 同じ操作は最新の状態だけを残し、オフライン中の連打でキューを肥大化させない。
         pendingSyncActionDao.deletePendingActionsForTask(actionType, taskId)
+        val generation = (pendingSyncActionDao.getLatestGeneration(taskId, scope) ?: 0L) + 1L
         pendingSyncActionDao.insertPendingAction(
             PendingSyncActionEntity(
                 actionType = actionType,
@@ -158,6 +160,9 @@ class TaskRepository(
                 payloadJson = payloadJson,
                 timestamp = System.currentTimeMillis(),
                 connectionScope = scope,
+                operationId = UUID.randomUUID().toString(),
+                changedFields = changedFields,
+                generation = generation,
             ),
         )
     }
@@ -522,7 +527,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload)
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status")
                 return@withLock
             }
             // 自己修復セーフティネット：最初の更新が失敗した場合、別の型を試してフォールバックする
@@ -560,7 +565,7 @@ class TaskRepository(
                 val actionPayload = buildJsonObject {
                     put("newStatus", trimmedStatus)
                 }.toString()
-                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload)
+                enqueuePendingAction("UPDATE_STATUS", resolvedPageId, actionPayload, changedFields = "status")
             }
         }
     }
@@ -708,7 +713,7 @@ class TaskRepository(
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
-            enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload)
+            enqueuePendingAction("UPDATE_TASK", resolvedPageId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate")
         }
     }
 
@@ -811,7 +816,7 @@ class TaskRepository(
                     dueDate?.let { put("dueDate", it) }
                     scheduledDate?.let { put("scheduledDate", it) }
                 }.toString()
-                enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
+                enqueuePendingAction("CREATE_TASK", tempId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate")
                 return@withLock
             }
             if (!firstFailure.isRetryableSyncFailure()) throw firstFailure
@@ -841,7 +846,7 @@ class TaskRepository(
                 dueDate?.let { put("dueDate", it) }
                 scheduledDate?.let { put("scheduledDate", it) }
             }.toString()
-            enqueuePendingAction("CREATE_TASK", tempId, actionPayload)
+            enqueuePendingAction("CREATE_TASK", tempId, actionPayload, changedFields = "title,status,category,dueDate,scheduledDate")
             // A lost create response can already have created the page.  Query by the stable
             // identifier before one automatic retry; network failure simply leaves it queued.
             processPendingSyncActionsInternal(token, dataSourceId)
@@ -979,11 +984,21 @@ class TaskRepository(
                 if (failure is CancellationException) throw failure
                 if (failure.isRetryableSyncFailure()) {
                     // 古い操作を追い越さないよう、通信・サーバー障害時は次の同期まで待つ。
+                    pendingSyncActionDao.updatePendingActionState(
+                        action.id,
+                        state = "RETRYABLE_FAILURE",
+                        lastError = failure.message,
+                    )
                     break
                 }
 
                 // 認証・プロパティ設定の不整合でユーザーの操作を失わないよう、保留操作は残す。
                 // 設定を直した後に同じ順序で再送できるよう、後続の操作もここで止める。
+                pendingSyncActionDao.updatePendingActionState(
+                    action.id,
+                    state = "PERMANENT_FAILURE",
+                    lastError = failure.message,
+                )
                 throw PendingSyncActionException("保留中の変更を同期できません。Notionの接続設定とプロパティマッピングを確認してください。", failure)
             }
         }

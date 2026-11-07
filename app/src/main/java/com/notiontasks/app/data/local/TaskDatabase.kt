@@ -68,6 +68,15 @@ data class PendingSyncActionEntity(
     val timestamp: Long,
     /** Database ID that owned this operation when it was queued. */
     val connectionScope: String? = null,
+    /** Stable user-intent identity; legacy rows are assigned during migration. */
+    val operationId: String = "",
+    /** Comma-separated fields intentionally changed by this operation; "legacy" is unknown. */
+    val changedFields: String = "legacy",
+    /** Monotonic per task and connection while the app is running. */
+    val generation: Long = 0L,
+    /** PENDING, RETRYABLE_FAILURE, or PERMANENT_FAILURE. */
+    val state: String = "PENDING",
+    val lastError: String? = null,
 )
 
 /** Resolves a locally generated task ID to its Notion page ID within one connection. */
@@ -234,6 +243,12 @@ interface PendingSyncActionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPendingAction(action: PendingSyncActionEntity)
 
+    @Query("SELECT MAX(generation) FROM pending_sync_actions WHERE taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun getLatestGeneration(taskId: String, connectionScope: String): Long?
+
+    @Query("UPDATE pending_sync_actions SET state = :state, lastError = :lastError WHERE id = :id")
+    suspend fun updatePendingActionState(id: Long, state: String, lastError: String?)
+
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
 
@@ -309,7 +324,7 @@ interface SyncMetadataDao {
         TaskIdAliasEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -400,6 +415,17 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN operationId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN changedFields TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN generation INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN state TEXT NOT NULL DEFAULT 'PENDING'")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN lastError TEXT")
+                db.execSQL("UPDATE pending_sync_actions SET operationId = 'legacy-' || id WHERE operationId = ''")
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
                 .addMigrations(
@@ -412,6 +438,7 @@ abstract class TaskDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 .build()
 

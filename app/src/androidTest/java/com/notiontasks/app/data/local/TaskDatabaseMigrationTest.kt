@@ -20,7 +20,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV1ToV10_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
+    fun migratesV1ToV11_keepsOriginalTaskAndCreatesNewTables() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL(
@@ -46,7 +46,7 @@ class TaskDatabaseMigrationTest {
     }
 
     @Test
-    fun migratesV8ToV10_keepsCachedDataAndMarksItUnowned() = runBlocking {
+    fun migratesV8ToV11_keepsCachedDataAndMarksItUnowned() = runBlocking {
         context.deleteDatabase(databaseName)
         context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { legacyDatabase ->
             legacyDatabase.execSQL("CREATE TABLE tasks (id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, category TEXT NOT NULL, dueDate TEXT, scheduledDate TEXT, statusColor TEXT, categoryColor TEXT, lastEditedTime INTEGER NOT NULL, PRIMARY KEY(id))")
@@ -67,7 +67,10 @@ class TaskDatabaseMigrationTest {
             assertEquals("移行前タスク", task?.title)
             assertEquals(1234L, task?.lastEditedTime)
             assertEquals(null, task?.connectionScope)
-            assertEquals(1, migratedDatabase.pendingSyncActionDao.getAllPendingActions().size)
+            val pending = migratedDatabase.pendingSyncActionDao.getAllPendingActions().single()
+            assertEquals("legacy-1", pending.operationId)
+            assertEquals("legacy", pending.changedFields)
+            assertEquals("PENDING", pending.state)
 
             migratedDatabase.syncMetadataDao.put(SyncMetadataEntity("remote_cursor", 9999L))
             assertEquals(9999L, migratedDatabase.syncMetadataDao.getTimestamp("remote_cursor"))
