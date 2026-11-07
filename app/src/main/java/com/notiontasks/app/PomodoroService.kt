@@ -34,6 +34,14 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import com.notiontasks.app.utils.JapanTime
 
+internal fun elapsedSinceFocusSnapshot(savedElapsedRealtimeMs: Long, currentElapsedRealtimeMs: Long): Long =
+    if (savedElapsedRealtimeMs > 0L && currentElapsedRealtimeMs >= savedElapsedRealtimeMs) {
+        currentElapsedRealtimeMs - savedElapsedRealtimeMs
+    } else {
+        // elapsedRealtime resets on boot. Do not invent elapsed focus time from wall-clock changes.
+        0L
+    }
+
 class PomodoroService : Service() {
 
     private val binder = PomodoroBinder()
@@ -93,6 +101,7 @@ class PomodoroService : Service() {
             putString(PREF_SESSION_TASK_CATEGORY_SNAPSHOT, sessionTaskCategory)
             putString(PREF_SESSION_TASK_COLOR_SNAPSHOT, sessionTaskCategoryColor)
             putLong(PREF_SESSION_SAVED_AT, System.currentTimeMillis())
+            putLong(PREF_SESSION_SAVED_ELAPSED_REALTIME, SystemClock.elapsedRealtime())
             putLong(PREF_SESSION_DEADLINE, if (isRunning && focusType != FOCUS_TYPE_STOPWATCH) System.currentTimeMillis() + timeLeftMs else 0L)
             putString(PREF_SESSION_TASK_ID, associatedTaskId)
             putString(PREF_SESSION_TASK_TITLE, associatedTaskTitle)
@@ -220,16 +229,18 @@ class PomodoroService : Service() {
         isRunning = false
 
         if (isPaused) return
+        val elapsedSinceSnapshotMs = elapsedSinceFocusSnapshot(
+            savedElapsedRealtimeMs = sessionPrefs.getLong(PREF_SESSION_SAVED_ELAPSED_REALTIME, 0L),
+            currentElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+        )
         if (focusType == FOCUS_TYPE_STOPWATCH) {
-            val savedAt = sessionPrefs.getLong(PREF_SESSION_SAVED_AT, System.currentTimeMillis())
-            sessionAccumulatedMs += (System.currentTimeMillis() - savedAt).coerceAtLeast(0L)
+            sessionAccumulatedMs += elapsedSinceSnapshotMs
             timeLeftMs = sessionAccumulatedMs
             startTimer(restoring = true)
             return
         }
 
-        val deadline = sessionPrefs.getLong(PREF_SESSION_DEADLINE, 0L)
-        timeLeftMs = (deadline - System.currentTimeMillis()).coerceAtLeast(0L)
+        timeLeftMs = (timeLeftMs - elapsedSinceSnapshotMs).coerceAtLeast(0L)
         if (timeLeftMs == 0L) {
             handleSessionFinished()
         } else {
@@ -1055,6 +1066,7 @@ class PomodoroService : Service() {
         private const val PREF_SESSION_FOCUS_START_LEFT_MS = "focus_session_focus_start_left_ms"
         private const val PREF_SESSION_ACCUMULATED_MS = "focus_session_accumulated_ms"
         private const val PREF_SESSION_SAVED_AT = "focus_session_saved_at"
+        private const val PREF_SESSION_SAVED_ELAPSED_REALTIME = "focus_session_saved_elapsed_realtime"
         private const val PREF_SESSION_DEADLINE = "focus_session_deadline"
         private const val PREF_SESSION_TASK_ID = "focus_session_task_id"
         private const val PREF_SESSION_TASK_TITLE = "focus_session_task_title"
