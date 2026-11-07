@@ -13,6 +13,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.notiontasks.app.data.local.TaskDatabase
+import com.notiontasks.app.data.local.ScheduleBlockEntity
+import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.utils.SecurityUtils
 import com.notiontasks.app.utils.JapanTime
@@ -29,6 +31,33 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val JAPAN_ZONE: ZoneId = ZoneId.of("Asia/Tokyo")
+
+/** The current Room state authorized to produce a block notification. */
+internal data class BlockNotificationTarget(
+    val title: String,
+    val type: String,
+    val associatedId: String?,
+)
+
+/**
+ * Validates an alarm against the latest local records. Alarm extras are deliberately
+ * absent: scheduled Intents are stale by design and must never decide notification data.
+ */
+internal fun currentBlockNotificationTarget(
+    block: ScheduleBlockEntity,
+    scopedTasks: List<TaskEntity>,
+    completedStatus: String,
+): BlockNotificationTarget? {
+    val associatedTask = block.associatedId?.let { id -> scopedTasks.find { it.id == id } }
+    if (block.type == "task" && (associatedTask == null || associatedTask.status.trim() == completedStatus)) {
+        return null
+    }
+    return BlockNotificationTarget(
+        title = block.title,
+        type = block.type,
+        associatedId = block.associatedId,
+    )
+}
 
 class TaskNotificationReceiver : BroadcastReceiver() {
 
@@ -113,21 +142,15 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                         val currentBlock = blockId.takeIf { it.isNotBlank() }
                             ?.let { database.scheduleBlockDao.getBlockById(it) }
                             ?: return@launch
-                        val blockTitle = currentBlock.title
-                        val blockType = currentBlock.type
-                        val associatedId = currentBlock.associatedId
                         // タスクに紐づく時間枠は、キャッシュ上で対象タスクが存在し未完了の
                         // 場合だけ通知する。削除済み・完了済みのタスクを知らせない。
-                        val associatedTask = associatedId?.let { id -> allTasks.find { it.id == id } }
-                        if (blockType == "task" && (associatedTask == null || associatedTask.status.trim() == completedStatus)) {
-                            return@launch
-                        }
+                        val target = currentBlockNotificationTarget(currentBlock, allTasks, completedStatus) ?: return@launch
                         showBlockNotification(
                             context = context,
                             notifId = 3000 + blockId.hashCode(),
-                            title = blockTitle,
-                            blockType = blockType,
-                            associatedId = associatedId,
+                            title = target.title,
+                            blockType = target.type,
+                            associatedId = target.associatedId,
                         )
                     }
                 }
