@@ -29,6 +29,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import com.notiontasks.app.utils.JapanTime
 
@@ -69,6 +71,7 @@ class PomodoroService : Service() {
     private var sessionTaskTitle: String? = null
     private var sessionTaskCategory: String? = null
     private var sessionTaskCategoryColor: String? = null
+    private val focusLogWriteMutex = Mutex()
 
     private val sessionPrefs by lazy { getSharedPreferences("pomodoro_prefs", MODE_PRIVATE) }
 
@@ -111,6 +114,85 @@ class PomodoroService : Service() {
         sessionAccumulatedMs = 0L
         focusStartLeftMs = 0L
         stopwatchSegmentStartedAtMs = null
+    }
+
+    /**
+     * A final focus log must survive the gap between receiving Stop and Room finishing its write.
+     * The fixed log id makes replay an upsert, so recovering this record cannot duplicate a session.
+     */
+    private data class PendingFocusLog(val generation: Long, val log: PomodoroLog)
+
+    private fun persistPendingFocusLog(log: PomodoroLog): PendingFocusLog {
+        val generation = sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) + 1L
+        check(sessionPrefs.edit()
+            .putLong(PREF_PENDING_LOG_GENERATION, generation)
+            .putString(PREF_PENDING_LOG_ID, log.id)
+            .putString(PREF_PENDING_LOG_TASK_ID, log.taskId)
+            .putString(PREF_PENDING_LOG_TITLE, log.taskTitle)
+            .putString(PREF_PENDING_LOG_CATEGORY, log.category)
+            .putString(PREF_PENDING_LOG_COLOR, log.categoryColor)
+            .putString(PREF_PENDING_LOG_DATE, log.date)
+            .putInt(PREF_PENDING_LOG_MINUTES, log.minutes)
+            .putLong(PREF_PENDING_LOG_TIMESTAMP, log.timestamp)
+            .putString(PREF_PENDING_LOG_TYPE, log.sessionType)
+            .commit()) { "Failed to persist pending focus log" }
+        return PendingFocusLog(generation, log)
+    }
+
+    private fun readPendingFocusLog(): PendingFocusLog? {
+        val id = sessionPrefs.getString(PREF_PENDING_LOG_ID, null) ?: return null
+        val type = sessionPrefs.getString(PREF_PENDING_LOG_TYPE, null) ?: return null
+        val date = sessionPrefs.getString(PREF_PENDING_LOG_DATE, null) ?: return null
+        val category = sessionPrefs.getString(PREF_PENDING_LOG_CATEGORY, null) ?: return null
+        return PendingFocusLog(
+            generation = sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L),
+            log = PomodoroLog(
+                id = id,
+                taskId = sessionPrefs.getString(PREF_PENDING_LOG_TASK_ID, null),
+                taskTitle = sessionPrefs.getString(PREF_PENDING_LOG_TITLE, null),
+                category = category,
+                categoryColor = sessionPrefs.getString(PREF_PENDING_LOG_COLOR, null),
+                date = date,
+                minutes = sessionPrefs.getInt(PREF_PENDING_LOG_MINUTES, 0),
+                timestamp = sessionPrefs.getLong(PREF_PENDING_LOG_TIMESTAMP, 0L),
+                sessionType = type,
+            ),
+        )
+    }
+
+    private fun clearPendingFocusLog(generation: Long) {
+        if (sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) != generation) return
+        sessionPrefs.edit()
+            .remove(PREF_PENDING_LOG_ID)
+            .remove(PREF_PENDING_LOG_TASK_ID)
+            .remove(PREF_PENDING_LOG_TITLE)
+            .remove(PREF_PENDING_LOG_CATEGORY)
+            .remove(PREF_PENDING_LOG_COLOR)
+            .remove(PREF_PENDING_LOG_DATE)
+            .remove(PREF_PENDING_LOG_MINUTES)
+            .remove(PREF_PENDING_LOG_TIMESTAMP)
+            .remove(PREF_PENDING_LOG_TYPE)
+            .commit()
+    }
+
+    private fun enqueuePendingFocusLog(pending: PendingFocusLog) {
+        serviceScope.launch {
+            focusLogWriteMutex.withLock {
+                // A newer checkpoint supersedes an earlier coroutine before it can overwrite Room.
+                if (sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) != pending.generation) return@withLock
+                runCatching {
+                    (application as NotionTaskerApplication).container.pomodoroRepository
+                        .insertPomodoroLog(pending.log)
+                }.onSuccess {
+                    clearPendingFocusLog(pending.generation)
+                }
+                // On failure keep the committed preferences record for the next service creation.
+            }
+        }
+    }
+
+    private fun flushPendingFocusLog() {
+        readPendingFocusLog()?.let(::enqueuePendingFocusLog)
     }
 
     private fun restoreSessionSnapshot() {
@@ -265,6 +347,7 @@ class PomodoroService : Service() {
         createNotificationChannel()
         durationMs = getDurationMsForMode(currentMode)
         timeLeftMs = durationMs
+        flushPendingFocusLog()
         restoreSessionSnapshot()
         resolvePersistedTaskAlias()
     }
@@ -633,9 +716,7 @@ class PomodoroService : Service() {
                 sessionType = focusType,
             )
 
-            serviceScope.launch {
-                (application as NotionTaskerApplication).container.pomodoroRepository.insertPomodoroLog(newLog)
-            }
+            enqueuePendingFocusLog(persistPendingFocusLog(newLog))
         }
 
         // 次のチャンクのために focusStartLeftMs を現在の timeLeftMs にリセットする
@@ -674,7 +755,6 @@ class PomodoroService : Service() {
             focusStartLeftMs = timeLeftMs
             startTaskMonitoring(associatedTaskId)
         }
-        persistSessionSnapshot()
         persistSessionSnapshot()
     }
 
@@ -984,5 +1064,15 @@ class PomodoroService : Service() {
         private const val PREF_SESSION_TASK_TITLE_SNAPSHOT = "focus_session_task_title_snapshot"
         private const val PREF_SESSION_TASK_CATEGORY_SNAPSHOT = "focus_session_task_category_snapshot"
         private const val PREF_SESSION_TASK_COLOR_SNAPSHOT = "focus_session_task_color_snapshot"
+        private const val PREF_PENDING_LOG_GENERATION = "pending_focus_log_generation"
+        private const val PREF_PENDING_LOG_ID = "pending_focus_log_id"
+        private const val PREF_PENDING_LOG_TASK_ID = "pending_focus_log_task_id"
+        private const val PREF_PENDING_LOG_TITLE = "pending_focus_log_title"
+        private const val PREF_PENDING_LOG_CATEGORY = "pending_focus_log_category"
+        private const val PREF_PENDING_LOG_COLOR = "pending_focus_log_color"
+        private const val PREF_PENDING_LOG_DATE = "pending_focus_log_date"
+        private const val PREF_PENDING_LOG_MINUTES = "pending_focus_log_minutes"
+        private const val PREF_PENDING_LOG_TIMESTAMP = "pending_focus_log_timestamp"
+        private const val PREF_PENDING_LOG_TYPE = "pending_focus_log_type"
     }
 }
