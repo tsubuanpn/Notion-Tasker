@@ -64,7 +64,8 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                 createNotificationChannel(context)
                 
                 val database = TaskDatabase.getInstance(context.applicationContext)
-                val currentConnectionScope = getSecurePreferences(context)
+                val securePreferences = getSecurePreferencesOrNull(context) ?: return@launch
+                val currentConnectionScope = securePreferences
                     .getString("database_id", "")
                     ?.trim()
                     .orEmpty()
@@ -73,7 +74,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                     .filter { currentConnectionScope.isNotBlank() && it.connectionScope == currentConnectionScope }
                 
                 val todayStr = LocalDate.now(JAPAN_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val completedStatus = getSecurePreferences(context).getString("mapping_status_completed", "完了") ?: "完了"
+                val completedStatus = securePreferences.getString("mapping_status_completed", "完了") ?: "完了"
                 
                 when (type) {
                     "MORNING" -> {
@@ -256,6 +257,9 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             return SecurityUtils.getSecurePreferences(context)
         }
 
+        private fun getSecurePreferencesOrNull(context: Context): SharedPreferences? =
+            runCatching { getSecurePreferences(context) }.getOrNull()
+
         /**
          * すべてのアラーム（朝夜通知および時間割）を再スケジュールします。
          */
@@ -267,7 +271,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
 
         private suspend fun rescheduleAlarmsInternal(context: Context) {
             // 1. 朝と夜の定期通知をスケジュール
-            val prefs = getSecurePreferences(context)
+            val prefs = getSecurePreferencesOrNull(context) ?: return
             val morningEnabled = prefs.getBoolean("morning_notif_enabled", true)
             val eveningEnabled = prefs.getBoolean("evening_notif_enabled", true)
             
@@ -313,7 +317,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
         }
 
         fun rescheduleAlarmForType(context: Context, type: String) {
-            val prefs = getSecurePreferences(context)
+            val prefs = getSecurePreferencesOrNull(context) ?: return
             val enabledKey = if (type == "MORNING") "morning_notif_enabled" else "evening_notif_enabled"
             val enabled = prefs.getBoolean(enabledKey, true)
             if (!enabled) {

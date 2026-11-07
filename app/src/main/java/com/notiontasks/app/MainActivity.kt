@@ -9,7 +9,20 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.core.content.edit
@@ -18,6 +31,7 @@ import com.notiontasks.app.ui.MainAppScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
+import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.serialization.json.Json
 
 class MainActivity : ComponentActivity() {
@@ -68,7 +82,72 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = (application as NotionTaskerApplication).container
-        val sharedPreferences = container.securePreferences
+        when (val access = SecurityUtils.accessSecurePreferences(this)) {
+            is SecurityUtils.SecurePreferencesAccess.Available -> {
+                createMainContent(container, access.preferences)
+            }
+            SecurityUtils.SecurePreferencesAccess.Unavailable -> {
+                showSecurePreferencesRecovery()
+            }
+        }
+    }
+
+    private fun showSecurePreferencesRecovery() {
+        setContent {
+            var showResetConfirmation by remember { mutableStateOf(false) }
+            NotionTaskerTheme(
+                darkTheme = isSystemInDarkTheme(),
+                themeColorName = "blue",
+                dynamicColor = false,
+            ) {
+                SecurePreferencesRecoveryScreen(
+                    onRetry = { recreate() },
+                    onReset = { showResetConfirmation = true },
+                )
+                if (showResetConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showResetConfirmation = false },
+                        title = { Text("暗号化設定を再作成しますか？") },
+                        text = {
+                            Text(
+                                "Notion の接続情報、プロパティ対応、通知・外観などの設定が失われます。" +
+                                    "タスク、予定、集中記録、保留操作は削除しません。"
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showResetConfirmation = false
+                                    val result = SecurityUtils.resetSecurePreferences(this@MainActivity)
+                                    if (result.isSuccess) {
+                                        recreate()
+                                    } else {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "設定を再作成できませんでした。もう一度お試しください。",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                },
+                            ) {
+                                Text("設定を再作成")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = { showResetConfirmation = false }) {
+                                Text("キャンセル")
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun createMainContent(
+        container: AppContainer,
+        sharedPreferences: android.content.SharedPreferences,
+    ) {
 
         // MVVM ファクトリ
         val factory = object : ViewModelProvider.Factory {
@@ -229,6 +308,42 @@ class MainActivity : ComponentActivity() {
                     // まだ許可されていない場合は権限をリクエストする
                     checkAndRequestNotificationPermission()
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SecurePreferencesRecoveryScreen(
+    onRetry: () -> Unit,
+    onReset: () -> Unit,
+) {
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "暗号化設定を読み込めません",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = "タスク、予定、集中記録は端末に残っています。再試行するか、" +
+                    "影響を確認したうえで接続設定を再作成してください。",
+                modifier = Modifier.padding(top = 16.dp, bottom = 24.dp),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(onClick = onRetry) {
+                Text("再試行")
+            }
+            OutlinedButton(
+                modifier = Modifier.padding(top = 12.dp),
+                onClick = onReset,
+            ) {
+                Text("暗号化設定を再作成")
             }
         }
     }

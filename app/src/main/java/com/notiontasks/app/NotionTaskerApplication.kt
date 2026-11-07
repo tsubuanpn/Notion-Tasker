@@ -6,7 +6,6 @@ import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
-import com.notiontasks.app.utils.SecurityUtils
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,8 +20,6 @@ class NotionTaskerApplication : Application() {
 }
 
 class AppContainer(application: Application) {
-    val securePreferences = SecurityUtils.getSecurePreferences(application)
-
     private val database = TaskDatabase.getInstance(application)
     private val notionApi = Retrofit.Builder()
         .baseUrl("https://api.notion.com/")

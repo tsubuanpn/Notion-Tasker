@@ -161,7 +161,10 @@ class PomodoroService : Service() {
         if (!localTaskId.startsWith("pending_")) return
         aliasResolutionJob?.cancel()
         aliasResolutionJob = serviceScope.launch {
-            val scope = SecurityUtils.getSecurePreferences(this@PomodoroService)
+            val securePreferences = runCatching {
+                SecurityUtils.getSecurePreferences(this@PomodoroService)
+            }.getOrNull() ?: return@launch
+            val scope = securePreferences
                 .getString("database_id", "")
                 ?.trim()
                 .orEmpty()
@@ -727,7 +730,9 @@ class PomodoroService : Service() {
                 .distinctUntilChanged()
                 .collect { task ->
                     // 判定の都度最新の完了ステータス名を取得
-                    val prefs = com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+                    val prefs = runCatching {
+                        com.notiontasks.app.utils.SecurityUtils.getSecurePreferences(this@PomodoroService)
+                    }.getOrNull() ?: return@collect
                     val completedStatus = prefs.getString("mapping_status_completed", "完了") ?: "完了"
                     
                     if (task?.status?.trim() == completedStatus.trim() && isRunning) {
