@@ -89,13 +89,17 @@ interface TaskDao {
     @Upsert
     suspend fun upsertTasks(tasks: List<TaskEntity>)
 
-    @Query("DELETE FROM tasks WHERE connectionScope = :connectionScope AND id NOT IN (:ids)")
-    suspend fun deleteTasksNotInList(connectionScope: String, ids: List<String>)
+    @Query("DELETE FROM tasks WHERE connectionScope = :connectionScope AND id NOT IN (:remoteIds) AND id NOT IN (:protectedIds)")
+    suspend fun deleteTasksNotInList(connectionScope: String, remoteIds: List<String>, protectedIds: List<String>)
 
     @Transaction
-    suspend fun syncTasksTransactionally(connectionScope: String, activeEntities: List<TaskEntity>) {
+    suspend fun syncTasksTransactionally(
+        connectionScope: String,
+        activeEntities: List<TaskEntity>,
+        protectedTaskIds: List<String> = emptyList(),
+    ) {
         upsertTasks(activeEntities)
-        deleteTasksNotInList(connectionScope, activeEntities.map { it.id })
+        deleteTasksNotInList(connectionScope, activeEntities.map { it.id }, protectedTaskIds)
     }
 
     @Query("DELETE FROM tasks")

@@ -397,6 +397,39 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun syncTasks_keepsPendingLocalChangeWhenRemoteHasOlderValue() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_123",
+            payloadJson = """{"newStatus":"進行中"}""",
+            timestamp = 1L,
+            connectionScope = "database",
+        )
+        val remotePage = NotionPage(
+            id = "page_123",
+            properties = mapOf(
+                "名前" to buildJsonObject { put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "Remote title") }) }) },
+                "状態" to buildJsonObject { put("status", buildJsonObject { put("name", "未着手") }) },
+                "種類" to buildJsonObject { put("select", buildJsonObject { put("name", "Life") }) },
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen listOf(pending)
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IOException("offline")
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(results = listOf(remotePage))
+
+        repository.syncTasks("token", "database")
+
+        coVerify {
+            taskDao.syncTasksTransactionally(
+                connectionScope = "database",
+                activeEntities = match { it.isEmpty() },
+                protectedTaskIds = match { it == listOf("page_123") },
+            )
+        }
+    }
+
+    @Test
     fun syncTasks_permanentPendingFailure_keepsTheUserAction() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,

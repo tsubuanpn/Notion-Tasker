@@ -326,6 +326,12 @@ class TaskRepository(
         
         // 1. まずオフライン中の変更があれば順次処理を試みる
         processPendingSyncActionsInternal(token, dataSourceId)
+        // A retryable local operation is newer than any fetched remote snapshot. Keep its
+        // task row unchanged until that operation is confirmed, including during a full sync.
+        val protectedTaskIds = pendingSyncActionDao.getAllPendingActions()
+            .filter { it.connectionScope == databaseId }
+            .map { it.taskId }
+            .toSet()
 
         // 2. リモートから最新データを取得
         try {
@@ -413,10 +419,15 @@ class TaskRepository(
 
             // 3. トランザクションを用いて更新
             // 差分同期の場合は upsert のみを行い、全件同期の場合のみ不要データを削除する
+            val remoteEntitiesSafeToApply = allFetchedEntities.filter { it.id !in protectedTaskIds }
             if (!performFullSync && lastSync > 0) {
-                taskDao.upsertTasks(allFetchedEntities)
+                taskDao.upsertTasks(remoteEntitiesSafeToApply)
             } else {
-                taskDao.syncTasksTransactionally(databaseId, allFetchedEntities)
+                taskDao.syncTasksTransactionally(
+                    connectionScope = databaseId,
+                    activeEntities = remoteEntitiesSafeToApply,
+                    protectedTaskIds = protectedTaskIds.toList(),
+                )
                 lastFullSyncAt = now
             }
             if (latestRemoteEditTime > 0L) {
