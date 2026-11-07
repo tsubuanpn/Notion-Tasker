@@ -152,7 +152,7 @@ class TaskRepositoryTest {
         repository.syncTasks("token", "database")
 
         coVerify {
-            syncMetadataDao.put(match { it.key == "notion_remote_sync_cursor" && it.timestamp > 0L })
+            syncMetadataDao.put(match { it.key == "notion_remote_sync_cursor:database" && it.timestamp > 0L })
         }
     }
 

@@ -46,6 +46,9 @@ private const val CLIENT_IDENTIFIER_PROPERTY = "Notion Tasker ID"
 
 private class PendingSyncActionException(message: String, cause: Throwable) : IOException(message, cause)
 
+private fun remoteSyncCursorKey(databaseId: String): String =
+    "$REMOTE_SYNC_CURSOR_KEY:${databaseId.trim()}"
+
 // 動的な JSON 解析用の拡張機能
 fun Map<String, JsonElement>.getTitleText(propertyName: String): String? {
     val element = this[propertyName] ?: return null
@@ -344,7 +347,8 @@ class TaskRepository(
             val now = System.currentTimeMillis()
             val performFullSync = !incremental || now - lastFullSyncAt >= FULL_SYNC_INTERVAL_MS
             // 楽観的な端末更新時刻は Notion の時刻ではないため、差分取得の基準には使わない。
-            val lastSync = if (performFullSync) 0L else syncMetadataDao.getTimestamp(REMOTE_SYNC_CURSOR_KEY) ?: 0L
+            val cursorKey = remoteSyncCursorKey(databaseId)
+            val lastSync = if (performFullSync) 0L else syncMetadataDao.getTimestamp(cursorKey) ?: 0L
             var latestRemoteEditTime = lastSync
 
             while (hasMore) {
@@ -431,7 +435,7 @@ class TaskRepository(
                 lastFullSyncAt = now
             }
             if (latestRemoteEditTime > 0L) {
-                syncMetadataDao.put(SyncMetadataEntity(REMOTE_SYNC_CURSOR_KEY, latestRemoteEditTime))
+                syncMetadataDao.put(SyncMetadataEntity(cursorKey, latestRemoteEditTime))
             }
         } catch (e: CancellationException) {
             throw e
