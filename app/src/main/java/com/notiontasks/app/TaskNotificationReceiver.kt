@@ -74,12 +74,13 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                     .filter { currentConnectionScope.isNotBlank() && it.connectionScope == currentConnectionScope }
                 
                 val todayStr = LocalDate.now(JAPAN_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val completedStatus = securePreferences.getString("mapping_status_completed", "完了") ?: "完了"
+                val completedStatus = securePreferences.getString("mapping_status_completed", "完了")
+                    ?.trim().orEmpty().ifBlank { "完了" }
                 
                 when (type) {
                     "MORNING" -> {
                         val todayTasks = allTasks.filter {
-                            JapanTime.projectedDateKey(it.scheduledDate) == todayStr && it.status != completedStatus
+                            JapanTime.projectedDateKey(it.scheduledDate) == todayStr && it.status.trim() != completedStatus
                         }
                         if (todayTasks.isNotEmpty()) {
                             showNotification(
@@ -93,7 +94,7 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                     }
                     "EVENING" -> {
                         val unfinishedTasks = allTasks.filter {
-                            (it.scheduledDate == todayStr) && (it.status != completedStatus)
+                            (JapanTime.projectedDateKey(it.scheduledDate) == todayStr) && it.status.trim() != completedStatus
                         }
                         if (unfinishedTasks.isNotEmpty()) {
                             showNotification(
@@ -106,14 +107,19 @@ class TaskNotificationReceiver : BroadcastReceiver() {
                         rescheduleAlarmForType(context, "EVENING")
                     }
                     "BLOCK_START" -> {
-                        val blockTitle = intent.getStringExtra("BLOCK_TITLE") ?: "時間割のアラート"
-                        val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
                         val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
-                        val associatedId = intent.getStringExtra("ASSOCIATED_ID")
+                        // Never trust an old alarm Intent: the block may have been deleted or
+                        // changed after it was scheduled. Read the current local record first.
+                        val currentBlock = blockId.takeIf { it.isNotBlank() }
+                            ?.let { database.scheduleBlockDao.getBlockById(it) }
+                            ?: return@launch
+                        val blockTitle = currentBlock.title
+                        val blockType = currentBlock.type
+                        val associatedId = currentBlock.associatedId
                         // タスクに紐づく時間枠は、キャッシュ上で対象タスクが存在し未完了の
                         // 場合だけ通知する。削除済み・完了済みのタスクを知らせない。
                         val associatedTask = associatedId?.let { id -> allTasks.find { it.id == id } }
-                        if (blockType == "task" && (associatedTask == null || associatedTask.status == completedStatus)) {
+                        if (blockType == "task" && (associatedTask == null || associatedTask.status.trim() == completedStatus)) {
                             return@launch
                         }
                         showBlockNotification(

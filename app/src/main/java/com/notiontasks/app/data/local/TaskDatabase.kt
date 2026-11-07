@@ -230,6 +230,9 @@ interface ScheduleBlockDao {
     @Query("SELECT * FROM schedule_blocks WHERE date = :date ORDER BY startTime ASC")
     suspend fun getBlocksByDate(date: String): List<ScheduleBlockEntity>
 
+    @Query("SELECT * FROM schedule_blocks WHERE id = :id LIMIT 1")
+    suspend fun getBlockById(id: String): ScheduleBlockEntity?
+
     @Query("SELECT * FROM schedule_blocks ORDER BY startTime ASC")
     suspend fun getAllBlocks(): List<ScheduleBlockEntity>
 

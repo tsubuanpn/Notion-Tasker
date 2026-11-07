@@ -50,6 +50,7 @@ import com.notiontasks.app.ui.screens.*
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
+import com.notiontasks.app.ui.viewmodel.TasksUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,6 +106,8 @@ fun MainAppScreen(
     val permanentSyncFailures by viewModel.permanentSyncFailures.collectAsState()
     val isCreatingTask by viewModel.isCreatingTask.collectAsState()
     val activeTaskSaveKeys by viewModel.activeTaskSaveKeys.collectAsState()
+    val tasksState by viewModel.tasksState.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
 
     val context = LocalContext.current
     var boundService by remember { mutableStateOf<PomodoroService?>(null) }
@@ -142,12 +145,21 @@ fun MainAppScreen(
     var isTaskSearchActive by rememberSaveable { mutableStateOf(false) }
 
     val activity = context as? ComponentActivity
-    LaunchedEffect(activity?.intent) {
+    LaunchedEffect(activity?.intent, setupCompleted, tasksState, completedStatus) {
         val intent = activity?.intent
         if (intent != null) {
             val dest = intent.getStringExtra("DESTINATION")
             val focusTaskId = intent.getStringExtra("FOCUS_TASK_ID")
             if (setupCompleted && dest == "pomodoro") {
+                val task = (tasksState as? TasksUiState.Success)?.tasks?.find { it.id == focusTaskId }
+                // Wait until the local cache is available before honoring a task-specific
+                // notification. Deleted or completed tasks must not start a focus session.
+                if (focusTaskId != null && tasksState !is TasksUiState.Success) return@LaunchedEffect
+                if (focusTaskId != null && (task == null || task.status.trim() == completedStatus.trim())) {
+                    intent.removeExtra("DESTINATION")
+                    intent.removeExtra("FOCUS_TASK_ID")
+                    return@LaunchedEffect
+                }
                 if (focusTaskId != null) {
                     val pPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
                     pPrefs.edit { putString("selected_task_id", focusTaskId) }
