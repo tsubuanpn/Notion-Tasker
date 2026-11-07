@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -23,13 +22,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
-import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
 import com.notiontasks.app.utils.JapanTime
-import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -45,17 +42,14 @@ internal fun formatJapanTodayHeader(date: LocalDate = JapanTime.today()): String
 fun TodayScreen(
     viewModel: TaskViewModel,
     statusOptions: List<NotionOptionInfo>,
-    onOpenPlan: () -> Unit,
-    onOpenTasks: () -> Unit,
+    onOpenTasks: (Set<String>) -> Unit,
     onStartFocus: (TaskModel) -> Unit,
 ) {
     val tasksState by viewModel.tasksState.collectAsState()
-    val timeBlocks by viewModel.timeBlocks.collectAsState()
     val unstartedStatus by viewModel.statusUnstarted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
     val today = rememberJapanToday()
-    var nowMinutes by remember { mutableIntStateOf(currentMinutes()) }
-    LaunchedEffect(Unit) { while (true) { delay(60_000L); nowMinutes = currentMinutes() } }
 
     when (val state = tasksState) {
         is TasksUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -68,17 +62,13 @@ fun TodayScreen(
             val inProgressTask = remember(activeTasks, inProgressStatus) {
                 representativeInProgressTask(activeTasks, inProgressStatus)
             }
-            val dayBlocks = remember(timeBlocks, today) { timeBlocks.filter { it.type == "task" && it.date == today }.sortedBy { it.startTime } }
-            val taskById = remember(tasks) { tasks.associateBy { it.id } }
-            val upcomingBlocks = remember(dayBlocks, nowMinutes) { dayBlocks.filter { it.endTime >= nowMinutes }.take(2) }
-            val assignedIds = remember(dayBlocks) { dayBlocks.mapNotNull { it.associatedId }.toSet() }
-            val unplannedTasks = remember(activeTasks, assignedIds, inProgressTask) {
-                activeTasks.asSequence().filter { it.id !in assignedIds && it.id != inProgressTask?.id }
-                    .sortedBy {
-                        JapanTime.projectedDateKey(it.scheduledDate)
-                            ?: JapanTime.projectedDateKey(it.dueDate)
-                            ?: "9999-12-31"
-                    }.take(2).toList()
+            val todayTasks = remember(tasks, completedStatus, today) {
+                filterOpenTasksByPeriod(tasks, completedStatus, setOf(TaskPeriod.TODAY), today)
+                    .sortedBy(::taskPeriodSortKey)
+            }
+            val unassignedTasks = remember(tasks, completedStatus, today) {
+                filterOpenTasksByPeriod(tasks, completedStatus, setOf(TaskPeriod.UNASSIGNED), today)
+                    .sortedBy(::taskPeriodSortKey)
             }
 
             Column(
@@ -93,8 +83,8 @@ fun TodayScreen(
                     onComplete = inProgressTask?.let { { viewModel.cycleTaskStatus(it, statusOptions) } },
                     onStartFocus = inProgressTask?.let { { onStartFocus(it) } },
                 )
-                TodayScheduleSection(upcomingBlocks, taskById, onOpenPlan)
-                UnplannedSection(unplannedTasks, onOpenTasks)
+                TodayTasksSection(todayTasks, onOpenTasks)
+                UnassignedSection(unassignedTasks, onOpenTasks)
                 Spacer(Modifier.height(88.dp))
             }
         }
@@ -122,44 +112,38 @@ private fun InProgressSection(task: TaskModel?, totalCount: Int, onComplete: (()
 }
 
 @Composable
-private fun TodayScheduleSection(blocks: List<TimeBlock>, taskById: Map<String, TaskModel>, onOpenPlan: () -> Unit) {
-    BriefingSectionCard("これからのタスク予定（最大2件）", Icons.Default.CalendarMonth, onOpenPlan) {
-        if (blocks.isEmpty()) EmptyBriefingRow("今日の予定はありません") else blocks.forEachIndexed { index, block ->
-            val task = block.associatedId?.let(taskById::get)
-            ScheduleBriefingRow(task?.title ?: block.title, "${formatTime(block.startTime)} – ${formatTime(block.endTime)}", task?.category.orEmpty(), index == 0, onOpenPlan)
+private fun TodayTasksSection(tasks: List<TaskModel>, onOpenTasks: (Set<String>) -> Unit) {
+    BriefingSectionCard("今日のタスク", Icons.Default.TaskAlt) {
+        if (tasks.isEmpty()) EmptyBriefingRow("今日のタスクはありません") else tasks.take(2).forEach { task ->
+            TaskBriefingRow(task, onClick = { onOpenTasks(setOf(TaskPeriod.TODAY)) })
+        }
+        if (tasks.size >= 2) {
+            MoreTasksButton(onClick = { onOpenTasks(setOf(TaskPeriod.TODAY)) })
         }
     }
 }
 
 @Composable
-private fun UnplannedSection(tasks: List<TaskModel>, onOpenTasks: () -> Unit) {
-    BriefingSectionCard("今日に未割当のタスク（最大2件）", Icons.Default.TaskAlt, onOpenTasks) {
-        if (tasks.isEmpty()) EmptyBriefingRow("未計画タスクはありません") else tasks.forEach { task ->
-            Row(Modifier.fillMaxWidth().clickable(onClick = onOpenTasks).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Default.RadioButtonUnchecked, null, tint = MaterialTheme.colorScheme.outline)
-                Column(Modifier.weight(1f)) {
-                    Text(task.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (task.category.isNotBlank()) Text(task.category, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Icon(Icons.Default.ChevronRight, "タスクを開く", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+private fun UnassignedSection(tasks: List<TaskModel>, onOpenTasks: (Set<String>) -> Unit) {
+    BriefingSectionCard("未割当のタスク", Icons.Default.TaskAlt) {
+        if (tasks.isEmpty()) EmptyBriefingRow("未割当のタスクはありません") else tasks.take(2).forEach { task ->
+            TaskBriefingRow(task, onClick = { onOpenTasks(setOf(TaskPeriod.UNASSIGNED)) })
+        }
+        if (tasks.size >= 2) {
+            MoreTasksButton(onClick = { onOpenTasks(setOf(TaskPeriod.UNASSIGNED)) })
         }
     }
 }
 
 @Composable
-private fun BriefingSectionCard(title: String, icon: ImageVector, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier), RoundedCornerShape(20.dp), CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+private fun BriefingSectionCard(title: String, icon: ImageVector, content: @Composable () -> Unit) {
+    Card(Modifier.fillMaxWidth(), RoundedCornerShape(20.dp), CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
                 Text(title, Modifier.padding(start = 8.dp).weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                if (onClick != null) Icon(Icons.Default.ChevronRight, "$title を開く", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             content()
-            if (onClick != null) {
-                Text("一覧を見る", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            }
         }
     }
 }
@@ -167,16 +151,24 @@ private fun BriefingSectionCard(title: String, icon: ImageVector, onClick: (() -
 @Composable private fun EmptyBriefingRow(message: String) = Text(message, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
 
 @Composable
-private fun ScheduleBriefingRow(title: String, time: String, category: String, isFirst: Boolean, onClick: () -> Unit) {
+private fun TaskBriefingRow(task: TaskModel, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(10.dp).background(if (isFirst) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape))
+        Icon(Icons.Default.RadioButtonUnchecked, null, tint = MaterialTheme.colorScheme.outline)
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(listOf(time, category).filter { it.isNotBlank() }.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(task.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (task.category.isNotBlank()) Text(task.category, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Icon(Icons.Default.ChevronRight, "計画を開く", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Default.ChevronRight, "タスクを開く", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-private fun currentMinutes(): Int = com.notiontasks.app.utils.JapanTime.now().let { it.hour * 60 + it.minute }
-private fun formatTime(minutes: Int): String = String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60)
+@Composable
+private fun MoreTasksButton(onClick: () -> Unit) {
+    Text(
+        "さらに表示",
+        modifier = Modifier.clickable(onClick = onClick).padding(vertical = 4.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+

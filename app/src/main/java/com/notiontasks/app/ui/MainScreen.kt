@@ -325,11 +325,10 @@ fun MainAppScreen(
                 TodayScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptions,
-                    onOpenPlan = {
-                        selectedCalendarDate.value = com.notiontasks.app.utils.JapanTime.todayIso()
-                        navController.navigate(Screen.Plan.route) { launchSingleTop = true }
+                    onOpenTasks = { periods ->
+                        taskPeriods = periods
+                        navController.navigate(Screen.Category.route) { launchSingleTop = true }
                     },
-                    onOpenTasks = { navController.navigate(Screen.Category.route) { launchSingleTop = true } },
                     onStartFocus = { task ->
                         context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
                             .edit { putString("selected_task_id", task.id) }
