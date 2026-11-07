@@ -94,7 +94,6 @@ fun PomodoroScreen(
     val prefs = remember { context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE) }
     val todayStr = rememberJapanToday()
     val savedCompletedCountDate = remember { prefs.getString("completed_count_date", "") ?: "" }
-    val initialCompletedCount = if (savedCompletedCountDate == todayStr) prefs.getInt("completed_count", 0) else 0
     
     var timeLeft by remember { mutableIntStateOf(prefs.getInt("work_duration_min", 25) * 60) }
     var isRunning by remember { mutableStateOf(value = false) }
@@ -104,7 +103,6 @@ fun PomodoroScreen(
     var freeTimerMinutes by remember { mutableIntStateOf(prefs.getInt("free_timer_duration_min", 30)) }
     var showTimerDurationSheet by remember { mutableStateOf(false) }
     var pendingTimerMinutes by remember { mutableIntStateOf(freeTimerMinutes) }
-    var pomodoroCompletedCount by remember { mutableIntStateOf(initialCompletedCount) }
     val initialTaskId = remember { prefs.getString("selected_task_id", null) }
     var selectedTaskId by remember { mutableStateOf(initialTaskId) }
     var pendingCompletionTaskId by remember { mutableStateOf<String?>(null) }
@@ -281,7 +279,6 @@ fun PomodoroScreen(
             isRunning = boundService.isRunning
             mode = boundService.currentMode
             focusType = boundService.focusType
-            pomodoroCompletedCount = boundService.getCompletedCountToday()
             selectedTaskId = if (boundService.isRunning) {
                 boundService.associatedTaskId
             } else {
@@ -302,7 +299,6 @@ fun PomodoroScreen(
                 } else {
                     val nextMode = boundService.currentMode
                     val nextTimeLeftSec = (boundService.timeLeftMs / 1000).toInt()
-                    val nextCompletedCount = boundService.getCompletedCountToday()
 
                     when (nextMode) {
                         "work" -> {
@@ -318,7 +314,6 @@ fun PomodoroScreen(
 
                     mode = nextMode
                     timeLeft = nextTimeLeftSec
-                    pomodoroCompletedCount = nextCompletedCount
                     isRunning = false
                 }
             }
@@ -338,7 +333,6 @@ fun PomodoroScreen(
             boundService.onSessionTransitionListener = { nextMode, ms ->
                 mode = nextMode
                 timeLeft = (ms / 1000).toInt()
-                pomodoroCompletedCount = boundService.getCompletedCountToday()
             }
         }
         onDispose {
@@ -422,19 +416,6 @@ fun PomodoroScreen(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                    }
-
-                    if (focusType == PomodoroService.FOCUS_TYPE_POMODORO) {
-                        Text(
-                            "今日のポモドーロ進行: ${pomodoroCompletedCount}回（4回ごとに長い休憩）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "集中フェーズを完了またはスキップすると、次のフェーズへ1回進みます。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
 
                     val minutes = timeLeft / 60
@@ -888,11 +869,6 @@ private fun FocusTaskSelector(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    "候補: 締切超過・予定日超過・今日が予定日の未完了タスク",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             if (onCompleteTask != null) {
                 OutlinedButton(onClick = onCompleteTask) {
@@ -914,11 +890,6 @@ private fun FocusTaskSelector(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("集中するタスク", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    "締切超過、予定日超過、または今日が予定日の未完了タスクを表示しています。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 OutlinedButton(
                     onClick = {
                         onSelectTask(null)
