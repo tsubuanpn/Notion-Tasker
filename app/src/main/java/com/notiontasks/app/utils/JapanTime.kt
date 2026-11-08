@@ -42,4 +42,8 @@ object JapanTime {
     }
 
     fun projectedDateKey(value: String?): String? = projectNotionDate(value)?.toString()
+
+    /** Parses a persisted app calendar key without silently coercing malformed values. */
+    fun parseCalendarDate(value: String?): LocalDate? =
+        value?.trim()?.takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 }

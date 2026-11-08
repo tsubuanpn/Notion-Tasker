@@ -91,4 +91,40 @@ class TaskDatabaseMigrationTest {
             migratedDatabase.close()
         }
     }
+
+    @Test
+    fun migratesV12ToCurrent_preservesOwnedQueueAndMarksExistingBlocksLegacy() = runBlocking {
+        context.deleteDatabase(databaseName)
+        context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).use { database ->
+            database.execSQL("CREATE TABLE tasks (id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, category TEXT NOT NULL, dueDate TEXT, scheduledDate TEXT, statusColor TEXT, categoryColor TEXT, lastEditedTime INTEGER NOT NULL, connectionScope TEXT, PRIMARY KEY(id))")
+            database.execSQL("CREATE TABLE pomodoro_logs (id TEXT NOT NULL, taskId TEXT, taskTitle TEXT, category TEXT NOT NULL, categoryColor TEXT, date TEXT NOT NULL, minutes INTEGER NOT NULL, timestamp INTEGER NOT NULL, sessionType TEXT NOT NULL, PRIMARY KEY(id))")
+            database.execSQL("CREATE TABLE schedule_blocks (id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, associatedId TEXT, startTime INTEGER NOT NULL, endTime INTEGER NOT NULL, color TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY(id))")
+            database.execSQL("CREATE INDEX index_schedule_blocks_date ON schedule_blocks (date)")
+            database.execSQL("CREATE TABLE life_activities (id TEXT NOT NULL, name TEXT NOT NULL, durationMinutes INTEGER NOT NULL, color TEXT NOT NULL, defaultStartTime INTEGER, defaultEndTime INTEGER, sortOrder INTEGER NOT NULL, PRIMARY KEY(id))")
+            database.execSQL("CREATE TABLE pending_sync_actions (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, actionType TEXT NOT NULL, taskId TEXT NOT NULL, payloadJson TEXT NOT NULL, timestamp INTEGER NOT NULL, connectionScope TEXT, operationId TEXT NOT NULL, changedFields TEXT NOT NULL, generation INTEGER NOT NULL, state TEXT NOT NULL, lastError TEXT)")
+            database.execSQL("CREATE TABLE task_id_aliases (localTaskId TEXT NOT NULL, remoteTaskId TEXT NOT NULL, connectionScope TEXT NOT NULL, PRIMARY KEY(localTaskId, connectionScope))")
+            database.execSQL("CREATE INDEX index_task_id_aliases_remoteTaskId_connectionScope ON task_id_aliases (remoteTaskId, connectionScope)")
+            database.execSQL("CREATE TABLE task_field_generations (taskId TEXT NOT NULL, connectionScope TEXT NOT NULL, field TEXT NOT NULL, generation INTEGER NOT NULL, PRIMARY KEY(taskId, connectionScope, field))")
+            database.execSQL("CREATE TABLE sync_metadata (`key` TEXT NOT NULL, timestamp INTEGER NOT NULL, PRIMARY KEY(`key`))")
+            database.execSQL("INSERT INTO tasks VALUES ('owned-task', '所有タスク', '進行中', '学習', NULL, NULL, NULL, NULL, 55, 'verified-db')")
+            database.execSQL("INSERT INTO schedule_blocks VALUES ('old-block', 'life', '既存枠', 'preset', 600, 660, '#123456', '2026-11-08')")
+            database.execSQL("INSERT INTO pending_sync_actions (actionType, taskId, payloadJson, timestamp, connectionScope, operationId, changedFields, generation, state, lastError) VALUES ('UPDATE_TASK', 'owned-task', '{}', 1, 'verified-db', 'operation', 'title', 4, 'PERMANENT_FAILURE', 'bad mapping')")
+            database.execSQL("INSERT INTO task_id_aliases VALUES ('pending-task', 'page-1', 'verified-db')")
+            database.execSQL("INSERT INTO task_field_generations VALUES ('owned-task', 'verified-db', 'title', 4)")
+            database.execSQL("PRAGMA user_version = 12")
+        }
+
+        val migrated = TaskDatabase.createForTesting(context, databaseName)
+        try {
+            assertEquals("verified-db", migrated.taskDao.getTaskById("owned-task")?.connectionScope)
+            assertEquals("PERMANENT_FAILURE", migrated.pendingSyncActionDao.getAllPendingActions().single().state)
+            assertEquals("page-1", migrated.taskIdAliasDao.getRemoteTaskId("pending-task", "verified-db"))
+            assertEquals(4L, migrated.taskFieldGenerationDao.getFieldGeneration("owned-task", "verified-db", "title"))
+            val block = migrated.scheduleBlockDao.getBlockById("old-block")
+            assertEquals("legacy", block?.origin)
+            assertEquals(null, block?.presetId)
+        } finally {
+            migrated.close()
+        }
+    }
 }

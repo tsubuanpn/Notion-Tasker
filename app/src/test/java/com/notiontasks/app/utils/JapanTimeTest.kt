@@ -9,6 +9,13 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class JapanTimeTest {
+
+    @Test
+    fun `calendar key parser accepts only an ISO local date`() {
+        assertEquals(LocalDate.of(2026, 11, 8), JapanTime.parseCalendarDate("2026-11-08"))
+        assertEquals(null, JapanTime.parseCalendarDate("2026-11-08T00:00:00"))
+        assertEquals(null, JapanTime.parseCalendarDate("invalid"))
+    }
     @Test
     fun `date-only Notion value keeps its stated date`() {
         assertEquals("2026-11-07", JapanTime.projectedDateKey("2026-11-07"))
