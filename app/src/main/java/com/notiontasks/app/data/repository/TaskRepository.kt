@@ -909,10 +909,14 @@ class TaskRepository(
         val authHeader = "Bearer $token"
         // 仮IDから本番IDへのマッピング
         val idMapping = mutableMapOf<String, String>()
-        val blockedTaskIds = mutableSetOf<String>()
+        // A permanent failure requires an explicit retry or discard decision.  Do not send it
+        // again during an ordinary sync, and keep later operations for the same task in order.
+        val blockedTaskIds = pendingActions
+            .filter { it.state == "PERMANENT_FAILURE" }
+            .mapTo(mutableSetOf()) { it.taskId }
 
         for (action in pendingActions) {
-            if (action.taskId in blockedTaskIds) continue
+            if (action.state == "PERMANENT_FAILURE" || action.taskId in blockedTaskIds) continue
             try {
                 // 各アクションを独立して処理し、1つのエラーが全体を止めないようにする
                 val taskId = idMapping[action.taskId] ?: resolveTaskId(action.taskId)

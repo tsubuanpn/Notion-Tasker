@@ -42,6 +42,20 @@ internal fun elapsedSinceFocusSnapshot(savedElapsedRealtimeMs: Long, currentElap
         0L
     }
 
+/** Folds a running stopwatch segment into a durable checkpoint without losing its start time. */
+internal fun checkpointStopwatchSegment(
+    accumulatedMs: Long,
+    segmentStartedAtMs: Long?,
+    currentElapsedRealtimeMs: Long,
+): Long? = segmentStartedAtMs?.let { startedAtMs ->
+    if (currentElapsedRealtimeMs >= startedAtMs) {
+        accumulatedMs + (currentElapsedRealtimeMs - startedAtMs)
+    } else {
+        // elapsedRealtime resets on boot. The active segment cannot span that boundary.
+        accumulatedMs
+    }
+}
+
 class PomodoroService : Service() {
 
     private val binder = PomodoroBinder()
@@ -84,6 +98,7 @@ class PomodoroService : Service() {
     private val sessionPrefs by lazy { getSharedPreferences("pomodoro_prefs", MODE_PRIVATE) }
 
     private fun persistSessionSnapshot() {
+        checkpointActiveStopwatchSegment()
         val active = currentSessionId != null && (isRunning || isPaused)
         sessionPrefs.edit {
             putBoolean(PREF_SESSION_ACTIVE, active)
@@ -108,6 +123,23 @@ class PomodoroService : Service() {
             putString(PREF_SESSION_TASK_CATEGORY, associatedTaskCategory)
             putString(PREF_SESSION_TASK_COLOR, associatedTaskCategoryColor)
         }
+    }
+
+    /**
+     * A stopwatch snapshot restores from [sessionAccumulatedMs], not [timeLeftMs]. Fold the
+     * running segment before every durable snapshot and begin the next segment at that point.
+     */
+    private fun checkpointActiveStopwatchSegment() {
+        if (focusType != FOCUS_TYPE_STOPWATCH || !isRunning) return
+        val now = SystemClock.elapsedRealtime()
+        val checkpoint = checkpointStopwatchSegment(
+            accumulatedMs = sessionAccumulatedMs,
+            segmentStartedAtMs = stopwatchSegmentStartedAtMs,
+            currentElapsedRealtimeMs = now,
+        ) ?: return
+        sessionAccumulatedMs = checkpoint
+        timeLeftMs = checkpoint
+        stopwatchSegmentStartedAtMs = now
     }
 
     private fun clearSessionSnapshot() {

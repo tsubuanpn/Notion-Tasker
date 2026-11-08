@@ -585,6 +585,49 @@ class TaskRepositoryTest {
     }
 
     @Test
+    fun syncTasks_permanentFailure_waitsForExplicitRetryAndBlocksLaterTaskActions() = runTest {
+        val permanentFailure = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_blocked",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "database",
+            state = "PERMANENT_FAILURE",
+        )
+        val laterBlockedAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_blocked",
+            payloadJson = "{\"newStatus\":\"In Progress\"}",
+            timestamp = 2L,
+            connectionScope = "database",
+        )
+        val independentAction = PendingSyncActionEntity(
+            id = 3,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_independent",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 3L,
+            connectionScope = "database",
+        )
+        val actions = listOf(permanentFailure, laterBlockedAction, independentAction)
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns actions
+        coEvery { notionApi.updatePage(any(), any(), "page_independent", any()) } returns NotionPage(
+            id = "page_independent",
+            properties = emptyMap(),
+        )
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify(exactly = 0) { notionApi.updatePage(any(), any(), "page_blocked", any()) }
+        coVerify { notionApi.updatePage(any(), any(), "page_independent", any()) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(permanentFailure.id) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(laterBlockedAction.id) }
+    }
+
+    @Test
     fun syncTasks_doesNotSendPendingActionFromAnotherConnectionScope() = runTest {
         val otherScopeAction = PendingSyncActionEntity(
             id = 2,

@@ -1,6 +1,7 @@
 package com.notiontasks.app.data
 
 import com.notiontasks.app.elapsedSinceFocusSnapshot
+import com.notiontasks.app.checkpointStopwatchSegment
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -19,5 +20,17 @@ class PomodoroHelperTest {
         assertEquals(2_500L, elapsedSinceFocusSnapshot(10_000L, 12_500L))
         assertEquals(0L, elapsedSinceFocusSnapshot(10_000L, 9_000L))
         assertEquals(0L, elapsedSinceFocusSnapshot(0L, 12_500L))
+    }
+
+    @Test
+    fun `stopwatch checkpoint folds the active segment into the persisted accumulator`() {
+        assertEquals(
+            95_000L,
+            checkpointStopwatchSegment(
+                accumulatedMs = 60_000L,
+                segmentStartedAtMs = 10_000L,
+                currentElapsedRealtimeMs = 45_000L,
+            ),
+        )
     }
 }
