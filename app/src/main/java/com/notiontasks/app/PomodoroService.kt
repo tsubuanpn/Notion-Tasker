@@ -131,20 +131,25 @@ class PomodoroService : Service() {
      */
     private data class PendingFocusLog(val generation: Long, val log: PomodoroLog)
 
+    /**
+     * This checkpoint must be durable before a Room write is launched: Android may destroy the
+     * service immediately after a stop action. `apply()` would leave a loss window here.
+     */
+    @Suppress("ApplySharedPref")
     private fun persistPendingFocusLog(log: PomodoroLog): PendingFocusLog {
         val generation = sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) + 1L
-        check(sessionPrefs.edit()
-            .putLong(PREF_PENDING_LOG_GENERATION, generation)
-            .putString(PREF_PENDING_LOG_ID, log.id)
-            .putString(PREF_PENDING_LOG_TASK_ID, log.taskId)
-            .putString(PREF_PENDING_LOG_TITLE, log.taskTitle)
-            .putString(PREF_PENDING_LOG_CATEGORY, log.category)
-            .putString(PREF_PENDING_LOG_COLOR, log.categoryColor)
-            .putString(PREF_PENDING_LOG_DATE, log.date)
-            .putInt(PREF_PENDING_LOG_MINUTES, log.minutes)
-            .putLong(PREF_PENDING_LOG_TIMESTAMP, log.timestamp)
-            .putString(PREF_PENDING_LOG_TYPE, log.sessionType)
-            .commit()) { "Failed to persist pending focus log" }
+        sessionPrefs.edit(commit = true) {
+            putLong(PREF_PENDING_LOG_GENERATION, generation)
+            putString(PREF_PENDING_LOG_ID, log.id)
+            putString(PREF_PENDING_LOG_TASK_ID, log.taskId)
+            putString(PREF_PENDING_LOG_TITLE, log.taskTitle)
+            putString(PREF_PENDING_LOG_CATEGORY, log.category)
+            putString(PREF_PENDING_LOG_COLOR, log.categoryColor)
+            putString(PREF_PENDING_LOG_DATE, log.date)
+            putInt(PREF_PENDING_LOG_MINUTES, log.minutes)
+            putLong(PREF_PENDING_LOG_TIMESTAMP, log.timestamp)
+            putString(PREF_PENDING_LOG_TYPE, log.sessionType)
+        }
         return PendingFocusLog(generation, log)
     }
 
@@ -169,19 +174,21 @@ class PomodoroService : Service() {
         )
     }
 
+    /** See [persistPendingFocusLog]: clearing must also be durable before the next replay. */
+    @Suppress("ApplySharedPref")
     private fun clearPendingFocusLog(generation: Long) {
         if (sessionPrefs.getLong(PREF_PENDING_LOG_GENERATION, 0L) != generation) return
-        sessionPrefs.edit()
-            .remove(PREF_PENDING_LOG_ID)
-            .remove(PREF_PENDING_LOG_TASK_ID)
-            .remove(PREF_PENDING_LOG_TITLE)
-            .remove(PREF_PENDING_LOG_CATEGORY)
-            .remove(PREF_PENDING_LOG_COLOR)
-            .remove(PREF_PENDING_LOG_DATE)
-            .remove(PREF_PENDING_LOG_MINUTES)
-            .remove(PREF_PENDING_LOG_TIMESTAMP)
-            .remove(PREF_PENDING_LOG_TYPE)
-            .commit()
+        sessionPrefs.edit(commit = true) {
+            remove(PREF_PENDING_LOG_ID)
+            remove(PREF_PENDING_LOG_TASK_ID)
+            remove(PREF_PENDING_LOG_TITLE)
+            remove(PREF_PENDING_LOG_CATEGORY)
+            remove(PREF_PENDING_LOG_COLOR)
+            remove(PREF_PENDING_LOG_DATE)
+            remove(PREF_PENDING_LOG_MINUTES)
+            remove(PREF_PENDING_LOG_TIMESTAMP)
+            remove(PREF_PENDING_LOG_TYPE)
+        }
     }
 
     private fun enqueuePendingFocusLog(pending: PendingFocusLog) {

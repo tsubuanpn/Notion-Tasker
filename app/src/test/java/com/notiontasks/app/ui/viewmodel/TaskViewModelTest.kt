@@ -10,7 +10,7 @@ import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlockOrigin
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.repository.PomodoroRepository
-import com.notiontasks.app.data.repository.ScheduleRepository
+import com.notiontasks.app.data.repository.ScheduleStore
 import com.notiontasks.app.data.repository.TaskRepository
 import com.notiontasks.app.data.repository.TaskSaveResult
 import io.mockk.*
@@ -30,7 +30,7 @@ import org.junit.Test
 class TaskViewModelTest {
 
     private val repository: TaskRepository = mockk(relaxed = true)
-    private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
+    private val scheduleRepository: ScheduleStore = mockk(relaxed = true)
     private val pomodoroRepository: PomodoroRepository = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)

@@ -1133,7 +1133,7 @@ class TaskRepository(
     // SharedPreferences から Room への古い JSON マイグレーション
     suspend fun migrateLegacyPreferencesToRoom(
         sharedPreferences: SharedPreferences,
-        scheduleRepository: ScheduleRepository,
+        scheduleRepository: ScheduleStore,
     ) = withContext(Dispatchers.IO) {
         val migratedKey = "has_migrated_legacy_prefs_to_room_v1"
         if (!sharedPreferences.getBoolean(migratedKey, false)) {

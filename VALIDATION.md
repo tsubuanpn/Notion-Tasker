@@ -10,6 +10,13 @@
 
 This is a reproducible local baseline, not an instrumentation or connected-Notion validation result.
 
+## Reliability foundation — execution step 1 (2026-11-08 JST)
+
+* `ScheduleStore` now separates the ViewModel and legacy migration contract from the Room repository. This removes the MockK final-`Flow` field-mutation warning; the complete JVM suite reports 84 tests, 0 failures, and 0 errors.
+* Broadcast work uses `NotionTaskerApplication.notificationWorkScope` (`SupervisorJob` + `Dispatchers.IO`) rather than a receiver-created scope. Cancellation is rethrown; other failures are logged only by exception class so notification and connection payloads are not exposed.
+* The focus-log checkpoint keeps its intentional synchronous persistence semantics through KTX `edit(commit = true)`. This closes the previous KTX and `ApplySharedPref` lint findings without changing recovery behavior.
+* Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `git diff --check` passed. Lint now has 0 errors and the one remaining warning is the planned AGP `9.5.1` update in execution step 5.
+
 ## Scope
 
 This record covers the required implementation and verification sequence completed on 2026-11-07 (JST). It distinguishes checks that ran from checks that were deliberately out of scope or require separate authority.

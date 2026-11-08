@@ -11,7 +11,7 @@ import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import com.notiontasks.app.data.repository.ScheduleRepository
+import com.notiontasks.app.data.repository.ScheduleStore
 import com.notiontasks.app.data.repository.TaskRepository
 import com.notiontasks.app.data.repository.TaskSaveResult
 import com.notiontasks.app.data.repository.PomodoroRepository
@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,7 +41,7 @@ sealed interface TasksUiState {
 
 class TaskViewModel(
     private val repository: TaskRepository,
-    private val scheduleRepository: ScheduleRepository,
+    private val scheduleRepository: ScheduleStore,
     private val pomodoroRepository: PomodoroRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
@@ -528,6 +529,8 @@ class TaskViewModel(
                 repository.updateDataSourceId("")
                 val meta = repository.getDatabaseMetadata(token, dbId)
                 onSuccess(meta)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "データベース構成の取得に失敗しました。認証情報や共有設定を確認してください。")
             }
@@ -629,6 +632,8 @@ class TaskViewModel(
                 // 同期後に完了済みタスクのクリーンアップを実行
                 cleanupData()
                 _syncPhase.value = SyncUiState.Synced(System.currentTimeMillis())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _syncPhase.value = SyncUiState.Failed(
                     message = e.message ?: "同期に失敗しました",
@@ -776,8 +781,10 @@ class TaskViewModel(
                     newStatus = nextOption.name,
                     newStatusColor = nextOption.color.ifBlank { null }
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                // フォールバックまたはログ出力
+                // The task status remains in the local cache; the next explicit sync may retry it.
             }
         }
     }
@@ -819,6 +826,8 @@ class TaskViewModel(
                     TaskSaveResult.Confirmed -> onConfirmed()
                     TaskSaveResult.Pending -> onPending()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの更新に失敗しました。")
             }
@@ -863,6 +872,8 @@ class TaskViewModel(
                     TaskSaveResult.Confirmed -> onConfirmed()
                     TaskSaveResult.Pending -> onPending()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの作成に失敗しました。")
             }

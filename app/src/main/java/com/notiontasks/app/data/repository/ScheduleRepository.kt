@@ -12,55 +12,71 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
+/** Contract consumed by view models and legacy migration; Room remains an implementation detail. */
+interface ScheduleStore {
+    val allTimeBlocks: Flow<List<TimeBlock>>
+    val allLifeActivities: Flow<List<LifeActivity>>
+
+    suspend fun saveTimeBlocks(blocks: List<TimeBlock>)
+    suspend fun saveTimeBlock(block: TimeBlock)
+    suspend fun getAllTimeBlocks(): List<TimeBlock>
+    suspend fun getTimeBlocksForDate(date: String): List<TimeBlock>
+    suspend fun deleteTimeBlockById(id: String)
+    suspend fun loadLifeActivities(): List<LifeActivity>
+    suspend fun saveLifeActivities(activities: List<LifeActivity>)
+    suspend fun saveLifeActivity(activity: LifeActivity)
+    suspend fun deleteLifeActivityById(id: String)
+}
+
 class ScheduleRepository(
     private val scheduleBlockDao: ScheduleBlockDao,
     private val lifeActivityDao: LifeActivityDao,
-) {
-    val allTimeBlocks: Flow<List<TimeBlock>> = scheduleBlockDao.getAllBlocksFlow()
+) : ScheduleStore {
+    override val allTimeBlocks: Flow<List<TimeBlock>> = scheduleBlockDao.getAllBlocksFlow()
         .map { entities ->
             entities.map { it.toDomainModel() }
         }
         .flowOn(Dispatchers.Default)
 
-    suspend fun saveTimeBlocks(blocks: List<TimeBlock>) = withContext(Dispatchers.IO) {
+    override suspend fun saveTimeBlocks(blocks: List<TimeBlock>) = withContext(Dispatchers.IO) {
         scheduleBlockDao.insertBlocks(blocks.map { it.toEntity() })
     }
 
-    suspend fun saveTimeBlock(block: TimeBlock) = withContext(Dispatchers.IO) {
+    override suspend fun saveTimeBlock(block: TimeBlock) = withContext(Dispatchers.IO) {
         scheduleBlockDao.insertBlock(block.toEntity())
     }
 
-    suspend fun getAllTimeBlocks(): List<TimeBlock> = withContext(Dispatchers.IO) {
+    override suspend fun getAllTimeBlocks(): List<TimeBlock> = withContext(Dispatchers.IO) {
         scheduleBlockDao.getAllBlocks().map { it.toDomainModel() }
     }
 
-    suspend fun getTimeBlocksForDate(date: String): List<TimeBlock> = withContext(Dispatchers.IO) {
+    override suspend fun getTimeBlocksForDate(date: String): List<TimeBlock> = withContext(Dispatchers.IO) {
         scheduleBlockDao.getBlocksByDate(date).map { it.toDomainModel() }
     }
 
-    suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteTimeBlockById(id: String) = withContext(Dispatchers.IO) {
         scheduleBlockDao.deleteBlockById(id)
     }
 
-    val allLifeActivities: Flow<List<LifeActivity>> = lifeActivityDao.getAllActivitiesFlow()
+    override val allLifeActivities: Flow<List<LifeActivity>> = lifeActivityDao.getAllActivitiesFlow()
         .map { entities ->
             entities.map { it.toDomainModel() }
         }
         .flowOn(Dispatchers.Default)
 
-    suspend fun loadLifeActivities(): List<LifeActivity> = withContext(Dispatchers.IO) {
+    override suspend fun loadLifeActivities(): List<LifeActivity> = withContext(Dispatchers.IO) {
         lifeActivityDao.getAllActivities().map { it.toDomainModel() }
     }
 
-    suspend fun saveLifeActivities(activities: List<LifeActivity>) = withContext(Dispatchers.IO) {
+    override suspend fun saveLifeActivities(activities: List<LifeActivity>) = withContext(Dispatchers.IO) {
         lifeActivityDao.insertActivities(activities.map { it.toEntity() })
     }
 
-    suspend fun saveLifeActivity(activity: LifeActivity) = withContext(Dispatchers.IO) {
+    override suspend fun saveLifeActivity(activity: LifeActivity) = withContext(Dispatchers.IO) {
         lifeActivityDao.insertActivity(activity.toEntity())
     }
 
-    suspend fun deleteLifeActivityById(id: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteLifeActivityById(id: String) = withContext(Dispatchers.IO) {
         lifeActivityDao.deleteActivityById(id)
     }
 

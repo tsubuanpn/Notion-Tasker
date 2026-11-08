@@ -6,6 +6,10 @@ import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.repository.PomodoroRepository
 import com.notiontasks.app.data.repository.ScheduleRepository
 import com.notiontasks.app.data.repository.TaskRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -17,6 +21,14 @@ private val networkJson = Json { ignoreUnknownKeys = true }
 /** Application スコープで共有する、依存関係の最小コンテナ。 */
 class NotionTaskerApplication : Application() {
     val container: AppContainer by lazy { AppContainer(this) }
+    private val notificationWorkJob = SupervisorJob()
+    /** Shared owner for broadcast work; receivers must not create untracked scopes. */
+    val notificationWorkScope = CoroutineScope(notificationWorkJob + Dispatchers.IO)
+
+    override fun onTerminate() {
+        notificationWorkScope.cancel()
+        super.onTerminate()
+    }
 }
 
 class AppContainer(application: Application) {
