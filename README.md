@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
-![Compose](https://img.shields.io/badge/Jetpack_Compose-1.5.4-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Compose](https://img.shields.io/badge/Jetpack_Compose_BOM-2026.09.00-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 ![Notion](https://img.shields.io/badge/Notion_API-Integrated-000000?style=for-the-badge&logo=notion&logoColor=white)
 ![Google AI Studio](https://img.shields.io/badge/Google_AI_Studio-Co--Created-F4B400?style=for-the-badge&logo=google&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
@@ -96,7 +96,7 @@ app/src/main/java/com/notiontasks/app/
    1. **Notionインテグレーションの作成:**
       * [Notion開発者向けハブ](https://www.notion.so/my-integrations) へアクセスし、「新規コネクト」をクリックします。
       * 以下の通りに設定してコネクトを作成します：
-         * コネクト名：任意の名前（例：`NotionTasker`）
+         * コネクト名：任意の名前（例：`Notion Tasker`）
          * 認証方法：アクセストークン
          * インストール可能なワークスペース：タスク管理用のデータベースがあるワークスペース
       * 発行されたアクセストークン（APIキー）をコピーしておきます。

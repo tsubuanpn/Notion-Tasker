@@ -1006,7 +1006,7 @@ fun AboutScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("NotionTasker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.settings_about_version, version), style = MaterialTheme.typography.bodyLarge)
                 
                 Spacer(Modifier.height(8.dp))

@@ -30,7 +30,7 @@ object ScheduleExporter {
             }
         }
         
-        sb.append("\n-- NotionTasker より出力 --")
+        sb.append("\n-- Notion Tasker より出力 --")
         return sb.toString()
     }
 

@@ -37,6 +37,15 @@ This is a reproducible local baseline, not an instrumentation or connected-Notio
 * The typed connection configuration is now the only credentials-update API consumed by `TaskViewModel`, narrowing the remaining ViewModel boundary before the planned feature-specific ViewModel split.
 * Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `git diff --check` passed. The JVM suite reports 93 tests, 0 failures, and 0 errors. The remaining Gradle/ByteBuddy terminal warnings are toolchain warnings, not Android Lint findings.
 
+## Documentation, CI, and toolchain — execution step 5 (2026-11-08 JST)
+
+* Updated README badges to Kotlin `2.4.21` and Compose BOM `2026.09.00`, matching the current build files. Display branding is now `Notion Tasker`; identifiers may retain `NotionTasker`.
+* Added a tracked `docs/README.md` that separates durable operating documentation from local audit materials, and records the display-text style. Local `docs/audits/` remains ignored so it cannot accidentally commit device data, tokens, or task names.
+* Added GitHub Actions quality gates (JDK 21, unit tests, Lint, debug assembly, diff check, lint artifact) and weekly Gradle Dependabot checks.
+* Updated AGP from `9.5.0` to `9.5.1`, Gradle from `9.8.2` to `9.9.0`, and MockK from `1.14.11` to `1.14.12`. Increased Gradle's metaspace cap from 512 MiB to 768 MiB after the first full updated build reported that its daemon would expire at the old cap.
+* Validation after the dependency updates: `lintDebug` passed with **0 errors, 0 warnings**; `testDebugUnitTest`, `assembleDebug`, `assembleDebugAndroidTest`, and `git diff --check` also passed. The JVM suite remains 93 tests, 0 failures, and 0 errors. No device/emulator was attached, so the compiled Android test APK was not executed.
+* `./gradlew help --warning-mode all` identifies the remaining terminal deprecation as `Configuration.setVisible(boolean)`, scheduled for Gradle 11 removal. It originates during Android project configuration rather than project source, is not an Android Lint issue, and is recorded for the next AGP/toolchain review instead of being suppressed.
+
 ## Scope
 
 This record covers the required implementation and verification sequence completed on 2026-11-07 (JST). It distinguishes checks that ran from checks that were deliberately out of scope or require separate authority.

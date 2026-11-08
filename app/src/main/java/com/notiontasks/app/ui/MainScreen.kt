@@ -73,7 +73,7 @@ fun MainAppScreen(
         Screen.Pomodoro.route -> Screen.Pomodoro.title
         Screen.Achievements.route -> Screen.Achievements.title
         Screen.Settings.route -> Screen.Settings.title
-        else -> "NotionTasker"
+        else -> "Notion Tasker"
     }
 
     val notionToken by viewModel.notionToken.collectAsState()
