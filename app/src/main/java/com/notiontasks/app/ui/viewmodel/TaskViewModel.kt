@@ -566,43 +566,31 @@ class TaskViewModel(
     }
 
     // アクティビティのロードフック
-    fun updateCredentials(
-        token: String,
-        dbId: String,
-        title: String = "名前",
-        status: String = "状態",
-        statusType: String = "status",
-        statusUnstarted: String = "未着手",
-        statusInProgress: String = "進行中",
-        statusCompleted: String = "完了",
-        category: String = "種類",
-        scheduledDate: String = "予定日",
-        dueDate: String = "締め切り",
-    ) {
-        val trimmedUnstarted = statusUnstarted.trim()
-        val trimmedInProgress = statusInProgress.trim()
-        val trimmedCompleted = statusCompleted.trim()
+    fun updateCredentials(config: TaskConnectionConfig) {
+        val trimmedUnstarted = config.statusUnstarted.trim()
+        val trimmedInProgress = config.statusInProgress.trim()
+        val trimmedCompleted = config.statusCompleted.trim()
         
-        _notionToken.value = token
-        _databaseId.value = dbId
-        if (token.isBlank() || dbId.isBlank()) {
+        _notionToken.value = config.token
+        _databaseId.value = config.databaseId
+        if (config.token.isBlank() || config.databaseId.isBlank()) {
             _syncPhase.value = SyncUiState.NotConfigured
         }
         _statusUnstarted.value = trimmedUnstarted
         _statusInProgress.value = trimmedInProgress
         _statusCompleted.value = trimmedCompleted
         repository.updatePropertyMappings(
-            title = title,
-            status = status,
-            statusType = statusType,
+            title = config.title,
+            status = config.status,
+            statusType = config.statusType,
             statusUnstarted = trimmedUnstarted,
             statusInProgress = trimmedInProgress,
             statusCompleted = trimmedCompleted,
-            category = category,
-            scheduledDate = scheduledDate,
-            dueDate = dueDate,
+            category = config.category,
+            scheduledDate = config.scheduledDate,
+            dueDate = config.dueDate,
         )
-        repository.updateConnectionScope(dbId)
+        repository.updateConnectionScope(config.databaseId)
         repository.updateDataSourceId("")
     }
 

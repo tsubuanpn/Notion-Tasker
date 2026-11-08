@@ -56,6 +56,8 @@ import androidx.core.content.IntentCompat
 import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import androidx.navigation.NavController
+import com.notiontasks.app.ui.viewmodel.ConnectionSettingsUpdate
+import com.notiontasks.app.ui.viewmodel.TaskConnectionConfig
 import com.notiontasks.app.R
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
@@ -130,69 +132,10 @@ fun SettingsScreen(
             }
         }
 
-        SettingsGroup("日常の設定") {
-            SettingsMenuItem(
-                title = "通知",
-                subtitle = "リマインダーとお知らせを設定します",
-                icon = Icons.Default.Notifications
-            ) { navController.navigate(Screen.SettingsNotifications.route) }
-
-            SettingsMenuItem(
-                title = "集中タイマー",
-                subtitle = "ポモドーロ・休憩・アラームを設定します",
-                icon = Icons.Default.Timer
-            ) { navController.navigate(Screen.SettingsPomodoro.route) }
-
-            SettingsMenuItem(
-                title = "外観",
-                subtitle = "テーマと表示をカスタマイズします",
-                icon = Icons.Default.Palette
-            ) { navController.navigate(Screen.SettingsTheme.route) }
-        }
-
-        SettingsGroup("Notion と同期") {
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_notion_title),
-                subtitle = stringResource(R.string.settings_notion_subtitle),
-                icon = Icons.Default.Cloud
-            ) { navController.navigate(Screen.SettingsNotion.route) }
-            
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_mapping_title),
-                subtitle = stringResource(R.string.settings_mapping_subtitle),
-                icon = Icons.Default.Layers
-            ) { navController.navigate(Screen.SettingsMapping.route) }
-        }
-
-        SettingsGroup("アプリ管理") {
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_life_activity_title),
-                subtitle = stringResource(R.string.settings_life_activity_subtitle),
-                icon = Icons.Default.Favorite
-            ) { navController.navigate(Screen.SettingsLifeActivity.route) }
-
-            SettingsMenuItem(
-                title = "データ管理",
-                subtitle = stringResource(R.string.settings_stats_subtitle),
-                icon = Icons.Default.BarChart
-            ) { navController.navigate(Screen.SettingsStats.route) }
-        }
-
-        SettingsGroup("高度な設定") {
-            if (devModeEnabled) {
-                SettingsMenuItem(
-                    title = stringResource(R.string.settings_developer_title),
-                    subtitle = stringResource(R.string.settings_developer_subtitle),
-                    icon = Icons.Default.Code
-                ) { navController.navigate(Screen.SettingsDeveloper.route) }
-            }
-
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_about_title),
-                subtitle = stringResource(R.string.settings_about_subtitle),
-                icon = Icons.Default.Info
-            ) { navController.navigate(Screen.SettingsAbout.route) }
-        }
+        SettingsNavigationSections(
+            navController = navController,
+            developerOptionsVisible = devModeEnabled,
+        )
         
         Spacer(modifier = Modifier.height(32.dp))
     }
@@ -691,12 +634,7 @@ fun MappingSettingsScreen(
     viewModel: TaskViewModel,
     settingsViewModel: SettingsViewModel,
     navController: NavController,
-    onSave: (
-        token: String, dbId: String, morning: String, evening: String, mEnabled: Boolean, eEnabled: Boolean, theme: String,
-        mTitle: String, mStatus: String, mStatusType: String, mStatusUnstarted: String, mStatusInProgress: String, mStatusCompleted: String,
-        mCategory: String, mScheduled: String, mDue: String, mCatOptions: List<NotionOptionInfo>, mStatOptions: List<NotionOptionInfo>,
-        themeColor: String, dynamicColor: Boolean, devMode: Boolean, devCompleteButton: Boolean,
-    ) -> Unit,
+    onSave: (ConnectionSettingsUpdate) -> Unit,
     isSetupFlow: Boolean = false,
     onSetupCompleted: () -> Unit = {},
 ) {
@@ -721,6 +659,7 @@ fun MappingSettingsScreen(
     var metadata by remember { mutableStateOf<NotionDatabaseResponse?>(null) }
     var isMetadataLoading by remember { mutableStateOf(false) }
     var metadataError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     val loadMetadata = {
         val connection = settingsViewModel.connectionForMapping()
@@ -796,6 +735,13 @@ fun MappingSettingsScreen(
                     OutlinedButton(onClick = loadMetadata) { Text("再試行") }
                 }
             }
+        }
+        saveError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         PropertyDropdown("名前 (タスクタイトル)", propTitle, metadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList()) { propTitle = it }
@@ -895,21 +841,26 @@ fun MappingSettingsScreen(
                     chosenStatProp?.select?.options?.filter { it.name.trim().isNotBlank() } ?: emptyList()
                 }
 
-                onSave(
-                    settingsViewModel.connectionForMapping().token,
-                    settingsViewModel.connectionForMapping().databaseId,
-                    settingsViewModel.morningNotifTime.value,
-                    settingsViewModel.eveningNotifTime.value,
-                    settingsViewModel.morningNotifEnabled.value,
-                    settingsViewModel.eveningNotifEnabled.value,
-                    settingsViewModel.themeMode.value,
-                    propTitle, propStatus, propStatusType, propStatusUnstarted, propStatusInProgress, propStatusCompleted,
-                    propCategory, propScheduled, propDue, catOptions, statOptions,
-                    settingsViewModel.themeColorName.value,
-                    settingsViewModel.dynamicColorEnabled.value,
-                    settingsViewModel.devModeEnabled.value,
-                    settingsViewModel.devCompleteButtonEnabled.value
-                )
+                val update = ConnectionSettingsUpdate(
+                        connection = TaskConnectionConfig(
+                            token = settingsViewModel.connectionForMapping().token,
+                            databaseId = settingsViewModel.connectionForMapping().databaseId,
+                            title = propTitle,
+                            status = propStatus,
+                            statusType = propStatusType,
+                            statusUnstarted = propStatusUnstarted,
+                            statusInProgress = propStatusInProgress,
+                            statusCompleted = propStatusCompleted,
+                            category = propCategory,
+                            scheduledDate = propScheduled,
+                            dueDate = propDue,
+                        ),
+                        categoryOptions = catOptions,
+                        statusOptions = statOptions,
+                    )
+                saveError = update.validationError()
+                if (saveError != null) return@Button
+                onSave(update)
                 if (isSetupFlow) {
                     onSetupCompleted()
                 } else {

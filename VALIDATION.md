@@ -30,6 +30,13 @@ This is a reproducible local baseline, not an instrumentation or connected-Notio
 * Moved defensive dynamic Notion property parsing out of `TaskRepository` into `NotionPropertyMapper`, reducing repository responsibility without changing its payload contract.
 * Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `git diff --check` passed.
 
+## Settings state boundaries — execution step 4 (2026-11-08 JST)
+
+* Extracted settings navigation sections from the settings entry screen. The entry now retains connection status and recovery state, while navigation/display sections are a dedicated composable.
+* Replaced the cross-screen settings-save callback's 22 primitive arguments with `ConnectionSettingsUpdate` and `TaskConnectionConfig`. The mapping screen validates the typed update before saving and presents a validation error without navigating away; serialization and status normalization are covered by three JVM tests.
+* The typed connection configuration is now the only credentials-update API consumed by `TaskViewModel`, narrowing the remaining ViewModel boundary before the planned feature-specific ViewModel split.
+* Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `git diff --check` passed. The JVM suite reports 93 tests, 0 failures, and 0 errors. The remaining Gradle/ByteBuddy terminal warnings are toolchain warnings, not Android Lint findings.
+
 ## Scope
 
 This record covers the required implementation and verification sequence completed on 2026-11-07 (JST). It distinguishes checks that ran from checks that were deliberately out of scope or require separate authority.

@@ -48,6 +48,7 @@ import com.notiontasks.app.ui.components.EditTaskDialog
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.screens.*
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
+import com.notiontasks.app.ui.viewmodel.ConnectionSettingsUpdate
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
@@ -59,30 +60,7 @@ fun MainAppScreen(
     settingsViewModel: SettingsViewModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
-    onSaveCredentials: (
-        token: String,
-        dbId: String,
-        morning: String,
-        evening: String,
-        mEnabled: Boolean,
-        eEnabled: Boolean,
-        theme: String,
-        mTitle: String,
-        mStatus: String,
-        mStatusType: String,
-        mStatusUnstarted: String,
-        mStatusInProgress: String,
-        mStatusCompleted: String,
-        mCategory: String,
-        mScheduled: String,
-        mDue: String,
-        mCatOptions: List<NotionOptionInfo>,
-        mStatOptions: List<NotionOptionInfo>,
-        themeColor: String,
-        dynamicColor: Boolean,
-        devMode: Boolean,
-        devCompleteButton: Boolean,
-    ) -> Unit,
+    onSaveCredentials: (ConnectionSettingsUpdate) -> Unit,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()

@@ -29,6 +29,7 @@ import androidx.core.content.edit
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.MainAppScreen
 import com.notiontasks.app.ui.theme.NotionTaskerTheme
+import com.notiontasks.app.ui.viewmodel.TaskConnectionConfig
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.utils.SecurityUtils
@@ -212,17 +213,19 @@ class MainActivity : ComponentActivity() {
                 val currentToken = settingsViewModel.notionToken.value
                 val currentDbId = settingsViewModel.databaseId.value
                 viewModel.updateCredentials(
-                    token = currentToken,
-                    dbId = currentDbId,
-                    title = propTitle.value,
-                    status = propStatus.value,
-                    statusType = propStatusType.value,
-                    statusUnstarted = propStatusUnstarted.value,
-                    statusInProgress = propStatusInProgress.value,
-                    statusCompleted = propStatusCompleted.value,
-                    category = propCategory.value,
-                    scheduledDate = propScheduled.value,
-                    dueDate = propDue.value
+                    TaskConnectionConfig(
+                        token = currentToken,
+                        databaseId = currentDbId,
+                        title = propTitle.value,
+                        status = propStatus.value,
+                        statusType = propStatusType.value,
+                        statusUnstarted = propStatusUnstarted.value,
+                        statusInProgress = propStatusInProgress.value,
+                        statusCompleted = propStatusCompleted.value,
+                        category = propCategory.value,
+                        scheduledDate = propScheduled.value,
+                        dueDate = propDue.value,
+                    ),
                 )
             }
 
@@ -242,65 +245,26 @@ class MainActivity : ComponentActivity() {
                     settingsViewModel = settingsViewModel,
                     categoryOptions = categoryOptions,
                     statusOptions = statusOptions,
-                ) { token, dbId, morning, evening, mEnabled, eEnabled, theme, mTitle, mStatus, mStatusType, mStatusUnstarted, mStatusInProgress, mStatusCompleted, mCategory, mScheduled, mDue, mCatOptions, mStatOptions, themeColor, dynamicColor, devMode, devCompleteButton ->
-                    // オプションを自動的に文字列化して SharedPrefs に保存する
-                    val catJson = try { json.encodeToString<List<NotionOptionInfo>>(mCatOptions) } catch(_: Exception) { "" }
-                    val statJson = try { json.encodeToString<List<NotionOptionInfo>>(mStatOptions) } catch(_: Exception) { "" }
-
-                    settingsViewModel.updateMorningTime(morning)
-                    settingsViewModel.updateEveningTime(evening)
-                    settingsViewModel.toggleMorningNotif(mEnabled)
-                    settingsViewModel.toggleEveningNotif(eEnabled)
-                    settingsViewModel.updateThemeMode(theme)
-                    settingsViewModel.updateThemeColor(themeColor)
-                    settingsViewModel.toggleDynamicColor(dynamicColor)
-                    settingsViewModel.toggleDevMode(devMode)
-                    settingsViewModel.toggleDevCompleteButton(devCompleteButton)
-
+                ) { update ->
                     settingsViewModel.commitNotionConnection(
-                        token = token,
-                        databaseId = dbId,
-                        mappings = buildMap {
-                            put("mapping_prop_title", mTitle)
-                            put("mapping_prop_status", mStatus)
-                            put("mapping_prop_status_type", mStatusType)
-                            put("mapping_status_unstarted", mStatusUnstarted)
-                            put("mapping_status_in_progress", mStatusInProgress)
-                            put("mapping_status_completed", mStatusCompleted)
-                            put("mapping_prop_category", mCategory)
-                            put("mapping_prop_scheduled_date", mScheduled)
-                            put("mapping_prop_due_date", mDue)
-                            if (catJson.isNotBlank()) put("category_options_v2", catJson)
-                            if (statJson.isNotBlank()) put("status_options_v2", statJson)
-                        },
+                        token = update.connection.token,
+                        databaseId = update.connection.databaseId,
+                        mappings = update.mappingPreferences(json),
                     )
 
-                    propTitle.value = mTitle
-                    propStatus.value = mStatus
-                    propStatusType.value = mStatusType
-                    propStatusUnstarted.value = mStatusUnstarted.trim()
-                    propStatusInProgress.value = mStatusInProgress.trim()
-                    propStatusCompleted.value = mStatusCompleted.trim()
-                    propCategory.value = mCategory
-                    propScheduled.value = mScheduled
-                    propDue.value = mDue
+                    propTitle.value = update.connection.title
+                    propStatus.value = update.connection.status
+                    propStatusType.value = update.connection.statusType
+                    propStatusUnstarted.value = update.connection.statusUnstarted.trim()
+                    propStatusInProgress.value = update.connection.statusInProgress.trim()
+                    propStatusCompleted.value = update.connection.statusCompleted.trim()
+                    propCategory.value = update.connection.category
+                    propScheduled.value = update.connection.scheduledDate
+                    propDue.value = update.connection.dueDate
                     
-                    viewModel.updateCategoryOptions(mCatOptions)
-                    viewModel.updateStatusOptions(mStatOptions)
-
-                    viewModel.updateCredentials(
-                        token = token,
-                        dbId = dbId,
-                        title = mTitle,
-                        status = mStatus,
-                        statusType = mStatusType,
-                        statusUnstarted = mStatusUnstarted.trim(),
-                        statusInProgress = mStatusInProgress.trim(),
-                        statusCompleted = mStatusCompleted.trim(),
-                        category = mCategory,
-                        scheduledDate = mScheduled,
-                        dueDate = mDue
-                    )
+                    viewModel.updateCategoryOptions(update.categoryOptions)
+                    viewModel.updateStatusOptions(update.statusOptions)
+                    viewModel.updateCredentials(update.connection)
 
                     // 新しい時間でアラームを再スケジュールする
                     TaskNotificationReceiver.rescheduleAlarms(this@MainActivity)
