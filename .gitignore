@@ -1,6 +1,10 @@
 /local.properties
 .idea/
 .gradle/
+.kotlin/
+*.hprof
 app/build/
 build/reports/problems/
 .artifacts/
+/docs/*
+!/docs/README.md

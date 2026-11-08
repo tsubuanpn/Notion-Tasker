@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.model.TimeBlock
+import com.notiontasks.app.data.model.TimeBlockOrigin
 import com.notiontasks.app.data.PomodoroLog
+import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import com.notiontasks.app.data.repository.ScheduleRepository
+import com.notiontasks.app.data.repository.ScheduleStore
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.TaskSaveResult
 import com.notiontasks.app.data.repository.PomodoroRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,9 +23,13 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import java.util.Calendar
+import java.util.TimeZone
 
 // 画面操作のステータス状態
 sealed interface TasksUiState {
@@ -34,10 +41,44 @@ sealed interface TasksUiState {
 
 class TaskViewModel(
     private val repository: TaskRepository,
-    private val scheduleRepository: ScheduleRepository,
+    private val scheduleRepository: ScheduleStore,
     private val pomodoroRepository: PomodoroRepository,
     private val sharedPrefs: android.content.SharedPreferences,
 ) : ViewModel() {
+
+    private val taskSaveMutex = Mutex()
+    private val lifeScheduleMutex = Mutex()
+    private val _activeTaskSaveKeys = MutableStateFlow<Set<String>>(emptySet())
+    val activeTaskSaveKeys: StateFlow<Set<String>> = _activeTaskSaveKeys.asStateFlow()
+    val isCreatingTask: StateFlow<Boolean> = activeTaskSaveKeys
+        .map { CREATE_TASK_SAVE_KEY in it }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false,
+        )
+
+    private fun launchTaskSaveOnce(key: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            val accepted = taskSaveMutex.withLock {
+                if (key in _activeTaskSaveKeys.value) {
+                    false
+                } else {
+                    _activeTaskSaveKeys.value += key
+                    true
+                }
+            }
+            if (!accepted) return@launch
+
+            try {
+                block()
+            } finally {
+                taskSaveMutex.withLock {
+                    _activeTaskSaveKeys.value -= key
+                }
+            }
+        }
+    }
 
     private val _syncPhase = MutableStateFlow<SyncUiState>(SyncUiState.NotConfigured)
     val syncState: StateFlow<SyncUiState> = combine(
@@ -55,6 +96,19 @@ class TaskViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SyncUiState.NotConfigured,
     )
+
+    val permanentSyncFailures: StateFlow<List<PendingSyncActionEntity>> = repository.permanentFailures
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun retryPermanentSyncFailure(id: Long) {
+        viewModelScope.launch {
+            if (repository.retryPermanentFailure(id)) syncWithNotion()
+        }
+    }
+
+    fun discardPermanentSyncFailure(id: Long) {
+        viewModelScope.launch { repository.discardPermanentFailure(id) }
+    }
 
     private val jsonSerializer = Json { ignoreUnknownKeys = true }
 
@@ -129,7 +183,16 @@ class TaskViewModel(
     val statusCompleted: StateFlow<String> = _statusCompleted.asStateFlow()
 
     private val _categoryOptions = MutableStateFlow<List<NotionOptionInfo>>(emptyList())
-    val categoryOptions: StateFlow<List<NotionOptionInfo>> = _categoryOptions.asStateFlow()
+    val categoryOptions: StateFlow<List<NotionOptionInfo>> = combine(
+        _categoryOptions,
+        repository.allTasks,
+    ) { savedOptions, cachedTasks ->
+        categoryOptionsForTaskUi(savedOptions, cachedTasks)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = _categoryOptions.value,
+    )
 
     init {
         viewModelScope.launch {
@@ -146,7 +209,7 @@ class TaskViewModel(
     private suspend fun cleanupOldPomodoroLogs() {
         val months = _statsStorageDuration.value
         if (months > 0) {
-            val calendar = Calendar.getInstance()
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
             calendar.add(Calendar.MONTH, -months)
             pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
         }
@@ -182,7 +245,7 @@ class TaskViewModel(
             if (months == -1) {
                 pomodoroRepository.clearAllLogs()
             } else {
-                val calendar = Calendar.getInstance()
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
                 calendar.add(Calendar.MONTH, -months)
                 pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
             }
@@ -271,25 +334,16 @@ class TaskViewModel(
             scheduleRepository.deleteLifeActivityById(id)
             
             // 初期化済みの未来（今日含む）のスケジュールから、この習慣を削除
-            val today = java.time.LocalDate.now()
-            val nowMinutes = java.time.LocalTime.now().let { (it.hour * 60) + it.minute }
+            val today = com.notiontasks.app.utils.JapanTime.today()
+            val nowMinutes = com.notiontasks.app.utils.JapanTime.now().let { (it.hour * 60) + it.minute }
             
             // UIキャッシュではなく、DBから全ブロックを直接取得してスキャンする
             val allBlocks = scheduleRepository.getAllTimeBlocks()
-            val blocksToDelete = allBlocks.filter { 
-                (it.associatedId == id) && (it.type == "life") && 
-                (try {
-                    val blockDate = java.time.LocalDate.parse(it.date)
-                    !blockDate.isBefore(today)
-                } catch(_: Exception) { false })
-            }
-
-            blocksToDelete.forEach { block ->
-                val isToday = (block.date == today.toString())
-                if (!isToday || (block.startTime > nowMinutes)) {
-                    scheduleRepository.deleteTimeBlockById(block.id)
-                    com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
-                }
+            allBlocks.filter { block ->
+                LifeSchedulePlanner.canRemoveForDeletedPreset(block, id, today, nowMinutes)
+            }.forEach { block ->
+                scheduleRepository.deleteTimeBlockById(block.id)
+                com.notiontasks.app.TaskNotificationReceiver.cancelBlockAlarm(context, block.id)
             }
         }
     }
@@ -307,22 +361,21 @@ class TaskViewModel(
      * 初期化済みの全ての日付のうち、今日および未来の日付に対して設定を同期します。
      */
     private fun syncAllInitializedFutureDates(context: android.content.Context) {
-        val today = java.time.LocalDate.now()
+        val today = com.notiontasks.app.utils.JapanTime.today()
 
         // ConcurrentModificationException を避けるためコピーに対して処理
         val dates = _initializedDates.value.toList()
 
         dates.forEach { dateStr ->
-            try {
-                val date = java.time.LocalDate.parse(dateStr)
-                if (date.isAfter(today)) {
+            when {
+                com.notiontasks.app.utils.JapanTime.parseCalendarDate(dateStr)?.isAfter(today) == true -> {
                     // 未来の日付は全件同期
                     syncDefaultLifeActivitiesForDate(context, dateStr, futureOnly = false)
-                } else if (date.isEqual(today)) {
+                }
+                com.notiontasks.app.utils.JapanTime.parseCalendarDate(dateStr) == today -> {
                     // 今日は今以降の分のみ同期
                     syncDefaultLifeActivitiesForDate(context, dateStr, futureOnly = true)
                 }
-            } catch (_: Exception) {
             }
         }
     }
@@ -339,7 +392,9 @@ class TaskViewModel(
         futureOnly: Boolean = false,
     ) {
         viewModelScope.launch {
-            syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly)
+            lifeScheduleMutex.withLock {
+                syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly)
+            }
         }
     }
 
@@ -355,33 +410,43 @@ class TaskViewModel(
 
         if (defaults.isEmpty()) return
 
-        val now = java.time.LocalDateTime.now()
-        val todayStr = java.time.LocalDate.now().toString()
+        val now = com.notiontasks.app.utils.JapanTime.now()
+        val todayStr = com.notiontasks.app.utils.JapanTime.todayIso()
         val currentMinutes = (now.hour * 60) + now.minute
 
-        val dayBlocks = timeBlocks.value.filter { (it.date == date) && (it.type == "life") }
+        // Use the database, not the asynchronously collected UI cache. This makes repeated
+        // opens and quick date changes observe writes made by a preceding generation.
+        val dayBlocks = scheduleRepository.getTimeBlocksForDate(date)
 
         defaults.forEach { act ->
+            val defaultStartTime = act.defaultStartTime ?: return@forEach
+            val defaultEndTime = act.defaultEndTime ?: return@forEach
             // futureOnly かつ 今日の日付の場合、終了時刻が過ぎているものはスキップ
-            if (futureOnly && (date == todayStr) && (act.defaultEndTime!! <= currentMinutes)) {
+            if (futureOnly && (date == todayStr) && (defaultEndTime <= currentMinutes)) {
                 return@forEach
             }
 
-            val existingBlock = dayBlocks.find { it.associatedId == act.id }
+            val existingBlock = dayBlocks.find {
+                it.origin == TimeBlockOrigin.PRESET && it.presetId == act.id
+            }
 
             if (existingBlock != null) {
                 // 既に存在する場合、内容（時間やタイトル、色）を更新
-                if ((existingBlock.startTime != act.defaultStartTime) ||
-                    (existingBlock.endTime != act.defaultEndTime) ||
-                    (existingBlock.title != act.name) ||
-                    (existingBlock.color != act.color)
+                if (LifeSchedulePlanner.needsPresetUpdate(
+                        existingBlock,
+                        name = act.name,
+                        startTime = defaultStartTime,
+                        endTime = defaultEndTime,
+                        color = act.color,
+                    )
                 ) {
 
                     val updated = existingBlock.copy(
                         title = act.name,
-                        startTime = act.defaultStartTime!!,
-                        endTime = act.defaultEndTime!!,
+                        startTime = defaultStartTime,
+                        endTime = defaultEndTime,
                         color = act.color,
+                        presetGeneration = DEFAULT_PRESET_GENERATION,
                     )
                     scheduleRepository.saveTimeBlock(updated)
                     com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, updated)
@@ -393,10 +458,13 @@ class TaskViewModel(
                     type = "life",
                     title = act.name,
                     associatedId = act.id,
-                    startTime = act.defaultStartTime!!,
-                    endTime = act.defaultEndTime!!,
+                    startTime = defaultStartTime,
+                    endTime = defaultEndTime,
                     color = act.color,
                     date = date,
+                    origin = TimeBlockOrigin.PRESET,
+                    presetId = act.id,
+                    presetGeneration = DEFAULT_PRESET_GENERATION,
                 )
                 scheduleRepository.saveTimeBlock(block)
                 com.notiontasks.app.TaskNotificationReceiver.scheduleBlockAlarm(context, block)
@@ -408,22 +476,14 @@ class TaskViewModel(
         if (_initializedDates.value.contains(date)) return
 
         viewModelScope.launch {
-            val currentBlocks = timeBlocks.value
-            val hasAnyLifeOnThisDate = currentBlocks.any { (it.date == date) && (it.type == "life") }
-            
-            // この日付に既に生活アクティビティブロックがある場合は初期化済みとして扱います
-            if (hasAnyLifeOnThisDate) {
+            lifeScheduleMutex.withLock {
+                // Mark completion only after every generated block was persisted. A process
+                // interruption therefore leaves the date eligible for a safe idempotent retry.
+                syncDefaultLifeActivitiesForDateInternal(context, date, futureOnly = false)
                 val updated = _initializedDates.value + date
                 _initializedDates.value = updated
                 saveInitializedDates(updated)
-                return@launch
             }
-
-            syncDefaultLifeActivitiesForDate(context, date, futureOnly = false)
-
-            val updated = _initializedDates.value + date
-            _initializedDates.value = updated
-            saveInitializedDates(updated)
         }
     }
 
@@ -461,6 +521,8 @@ class TaskViewModel(
                 repository.updateDataSourceId("")
                 val meta = repository.getDatabaseMetadata(token, dbId)
                 onSuccess(meta)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "データベース構成の取得に失敗しました。認証情報や共有設定を確認してください。")
             }
@@ -499,46 +561,36 @@ class TaskViewModel(
             scheduledDate = scheduledDate,
             dueDate = dueDate,
         )
+        repository.updateConnectionScope(dbId)
         repository.updateDataSourceId("")
     }
 
     // アクティビティのロードフック
-    fun updateCredentials(
-        token: String,
-        dbId: String,
-        title: String = "名前",
-        status: String = "状態",
-        statusType: String = "status",
-        statusUnstarted: String = "未着手",
-        statusInProgress: String = "進行中",
-        statusCompleted: String = "完了",
-        category: String = "種類",
-        scheduledDate: String = "予定日",
-        dueDate: String = "締め切り",
-    ) {
-        val trimmedUnstarted = statusUnstarted.trim()
-        val trimmedInProgress = statusInProgress.trim()
-        val trimmedCompleted = statusCompleted.trim()
+    fun updateCredentials(config: TaskConnectionConfig) {
+        val trimmedUnstarted = config.statusUnstarted.trim()
+        val trimmedInProgress = config.statusInProgress.trim()
+        val trimmedCompleted = config.statusCompleted.trim()
         
-        _notionToken.value = token
-        _databaseId.value = dbId
-        if (token.isBlank() || dbId.isBlank()) {
+        _notionToken.value = config.token
+        _databaseId.value = config.databaseId
+        if (config.token.isBlank() || config.databaseId.isBlank()) {
             _syncPhase.value = SyncUiState.NotConfigured
         }
         _statusUnstarted.value = trimmedUnstarted
         _statusInProgress.value = trimmedInProgress
         _statusCompleted.value = trimmedCompleted
         repository.updatePropertyMappings(
-            title = title,
-            status = status,
-            statusType = statusType,
+            title = config.title,
+            status = config.status,
+            statusType = config.statusType,
             statusUnstarted = trimmedUnstarted,
             statusInProgress = trimmedInProgress,
             statusCompleted = trimmedCompleted,
-            category = category,
-            scheduledDate = scheduledDate,
-            dueDate = dueDate,
+            category = config.category,
+            scheduledDate = config.scheduledDate,
+            dueDate = config.dueDate,
         )
+        repository.updateConnectionScope(config.databaseId)
         repository.updateDataSourceId("")
     }
 
@@ -560,6 +612,8 @@ class TaskViewModel(
                 // 同期後に完了済みタスクのクリーンアップを実行
                 cleanupData()
                 _syncPhase.value = SyncUiState.Synced(System.currentTimeMillis())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _syncPhase.value = SyncUiState.Failed(
                     message = e.message ?: "同期に失敗しました",
@@ -568,6 +622,9 @@ class TaskViewModel(
             }
         }
     }
+
+    /** Keeps persisted UI selections usable after an offline task receives its Notion page ID. */
+    suspend fun resolveTaskId(id: String): String = repository.resolveTaskId(id)
 
     private suspend fun cleanupData() {
         val keepType = sharedPrefs.getString("data_keep_type", "date") ?: "date"
@@ -585,7 +642,7 @@ class TaskViewModel(
             if (months == -1) {
                 pomodoroRepository.clearAllLogs()
             } else {
-                val calendar = Calendar.getInstance()
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone(com.notiontasks.app.utils.JapanTime.zoneId.id))
                 calendar.add(Calendar.MONTH, -months)
                 pomodoroRepository.deleteLogsOlderThan(calendar.timeInMillis)
             }
@@ -685,14 +742,13 @@ class TaskViewModel(
         val options = stateOptions.ifEmpty { _statusOptions.value }
         if (options.isEmpty()) return
 
-        val taskStatusTrimmed = task.status.trim()
-        val currentIndex = options.indexOfFirst { it.name.trim() == taskStatusTrimmed }
-        
-        val nextOption = if (currentIndex == -1) {
-            options.first()
-        } else {
-            options[(currentIndex + 1) % options.size]
-        }
+        val nextStatus = nextSupportedTaskStatus(
+            currentStatus = task.status,
+            unstartedStatus = _statusUnstarted.value,
+            inProgressStatus = _statusInProgress.value,
+            completedStatus = _statusCompleted.value,
+        ) ?: return
+        val nextOption = options.firstOrNull { it.name.trim() == nextStatus } ?: return
 
         val token = _notionToken.value
         if (token.isBlank()) return
@@ -705,8 +761,10 @@ class TaskViewModel(
                     newStatus = nextOption.name,
                     newStatusColor = nextOption.color.ifBlank { null }
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                // フォールバックまたはログ出力
+                // The task status remains in the local cache; the next explicit sync may retry it.
             }
         }
     }
@@ -718,7 +776,8 @@ class TaskViewModel(
         category: String,
         dueDate: String? = null,
         scheduledDate: String? = null,
-        onSuccess: () -> Unit = {},
+        onConfirmed: () -> Unit = {},
+        onPending: () -> Unit = {},
         onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
@@ -731,9 +790,9 @@ class TaskViewModel(
         val sColor = _statusOptions.value.find { it.name == status }?.color
         val cColor = _categoryOptions.value.find { it.name == category }?.color
 
-        viewModelScope.launch {
+        launchTaskSaveOnce(id) {
             try {
-                repository.updateTask(
+                when (repository.updateTask(
                     token = token,
                     pageId = id,
                     title = title,
@@ -743,8 +802,12 @@ class TaskViewModel(
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                     statusColor = sColor?.ifBlank { null },
                     categoryColor = cColor?.ifBlank { null }
-                )
-                onSuccess()
+                )) {
+                    TaskSaveResult.Confirmed -> onConfirmed()
+                    TaskSaveResult.Pending -> onPending()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの更新に失敗しました。")
             }
@@ -757,7 +820,8 @@ class TaskViewModel(
         status: String? = null,
         dueDate: String? = null,
         scheduledDate: String? = null,
-        onSuccess: () -> Unit = {},
+        onConfirmed: () -> Unit = {},
+        onPending: () -> Unit = {},
         onFailure: (String) -> Unit = {},
     ) {
         loadCredentialsAndMappings()
@@ -772,9 +836,9 @@ class TaskViewModel(
         val sColor = _statusOptions.value.find { it.name == finalStatus }?.color
         val cColor = _categoryOptions.value.find { it.name == category.trim() }?.color
 
-        viewModelScope.launch {
+        launchTaskSaveOnce(CREATE_TASK_SAVE_KEY) {
             try {
-                repository.createTask(
+                when (repository.createTask(
                     token = token,
                     databaseId = dbId,
                     title = title,
@@ -784,11 +848,20 @@ class TaskViewModel(
                     scheduledDate = if (scheduledDate.isNullOrBlank()) null else scheduledDate,
                     statusColor = sColor?.ifBlank { null },
                     categoryColor = cColor?.ifBlank { null }
-                )
-                onSuccess()
+                )) {
+                    TaskSaveResult.Confirmed -> onConfirmed()
+                    TaskSaveResult.Pending -> onPending()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 onFailure(e.message ?: "タスクの作成に失敗しました。")
             }
         }
+    }
+
+    private companion object {
+        const val CREATE_TASK_SAVE_KEY = "create-task"
+        const val DEFAULT_PRESET_GENERATION = 1L
     }
 }

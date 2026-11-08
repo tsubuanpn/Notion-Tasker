@@ -5,6 +5,9 @@ import com.notiontasks.app.data.local.PendingSyncActionDao
 import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.data.local.SyncMetadataDao
 import com.notiontasks.app.data.local.TaskDao
+import com.notiontasks.app.data.local.TaskEntity
+import com.notiontasks.app.data.local.TaskIdAliasDao
+import com.notiontasks.app.data.local.TaskFieldGenerationDao
 import com.notiontasks.app.data.remote.NotionApi
 import com.notiontasks.app.data.remote.dto.*
 import io.mockk.*
@@ -16,6 +19,7 @@ import kotlinx.serialization.json.put
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import java.io.IOException
 
@@ -26,6 +30,8 @@ class TaskRepositoryTest {
     private val taskDao: TaskDao = mockk(relaxed = true)
     private val pendingSyncActionDao: PendingSyncActionDao = mockk(relaxed = true)
     private val syncMetadataDao: SyncMetadataDao = mockk(relaxed = true)
+    private val taskIdAliasDao: TaskIdAliasDao = mockk(relaxed = true)
+    private val taskFieldGenerationDao: TaskFieldGenerationDao = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
 
@@ -33,8 +39,19 @@ class TaskRepositoryTest {
 
     @Before
     fun setup() {
-        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao)
+        repository = TaskRepository(notionApi, taskDao, pendingSyncActionDao, syncMetadataDao, taskIdAliasDao, taskFieldGenerationDao)
         repository.updateDataSourceId("data_source")
+        repository.updateConnectionScope("database")
+        coEvery { taskIdAliasDao.getRemoteTaskId(any(), any()) } returns null
+        coEvery { notionApi.getDataSource(any(), any(), any()) } returns NotionDatabaseResponse(
+            id = "data_source",
+            properties = mapOf(
+                "Notion Tasker ID" to NotionPropertyMeta(
+                    id = "client_identifier",
+                    type = "rich_text",
+                ),
+            ),
+        )
     }
 
     @Test
@@ -84,11 +101,12 @@ class TaskRepositoryTest {
 
         // Assert
         coVerify { 
-            taskDao.syncTasksTransactionally(match { entities ->
+            taskDao.syncTasksTransactionally(eq(databaseId), match { entities ->
                 entities.size == 1 &&
                 entities[0].id == pageId &&
                 entities[0].title == "Sample Task" &&
-                entities[0].status == "In Progress"
+                entities[0].status == "In Progress" &&
+                entities[0].connectionScope == databaseId
             })
         }
     }
@@ -115,7 +133,7 @@ class TaskRepositoryTest {
             // Expected: preserving the existing cache is safer than replacing it with invalid data.
         }
 
-        coVerify(exactly = 0) { taskDao.syncTasksTransactionally(any()) }
+        coVerify(exactly = 0) { taskDao.syncTasksTransactionally(any(), any()) }
     }
 
     @Test
@@ -140,7 +158,7 @@ class TaskRepositoryTest {
         repository.syncTasks("token", "database")
 
         coVerify {
-            syncMetadataDao.put(match { it.key == "notion_remote_sync_cursor" && it.timestamp > 0L })
+            syncMetadataDao.put(match { it.key == "notion_remote_sync_cursor:database" && it.timestamp > 0L })
         }
     }
 
@@ -202,7 +220,7 @@ class TaskRepositoryTest {
         // Assert
         coVerify(exactly = 2) { notionApi.queryDatabase(any(), any(), any(), any()) }
         coVerify { 
-            taskDao.syncTasksTransactionally(match { entities ->
+            taskDao.syncTasksTransactionally(eq(databaseId), match { entities ->
                 entities.size == 2 &&
                 entities.any { it.id == "page_1" && it.title == "Task 1" } &&
                 entities.any { it.id == "page_2" && it.title == "Task 2" }
@@ -263,11 +281,12 @@ class TaskRepositoryTest {
         )
 
         // Act
-        repository.updateTaskStatus(token, pageId, newStatus)
+        val result = repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
         coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
         coVerify { notionApi.updatePage(any(), any(), pageId, any()) }
+        assertEquals(TaskSaveResult.Confirmed, result)
     }
 
     @Test
@@ -280,18 +299,24 @@ class TaskRepositoryTest {
         coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IOException("Offline")
 
         // Act
-        repository.updateTaskStatus(token, pageId, newStatus)
+        val result = repository.updateTaskStatus(token, pageId, newStatus)
 
         // Assert
         coVerify { taskDao.updateTaskStatusLocal(pageId, newStatus, any(), any()) }
+        coVerify(exactly = 1) { notionApi.updatePage(any(), any(), pageId, any()) }
         coVerify { 
             pendingSyncActionDao.insertPendingAction(match { action ->
                 action.actionType == "UPDATE_STATUS" &&
                 action.taskId == pageId &&
-                action.payloadJson.contains("Done")
+                action.payloadJson.contains("Done") &&
+                action.operationId.isNotBlank() &&
+                action.changedFields == "status" &&
+                action.generation == 1L &&
+                action.state == "PENDING"
             })
         }
-        coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId) }
+        coVerify { pendingSyncActionDao.deletePendingActionsForTask("UPDATE_STATUS", pageId, "database") }
+        assertEquals(TaskSaveResult.Pending, result)
     }
 
     @Test
@@ -300,7 +325,7 @@ class TaskRepositoryTest {
         coEvery { notionApi.createPage(any(), any(), any()) } throws IOException("Offline")
 
         // Act
-        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+        val result = repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
 
         // Assert
         coVerify { 
@@ -313,28 +338,365 @@ class TaskRepositoryTest {
                 action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
             })
         }
+        assertEquals(TaskSaveResult.Pending, result)
     }
 
     @Test
-    fun syncTasks_permanentPendingFailure_keepsTheUserAction() = runTest {
+    fun createTask_transientFailure_postsOnceAndQueuesTheOriginalIntent() = runTest {
+        coEvery { notionApi.createPage(any(), any(), any()) } throws IOException("response lost")
+
+        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+
+        coVerify(exactly = 1) { notionApi.createPage(any(), any(), any()) }
+        coVerify {
+            pendingSyncActionDao.insertPendingAction(match { action ->
+                action.actionType == "CREATE_TASK" && action.payloadJson.contains("New Task")
+            })
+        }
+    }
+
+    @Test
+    fun createTask_writesStableClientIdentifier() = runTest {
+        val requestSlot = slot<NotionCreateRequest>()
+        coEvery { notionApi.createPage(any(), any(), capture(requestSlot)) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+
+        repository.createTask("token", "db", "New Task", "Todo", "Life", null, null)
+
+        val identifier = requestSlot.captured.properties["Notion Tasker ID"]
+            ?.richText
+            ?.singleOrNull()
+            ?.text
+            ?.content
+        assertEquals(true, !identifier.isNullOrBlank())
+    }
+
+    @Test
+    fun createTask_withoutCategory_omitsTheOptionalSelectProperty() = runTest {
+        val requestSlot = slot<NotionCreateRequest>()
+        coEvery { notionApi.createPage(any(), any(), capture(requestSlot)) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+
+        val result = repository.createTask("token", "db", "New Task", "Todo", "", null, null)
+
+        assertEquals(TaskSaveResult.Confirmed, result)
+        assertFalse(requestSlot.captured.properties.containsKey("種類"))
+    }
+
+    @Test
+    fun pendingCreate_reconcilesExistingPageBeforeRetrying() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"New Task","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+            connectionScope = "db",
+        )
+        val existing = NotionPage(
+            id = "page_123",
+            properties = mapOf(
+                "名前" to buildJsonObject { put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "New Task") }) }) },
+                "状態" to buildJsonObject { put("status", buildJsonObject { put("name", "Todo") }) },
+                "種類" to buildJsonObject { put("select", buildJsonObject { put("name", "Life") }) },
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(results = listOf(existing))
+        coEvery { taskDao.getTaskById("pending_client-123") } returns TaskEntity(
+            id = "pending_client-123",
+            title = "New Task",
+            status = "Todo",
+            category = "Life",
+            dueDate = null,
+            scheduledDate = null,
+        )
+
+        repository.syncTasks("token", "db")
+
+        coVerify(exactly = 0) { notionApi.createPage(any(), any(), any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
+        coVerify {
+            taskIdAliasDao.resolveCreatedTask(
+                localTaskId = "pending_client-123",
+                remoteTask = match { it.id == "page_123" },
+                connectionScope = "db",
+            )
+        }
+    }
+
+    @Test
+    fun pendingCreate_resolvesBeforeSendingItsLaterEdit() = runTest {
+        val create = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"Original","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+            connectionScope = "db",
+        )
+        val edit = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"Latest","status":"Doing","category":"Life"}""",
+            timestamp = 2L,
+            connectionScope = "db",
+            changedFields = "title,status,category",
+            generation = 1,
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(create, edit) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+        coEvery { notionApi.createPage(any(), any(), any()) } returns NotionPage(id = "page_123", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } returns NotionPage(id = "page_123", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { taskDao.getTaskById("pending_client-123") } returns TaskEntity(
+            id = "pending_client-123", title = "Latest", status = "Doing", category = "Life",
+            dueDate = null, scheduledDate = null, connectionScope = "db",
+        )
+
+        repository.syncTasks("token", "db")
+
+        coVerify { taskIdAliasDao.resolveCreatedTask("pending_client-123", match { it.id == "page_123" && it.title == "Latest" }, "db") }
+        coVerify { notionApi.updatePage(any(), any(), "page_123", any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(2) }
+    }
+
+    @Test
+    fun pendingCreate_withDuplicateClientIdentifier_stopsWithoutCreatingAgain() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "CREATE_TASK",
+            taskId = "pending_client-123",
+            payloadJson = """{"title":"New Task","status":"Todo","category":"Life","clientIdentifier":"client-123"}""",
+            timestamp = 1L,
+            connectionScope = "db",
+        )
+        val duplicate = NotionPage(id = "page_duplicate", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        val duplicateTwo = NotionPage(id = "page_duplicate_2", properties = emptyMap<String, kotlinx.serialization.json.JsonElement>())
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(listOf(duplicate, duplicateTwo)) andThen NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "db")
+
+        coVerify(exactly = 0) { notionApi.createPage(any(), any(), any()) }
+        coVerify { pendingSyncActionDao.updatePendingActionState(1, "PERMANENT_FAILURE", match { it.contains("複数") }) }
+    }
+
+    @Test
+    fun pendingUpdate_resolvesPersistentAliasAfterProcessRestart() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "pending_client-123",
+            payloadJson = """{"newStatus":"進行中"}""",
+            timestamp = 1L,
+            connectionScope = "database",
+            changedFields = "status",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen emptyList()
+        coEvery { taskIdAliasDao.getRemoteTaskId("pending_client-123", "database") } returns "page_123"
+        coEvery { notionApi.updatePage(any(), any(), "page_123", any()) } returns NotionPage(
+            id = "page_123",
+            properties = emptyMap(),
+        )
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify { notionApi.updatePage(any(), any(), "page_123", any()) }
+        coVerify { pendingSyncActionDao.deletePendingActionById(1) }
+    }
+
+    @Test
+    fun syncTasks_keepsPendingLocalChangeWhenRemoteHasOlderValue() = runTest {
+        val pending = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_123",
+            payloadJson = """{"newStatus":"進行中"}""",
+            timestamp = 1L,
+            connectionScope = "database",
+            changedFields = "status",
+        )
+        val remotePage = NotionPage(
+            id = "page_123",
+            properties = mapOf(
+                "名前" to buildJsonObject { put("title", buildJsonArray { add(buildJsonObject { put("plain_text", "Remote title") }) }) },
+                "状態" to buildJsonObject { put("status", buildJsonObject { put("name", "未着手") }) },
+                "種類" to buildJsonObject { put("select", buildJsonObject { put("name", "Life") }) },
+            ),
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending) andThen listOf(pending)
+        coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IOException("offline")
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(results = listOf(remotePage))
+        coEvery { taskDao.getTaskById("page_123") } returns TaskEntity(
+            id = "page_123",
+            title = "Local title",
+            status = "進行中",
+            category = "Local category",
+            dueDate = "2026-11-08",
+            scheduledDate = "2026-11-09",
+            lastEditedTime = 10L,
+            connectionScope = "database",
+        )
+
+        repository.syncTasks("token", "database")
+
+        coVerify {
+            taskDao.syncTasksTransactionally(
+                connectionScope = "database",
+                activeEntities = match { entities ->
+                    entities.singleOrNull()?.let { entity ->
+                        entity.title == "Remote title" &&
+                            entity.status == "進行中" &&
+                            entity.category == "Life" &&
+                            entity.dueDate == null &&
+                            entity.scheduledDate == null
+                    } == true
+                },
+                protectedTaskIds = match { it == listOf("page_123") },
+            )
+        }
+    }
+
+    @Test
+    fun syncTasks_permanentPendingFailure_keepsTheUserActionAndContinuesRead() = runTest {
         val pending = PendingSyncActionEntity(
             id = 1,
             actionType = "UPDATE_STATUS",
             taskId = "page_123",
             payloadJson = "{\"newStatus\":\"Done\"}",
             timestamp = 1L,
+            connectionScope = "database",
         )
         coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(pending)
         coEvery { notionApi.updatePage(any(), any(), any(), any()) } throws IllegalArgumentException("invalid status")
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
 
-        try {
-            repository.syncTasks("token", "database")
-            fail("Expected a permanent pending-action failure to be reported")
-        } catch (_: IOException) {
-            // Expected: the user action remains queued for repair and retry.
-        }
+        repository.syncTasks("token", "database")
 
         coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(pending.id) }
+        coVerify { pendingSyncActionDao.updatePendingActionState(1, "PERMANENT_FAILURE", "invalid status") }
+    }
+
+    @Test
+    fun syncTasks_permanentFailure_waitsForExplicitRetryAndBlocksLaterTaskActions() = runTest {
+        val permanentFailure = PendingSyncActionEntity(
+            id = 1,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_blocked",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "database",
+            state = "PERMANENT_FAILURE",
+        )
+        val laterBlockedAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_blocked",
+            payloadJson = "{\"newStatus\":\"In Progress\"}",
+            timestamp = 2L,
+            connectionScope = "database",
+        )
+        val independentAction = PendingSyncActionEntity(
+            id = 3,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_independent",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 3L,
+            connectionScope = "database",
+        )
+        val actions = listOf(permanentFailure, laterBlockedAction, independentAction)
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns actions
+        coEvery { notionApi.updatePage(any(), any(), "page_independent", any()) } returns NotionPage(
+            id = "page_independent",
+            properties = emptyMap(),
+        )
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify(exactly = 0) { notionApi.updatePage(any(), any(), "page_blocked", any()) }
+        coVerify { notionApi.updatePage(any(), any(), "page_independent", any()) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(permanentFailure.id) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(laterBlockedAction.id) }
+    }
+
+    @Test
+    fun syncTasks_doesNotSendPendingActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+        coEvery { notionApi.queryDatabase(any(), any(), any(), any()) } returns NotionQueryResponse(emptyList())
+
+        repository.syncTasks("token", "database")
+
+        coVerify(exactly = 0) { notionApi.updatePage(any(), any(), "page_from_other_database", any()) }
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(otherScopeAction.id) }
+    }
+
+    @Test
+    fun discardPermanentFailure_doesNotRemoveActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 2,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+            state = "PERMANENT_FAILURE",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+
+        val discarded = repository.discardPermanentFailure(otherScopeAction.id)
+
+        assertFalse(discarded)
+        coVerify(exactly = 0) { pendingSyncActionDao.deletePendingActionById(otherScopeAction.id) }
+    }
+
+    @Test
+    fun retryPermanentFailure_doesNotRetryActionFromAnotherConnectionScope() = runTest {
+        val otherScopeAction = PendingSyncActionEntity(
+            id = 3,
+            actionType = "UPDATE_STATUS",
+            taskId = "page_from_other_database",
+            payloadJson = "{\"newStatus\":\"Done\"}",
+            timestamp = 1L,
+            connectionScope = "other_database",
+            state = "PERMANENT_FAILURE",
+        )
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns listOf(otherScopeAction)
+
+        assertFalse(repository.retryPermanentFailure(otherScopeAction.id))
+
+        coVerify(exactly = 0) { pendingSyncActionDao.retryPermanentFailure(any(), any()) }
+    }
+
+    @Test
+    fun cleanupCompletedTasks_limitsRetentionCleanupToCurrentConnectionScope() = runTest {
+        coEvery { pendingSyncActionDao.getAllPendingActions() } returns emptyList()
+
+        repository.cleanupCompletedTasks("count", 3)
+
+        coVerify {
+            taskDao.keepOnlyLatestCompletedTasks(
+                connectionScope = "database",
+                completedStatus = repository.propStatusCompletedName,
+                maxCount = 3,
+                protectedIds = emptyList(),
+            )
+        }
     }
 
     @Test

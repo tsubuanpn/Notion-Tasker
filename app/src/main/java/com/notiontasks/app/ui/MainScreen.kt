@@ -48,8 +48,10 @@ import com.notiontasks.app.ui.components.EditTaskDialog
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.screens.*
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
+import com.notiontasks.app.ui.viewmodel.ConnectionSettingsUpdate
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
+import com.notiontasks.app.ui.viewmodel.TasksUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,30 +60,7 @@ fun MainAppScreen(
     settingsViewModel: SettingsViewModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
-    onSaveCredentials: (
-        token: String,
-        dbId: String,
-        morning: String,
-        evening: String,
-        mEnabled: Boolean,
-        eEnabled: Boolean,
-        theme: String,
-        mTitle: String,
-        mStatus: String,
-        mStatusType: String,
-        mStatusUnstarted: String,
-        mStatusInProgress: String,
-        mStatusCompleted: String,
-        mCategory: String,
-        mScheduled: String,
-        mDue: String,
-        mCatOptions: List<NotionOptionInfo>,
-        mStatOptions: List<NotionOptionInfo>,
-        themeColor: String,
-        dynamicColor: Boolean,
-        devMode: Boolean,
-        devCompleteButton: Boolean,
-    ) -> Unit,
+    onSaveCredentials: (ConnectionSettingsUpdate) -> Unit,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -94,7 +73,7 @@ fun MainAppScreen(
         Screen.Pomodoro.route -> Screen.Pomodoro.title
         Screen.Achievements.route -> Screen.Achievements.title
         Screen.Settings.route -> Screen.Settings.title
-        else -> "NotionTasker"
+        else -> "Notion Tasker"
     }
 
     val notionToken by viewModel.notionToken.collectAsState()
@@ -102,6 +81,11 @@ fun MainAppScreen(
     val setupCompleted by settingsViewModel.setupCompleted.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val permanentSyncFailures by viewModel.permanentSyncFailures.collectAsState()
+    val isCreatingTask by viewModel.isCreatingTask.collectAsState()
+    val activeTaskSaveKeys by viewModel.activeTaskSaveKeys.collectAsState()
+    val tasksState by viewModel.tasksState.collectAsState()
+    val completedStatus by viewModel.statusCompleted.collectAsState()
 
     val context = LocalContext.current
     var boundService by remember { mutableStateOf<PomodoroService?>(null) }
@@ -137,14 +121,24 @@ fun MainAppScreen(
     val editingTaskState = remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
     var isTaskSearchActive by rememberSaveable { mutableStateOf(false) }
+    var taskPeriods by remember { mutableStateOf(emptySet<String>()) }
 
     val activity = context as? ComponentActivity
-    LaunchedEffect(activity?.intent) {
+    LaunchedEffect(activity?.intent, setupCompleted, tasksState, completedStatus) {
         val intent = activity?.intent
         if (intent != null) {
             val dest = intent.getStringExtra("DESTINATION")
             val focusTaskId = intent.getStringExtra("FOCUS_TASK_ID")
             if (setupCompleted && dest == "pomodoro") {
+                val task = (tasksState as? TasksUiState.Success)?.tasks?.find { it.id == focusTaskId }
+                // Wait until the local cache is available before honoring a task-specific
+                // notification. Deleted or completed tasks must not start a focus session.
+                if (focusTaskId != null && tasksState !is TasksUiState.Success) return@LaunchedEffect
+                if (focusTaskId != null && (task == null || task.status.trim() == completedStatus.trim())) {
+                    intent.removeExtra("DESTINATION")
+                    intent.removeExtra("FOCUS_TASK_ID")
+                    return@LaunchedEffect
+                }
                 if (focusTaskId != null) {
                     val pPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
                     pPrefs.edit { putString("selected_task_id", focusTaskId) }
@@ -309,8 +303,10 @@ fun MainAppScreen(
                 TodayScreen(
                     viewModel = viewModel,
                     statusOptions = statusOptions,
-                    onOpenPlan = { navController.navigate(Screen.Plan.route) { launchSingleTop = true } },
-                    onOpenTasks = { navController.navigate(Screen.Category.route) { launchSingleTop = true } },
+                    onOpenTasks = { periods ->
+                        taskPeriods = periods
+                        navController.navigate(Screen.Category.route) { launchSingleTop = true }
+                    },
                     onStartFocus = { task ->
                         context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
                             .edit { putString("selected_task_id", task.id) }
@@ -328,6 +324,8 @@ fun MainAppScreen(
                     categoryOptions = categoryOptions,
                     onEditTask = { editingTaskState.value = it },
                     searchActive = isTaskSearchActive,
+                    periods = taskPeriods,
+                    onPeriodsChange = { taskPeriods = it },
                 )
             }
             composable(Screen.Plan.route) {
@@ -342,7 +340,8 @@ fun MainAppScreen(
             composable(Screen.Schedule.route) {
                 ScheduleScreen(
                     viewModel = viewModel,
-                    onOpenCalendar = { navController.navigate(Screen.Plan.route) { launchSingleTop = true } },
+                    selectedCalendarDate = selectedCalendarDate,
+                    onOpenCalendar = { navController.popBackStack(Screen.Plan.route, inclusive = false) },
                 )
             }
             composable(Screen.Pomodoro.route) {
@@ -367,15 +366,16 @@ fun MainAppScreen(
                     navController = navController,
                     syncState = syncState,
                     onSync = { viewModel.syncWithNotion() },
+                    permanentFailures = permanentSyncFailures,
+                    onRetryFailure = viewModel::retryPermanentSyncFailure,
+                    onDiscardFailure = viewModel::discardPermanentSyncFailure,
                 )
             }
             composable(Screen.Setup.route) {
                 NotionSetupScreen(
                     viewModel = viewModel,
                     onConnectionVerified = { token, dbId ->
-                        settingsViewModel.updateNotionToken(token)
-                        settingsViewModel.updateDatabaseId(dbId)
-                        viewModel.updateCredentials(token, dbId)
+                        settingsViewModel.stageNotionConnection(token, dbId)
                         navController.navigate(Screen.SettingsMapping.route) {
                             launchSingleTop = true
                         }
@@ -437,6 +437,7 @@ fun MainAppScreen(
             categoryOptions = categoryOptions,
             statusOptions = statusOptions,
             initialScheduledDate = initialScheduled,
+            isSaving = isCreatingTask,
             onDismiss = { showAddDialogState.value = false },
             onConfirm = { title, cat, status, due, sched ->
                 viewModel.addTask(
@@ -445,9 +446,13 @@ fun MainAppScreen(
                     status = status,
                     dueDate = due,
                     scheduledDate = sched,
-                    onSuccess = {
+                    onConfirmed = {
                         showAddDialogState.value = false
                         Toast.makeText(context, "タスクを追加しました", Toast.LENGTH_SHORT).show()
+                    },
+                    onPending = {
+                        showAddDialogState.value = false
+                        Toast.makeText(context, "端末に保存しました。同期を再開すると追加されます", Toast.LENGTH_LONG).show()
                     }
                 ) { errorMsg ->
                     Toast.makeText(context, "エラー: $errorMsg", Toast.LENGTH_LONG).show()
@@ -461,6 +466,7 @@ fun MainAppScreen(
             task = task,
             categoryOptions = categoryOptions,
             statusOptions = statusOptions,
+            isSaving = task.id in activeTaskSaveKeys,
             onDismiss = { editingTaskState.value = null },
         ) { title, cat, stat, due, sched ->
             viewModel.updateTask(
@@ -470,9 +476,13 @@ fun MainAppScreen(
                 category = cat,
                 dueDate = due,
                 scheduledDate = sched,
-                onSuccess = {
+                onConfirmed = {
                     editingTaskState.value = null
                     Toast.makeText(context, "タスクを更新しました", Toast.LENGTH_SHORT).show()
+                },
+                onPending = {
+                    editingTaskState.value = null
+                    Toast.makeText(context, "端末に保存しました。同期を再開すると更新されます", Toast.LENGTH_LONG).show()
                 }
             ) { errorMsg ->
                 Toast.makeText(context, "エラー: $errorMsg", Toast.LENGTH_LONG).show()
@@ -486,7 +496,9 @@ private fun SyncStatusAction(state: SyncUiState, onClick: () -> Unit) {
     val (label, icon, containerColor, contentColor) = when (state) {
         is SyncUiState.Synced -> SyncBadge("同期済", Icons.Default.CloudDone, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
         SyncUiState.Syncing -> SyncBadge("同期中", Icons.Default.Sync, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary)
-        else -> SyncBadge("未同期", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        is SyncUiState.PendingChanges -> SyncBadge("同期保留 (${state.count})", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        is SyncUiState.Failed -> SyncBadge("同期エラー", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
+        SyncUiState.NotConfigured -> SyncBadge("未設定", Icons.Default.CloudOff, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error)
     }
     Row(
         modifier = Modifier

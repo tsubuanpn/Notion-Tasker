@@ -10,13 +10,16 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.notiontasks.app.data.local.TaskDatabase
+import com.notiontasks.app.data.local.ScheduleBlockEntity
+import com.notiontasks.app.data.local.TaskEntity
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.utils.SecurityUtils
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import com.notiontasks.app.utils.JapanTime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -27,81 +30,178 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private val JAPAN_ZONE: ZoneId = ZoneId.of("Asia/Tokyo")
+private const val LOG_TAG = "TaskNotification"
+
+/** Runs notification work in the application-owned scope and keeps cancellation distinct from failures. */
+private fun launchNotificationWork(context: Context, work: suspend () -> Unit) {
+    val app = context.applicationContext as? NotionTaskerApplication
+    if (app == null) {
+        Log.e(LOG_TAG, "Notification work skipped because the application scope is unavailable")
+        return
+    }
+    app.notificationWorkScope.launch {
+        try {
+            work()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            // Do not log notification payloads or connection details.
+            Log.e(LOG_TAG, "Notification work failed (${failure.javaClass.simpleName})")
+        }
+    }
+}
+
+private fun launchReceiverWork(
+    context: Context,
+    pendingResult: BroadcastReceiver.PendingResult,
+    work: suspend () -> Unit,
+) {
+    val app = context.applicationContext as? NotionTaskerApplication
+    if (app == null) {
+        Log.e(LOG_TAG, "Receiver work skipped because the application scope is unavailable")
+        pendingResult.finish()
+        return
+    }
+    app.notificationWorkScope.launch {
+        try {
+            work()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            // Do not log notification payloads or connection details.
+            Log.e(LOG_TAG, "Receiver work failed (${failure.javaClass.simpleName})")
+        } finally {
+            pendingResult.finish()
+        }
+    }
+}
+
+private fun parseLocalDateOrNull(value: String): LocalDate? =
+    runCatching { LocalDate.parse(value) }.getOrNull()
+
+/** The current Room state authorized to produce a block notification. */
+internal data class BlockNotificationTarget(
+    val title: String,
+    val type: String,
+    val associatedId: String?,
+)
+
+/**
+ * Validates an alarm against the latest local records. Alarm extras are deliberately
+ * absent: scheduled Intents are stale by design and must never decide notification data.
+ */
+internal fun currentBlockNotificationTarget(
+    block: ScheduleBlockEntity,
+    scopedTasks: List<TaskEntity>,
+    completedStatus: String,
+): BlockNotificationTarget? {
+    val associatedTask = block.associatedId?.let { id -> scopedTasks.find { it.id == id } }
+    if (block.type == "task" && (associatedTask == null || associatedTask.status.trim() == completedStatus)) {
+        return null
+    }
+    return BlockNotificationTarget(
+        title = block.title,
+        type = block.type,
+        associatedId = block.associatedId,
+    )
+}
+
 class TaskNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if ((intent.action == Intent.ACTION_BOOT_COMPLETED) || 
             (intent.action == "android.intent.action.BOOT_COMPLETED") || 
             (intent.action == "android.intent.action.QUICKBOOT_POWERON")) {
-            val pendingResult = goAsync()
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    rescheduleAlarmsInternal(context)
-                } finally {
-                    pendingResult.finish()
+            val focusPrefs = context.getSharedPreferences("pomodoro_prefs", Context.MODE_PRIVATE)
+            if (focusPrefs.getBoolean(PomodoroService.PREF_SESSION_ACTIVE, false)) {
+                runCatching {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, PomodoroService::class.java).setAction(PomodoroService.ACTION_RESTORE),
+                    )
+                }.onFailure {
+                    Log.w(LOG_TAG, "Unable to restore the focus service after boot (${it.javaClass.simpleName})")
                 }
+            }
+            val pendingResult = goAsync()
+            launchReceiverWork(context, pendingResult) {
+                rescheduleAlarmsInternal(context)
             }
             return
         }
 
         val type = intent.getStringExtra("NOTIF_TYPE") ?: return
-        
         val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                createNotificationChannel(context)
-                
-                val database = TaskDatabase.getInstance(context.applicationContext)
-                val allTasks = database.taskDao.getAllTasksFlow().first()
-                
-                val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val completedStatus = getSecurePreferences(context).getString("mapping_status_completed", "完了") ?: "完了"
-                
-                when (type) {
-                    "MORNING" -> {
-                        val todayTasks = allTasks.filter { it.scheduledDate == todayStr }
-                        if (todayTasks.isNotEmpty()) {
-                            showNotification(
-                                context = context,
-                                notifId = 2001,
-                                title = "【朝の確認】本日のタスクが${todayTasks.size}件あります。",
-                                tasksList = todayTasks.map { it.title },
-                            )
-                        }
-                        rescheduleAlarmForType(context, "MORNING")
-                    }
-                    "EVENING" -> {
-                        val unfinishedTasks = allTasks.filter {
-                            (it.scheduledDate == todayStr) && (it.status != completedStatus)
-                        }
-                        if (unfinishedTasks.isNotEmpty()) {
-                            showNotification(
-                                context = context,
-                                notifId = 2002,
-                                title = "【夜の確認】本日のタスクが${unfinishedTasks.size}件残っています。",
-                                tasksList = unfinishedTasks.map { it.title },
-                            )
-                        }
-                        rescheduleAlarmForType(context, "EVENING")
-                    }
-                    "BLOCK_START" -> {
-                        val blockTitle = intent.getStringExtra("BLOCK_TITLE") ?: "時間割のアラート"
-                        val blockType = intent.getStringExtra("BLOCK_TYPE") ?: "life"
-                        val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
-                        val associatedId = intent.getStringExtra("ASSOCIATED_ID")
-                        showBlockNotification(
-                            context = context,
-                            notifId = 3000 + blockId.hashCode(),
-                            title = blockTitle,
-                            blockType = blockType,
-                            associatedId = associatedId,
-                        )
-                    }
+        launchReceiverWork(context, pendingResult) {
+            handleNotificationIntent(context, intent, type)
+        }
+    }
+
+    /** Reads the latest durable state before notifying; alarm extras are never trusted as data. */
+    private suspend fun handleNotificationIntent(context: Context, intent: Intent, type: String) {
+        createNotificationChannel(context)
+
+        val database = TaskDatabase.getInstance(context.applicationContext)
+        val securePreferences = getSecurePreferencesOrNull(context) ?: return
+        val currentConnectionScope = securePreferences
+            .getString("database_id", "")
+            ?.trim()
+            .orEmpty()
+        // Old cache rows without a verified connection must never trigger notifications.
+        val allTasks = database.taskDao.getAllTasksFlow().first()
+            .filter { currentConnectionScope.isNotBlank() && it.connectionScope == currentConnectionScope }
+
+        val todayStr = LocalDate.now(JAPAN_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val completedStatus = securePreferences.getString("mapping_status_completed", "完了")
+            ?.trim().orEmpty().ifBlank { "完了" }
+
+        when (type) {
+            "MORNING" -> {
+                val todayTasks = allTasks.filter {
+                    JapanTime.projectedDateKey(it.scheduledDate) == todayStr && it.status.trim() != completedStatus
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                pendingResult.finish()
+                if (todayTasks.isNotEmpty()) {
+                    showNotification(
+                        context = context,
+                        notifId = 2001,
+                        title = "【朝の確認】本日のタスクが${todayTasks.size}件あります。",
+                        tasksList = todayTasks.map { it.title },
+                    )
+                }
+                rescheduleAlarmForType(context, "MORNING")
+            }
+            "EVENING" -> {
+                val unfinishedTasks = allTasks.filter {
+                    (JapanTime.projectedDateKey(it.scheduledDate) == todayStr) && it.status.trim() != completedStatus
+                }
+                if (unfinishedTasks.isNotEmpty()) {
+                    showNotification(
+                        context = context,
+                        notifId = 2002,
+                        title = "【夜の確認】本日のタスクが${unfinishedTasks.size}件残っています。",
+                        tasksList = unfinishedTasks.map { it.title },
+                    )
+                }
+                rescheduleAlarmForType(context, "EVENING")
+            }
+            "BLOCK_START" -> {
+                val blockId = intent.getStringExtra("BLOCK_ID") ?: ""
+                // Never trust an old alarm Intent: the block may have been deleted or
+                // changed after it was scheduled. Read the current local record first.
+                val currentBlock = blockId.takeIf { it.isNotBlank() }
+                    ?.let { database.scheduleBlockDao.getBlockById(it) }
+                    ?: return
+                // タスクに紐づく時間枠は、キャッシュ上で対象タスクが存在し未完了の
+                // 場合だけ通知する。削除済み・完了済みのタスクを知らせない。
+                val target = currentBlockNotificationTarget(currentBlock, allTasks, completedStatus) ?: return
+                showBlockNotification(
+                    context = context,
+                    notifId = 3000 + blockId.hashCode(),
+                    title = target.title,
+                    blockType = target.type,
+                    associatedId = target.associatedId,
+                )
             }
         }
     }
@@ -230,18 +330,21 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             return SecurityUtils.getSecurePreferences(context)
         }
 
+        private fun getSecurePreferencesOrNull(context: Context): SharedPreferences? =
+            runCatching { getSecurePreferences(context) }.getOrNull()
+
         /**
          * すべてのアラーム（朝夜通知および時間割）を再スケジュールします。
          */
         fun rescheduleAlarms(context: Context) {
-            CoroutineScope(Dispatchers.IO).launch {
+            launchNotificationWork(context) {
                 rescheduleAlarmsInternal(context)
             }
         }
 
         private suspend fun rescheduleAlarmsInternal(context: Context) {
             // 1. 朝と夜の定期通知をスケジュール
-            val prefs = getSecurePreferences(context)
+            val prefs = getSecurePreferencesOrNull(context) ?: return
             val morningEnabled = prefs.getBoolean("morning_notif_enabled", true)
             val eveningEnabled = prefs.getBoolean("evening_notif_enabled", true)
             
@@ -261,33 +364,29 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             }
 
             // 2. データベースから未来の時間割（タイムブロック）を再スケジュール
-            try {
-                val database = TaskDatabase.getInstance(context.applicationContext)
-                val blocks = database.scheduleBlockDao.getAllBlocks()
-                val today = LocalDate.now()
-                
-                blocks.forEach { entity ->
-                    val blockDate = try { LocalDate.parse(entity.date) } catch(_: Exception) { null }
-                    if (blockDate != null && !blockDate.isBefore(today)) {
-                        scheduleBlockAlarm(context, TimeBlock(
-                            id = entity.id,
-                            type = entity.type,
-                            title = entity.title,
-                            associatedId = entity.associatedId,
-                            startTime = entity.startTime,
-                            endTime = entity.endTime,
-                            color = entity.color,
-                            date = entity.date
-                        ))
-                    }
+            val database = TaskDatabase.getInstance(context.applicationContext)
+            val blocks = database.scheduleBlockDao.getAllBlocks()
+            val today = LocalDate.now(JAPAN_ZONE)
+
+            blocks.forEach { entity ->
+                val blockDate = parseLocalDateOrNull(entity.date)
+                if (blockDate != null && !blockDate.isBefore(today)) {
+                    scheduleBlockAlarm(context, TimeBlock(
+                        id = entity.id,
+                        type = entity.type,
+                        title = entity.title,
+                        associatedId = entity.associatedId,
+                        startTime = entity.startTime,
+                        endTime = entity.endTime,
+                        color = entity.color,
+                        date = entity.date
+                    ))
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
 
         fun rescheduleAlarmForType(context: Context, type: String) {
-            val prefs = getSecurePreferences(context)
+            val prefs = getSecurePreferencesOrNull(context) ?: return
             val enabledKey = if (type == "MORNING") "morning_notif_enabled" else "evening_notif_enabled"
             val enabled = prefs.getBoolean(enabledKey, true)
             if (!enabled) {
@@ -340,12 +439,12 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             val hour = parts[0].toIntOrNull() ?: return
             val minute = parts[1].toIntOrNull() ?: return
 
-            var scheduledTime = LocalDateTime.of(LocalDate.now(), LocalTime.of(hour, minute))
-            if (scheduledTime.isBefore(LocalDateTime.now())) {
+            var scheduledTime = LocalDateTime.of(LocalDate.now(JAPAN_ZONE), LocalTime.of(hour, minute))
+            if (scheduledTime.isBefore(LocalDateTime.now(JAPAN_ZONE))) {
                 scheduledTime = scheduledTime.plusDays(1)
             }
 
-            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val millis = scheduledTime.atZone(JAPAN_ZONE).toInstant().toEpochMilli()
 
             setExactAlarm(alarmManager, millis, pendingIntent)
         }
@@ -381,18 +480,18 @@ class TaskNotificationReceiver : BroadcastReceiver() {
             )
 
             // 日付と開始時間を変換する
-            val date = try { LocalDate.parse(block.date) } catch (_: Exception) { return }
+            val date = parseLocalDateOrNull(block.date) ?: return
 
             val hour = block.startTime / 60
             val minute = block.startTime % 60
 
             val scheduledTime = LocalDateTime.of(date, LocalTime.of(hour, minute))
 
-            if (scheduledTime.isBefore(LocalDateTime.now())) {
+            if (scheduledTime.isBefore(LocalDateTime.now(JAPAN_ZONE))) {
                 return // すでに過去の時間です
             }
 
-            val millis = scheduledTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val millis = scheduledTime.atZone(JAPAN_ZONE).toInstant().toEpochMilli()
 
             setExactAlarm(alarmManager, millis, pendingIntent)
         }

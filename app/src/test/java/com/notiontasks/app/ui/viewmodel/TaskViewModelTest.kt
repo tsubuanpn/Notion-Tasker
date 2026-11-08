@@ -7,10 +7,14 @@ import app.cash.turbine.test
 import com.notiontasks.app.TaskNotificationReceiver
 import com.notiontasks.app.data.model.LifeActivity
 import com.notiontasks.app.data.model.TaskModel
+import com.notiontasks.app.data.model.TimeBlockOrigin
+import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.data.repository.PomodoroRepository
-import com.notiontasks.app.data.repository.ScheduleRepository
+import com.notiontasks.app.data.repository.ScheduleStore
 import com.notiontasks.app.data.repository.TaskRepository
+import com.notiontasks.app.data.repository.TaskSaveResult
 import io.mockk.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
@@ -26,7 +30,7 @@ import org.junit.Test
 class TaskViewModelTest {
 
     private val repository: TaskRepository = mockk(relaxed = true)
-    private val scheduleRepository: ScheduleRepository = mockk(relaxed = true)
+    private val scheduleRepository: ScheduleStore = mockk(relaxed = true)
     private val pomodoroRepository: PomodoroRepository = mockk(relaxed = true)
     private val sharedPrefs: SharedPreferences = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)
@@ -40,6 +44,7 @@ class TaskViewModelTest {
         // AlarmManager と通知関連のスタティックメソッドをモック
         mockkObject(TaskNotificationReceiver.Companion)
         every { TaskNotificationReceiver.scheduleBlockAlarm(any(), any()) } returns Unit
+        every { TaskNotificationReceiver.cancelBlockAlarm(any(), any()) } returns Unit
 
         val alarmManager: AlarmManager = mockk(relaxed = true)
         every { context.getSystemService(Context.ALARM_SERVICE) } returns alarmManager
@@ -200,6 +205,84 @@ class TaskViewModelTest {
     }
 
     @Test
+    fun addTask_whileCreateIsInFlight_acceptsOnlyOneRequest() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        every { sharedPrefs.getString("database_id", "") } returns "database"
+        val completion = CompletableDeferred<TaskSaveResult>()
+        coEvery {
+            repository.createTask(
+                token = any(),
+                databaseId = any(),
+                title = any(),
+                status = any(),
+                category = any(),
+                dueDate = any(),
+                scheduledDate = any(),
+                statusColor = any(),
+                categoryColor = any(),
+            )
+        } coAnswers { completion.await() }
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+
+        viewModel.addTask(title = "同じタスク", category = "仕事")
+        viewModel.addTask(title = "同じタスク", category = "仕事")
+        runCurrent()
+
+        coVerify(exactly = 1) { repository.createTask(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        completion.complete(TaskSaveResult.Confirmed)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun updateTask_pendingSave_reportsPendingInsteadOfConfirmed() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        coEvery {
+            repository.updateTask(
+                token = any(), pageId = any(), title = any(), status = any(), category = any(),
+                dueDate = any(), scheduledDate = any(), statusColor = any(), categoryColor = any(),
+            )
+        } returns TaskSaveResult.Pending
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+        var confirmed = false
+        var pending = false
+
+        viewModel.updateTask(
+            id = "task", title = "Task", status = "進行中", category = "",
+            onConfirmed = { confirmed = true },
+            onPending = { pending = true },
+        )
+        advanceUntilIdle()
+
+        assertTrue(pending)
+        assertTrue(!confirmed)
+    }
+
+    @Test
+    fun updateTask_permanentFailure_doesNotReportSaved() = runTest {
+        every { sharedPrefs.getString("notion_token", "") } returns "token"
+        coEvery {
+            repository.updateTask(
+                token = any(), pageId = any(), title = any(), status = any(), category = any(),
+                dueDate = any(), scheduledDate = any(), statusColor = any(), categoryColor = any(),
+            )
+        } throws IllegalArgumentException("invalid property")
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+        var saved = false
+        var failure = ""
+
+        viewModel.updateTask(
+            id = "task", title = "Task", status = "進行中", category = "",
+            onConfirmed = { saved = true },
+            onPending = { saved = true },
+            onFailure = { failure = it },
+        )
+        advanceUntilIdle()
+
+        assertTrue(!saved)
+        assertEquals("invalid property", failure)
+    }
+
+    @Test
     fun autoInitializeDefaultLifeActivities_uninitializedDate_executesSync() = runTest {
         // Arrange
         val date = "2026-08-02"
@@ -217,7 +300,14 @@ class TaskViewModelTest {
 
         // Assert
         // 保存処理 (saveTimeBlock) が呼ばれることを確認
-        coVerify { scheduleRepository.saveTimeBlock(match { it.associatedId == "la_sleep" }) }
+        coVerify {
+            scheduleRepository.saveTimeBlock(match {
+                it.associatedId == "la_sleep" &&
+                    it.origin == TimeBlockOrigin.PRESET &&
+                    it.presetId == "la_sleep" &&
+                    it.presetGeneration == 1L
+            })
+        }
         // 初期化済み日付として保存されることを確認
         verify { sharedPrefs.edit() }
     }
@@ -237,5 +327,22 @@ class TaskViewModelTest {
         // Assert
         // 既に初期化済みなので、保存処理は呼ばれない
         coVerify(exactly = 0) { scheduleRepository.saveTimeBlocks(any()) }
+    }
+
+    @Test
+    fun deleteLifeActivity_removesOnlyFutureBlocksGeneratedByThatPreset() = runTest {
+        coEvery { scheduleRepository.getAllTimeBlocks() } returns listOf(
+            TimeBlock("generated", "life", "Generated", "la_sleep", 0, 60, "#000", "2999-01-01", TimeBlockOrigin.PRESET, "la_sleep", 1),
+            TimeBlock("manual", "life", "Manual", "la_sleep", 70, 130, "#000", "2999-01-01", TimeBlockOrigin.MANUAL),
+            TimeBlock("legacy", "life", "Legacy", "la_sleep", 140, 200, "#000", "2999-01-01", TimeBlockOrigin.LEGACY),
+        )
+        val viewModel = TaskViewModel(repository, scheduleRepository, pomodoroRepository, sharedPrefs)
+
+        viewModel.deleteLifeActivity(context, "la_sleep")
+        advanceUntilIdle()
+
+        coVerify { scheduleRepository.deleteTimeBlockById("generated") }
+        coVerify(exactly = 0) { scheduleRepository.deleteTimeBlockById("manual") }
+        coVerify(exactly = 0) { scheduleRepository.deleteTimeBlockById("legacy") }
     }
 }

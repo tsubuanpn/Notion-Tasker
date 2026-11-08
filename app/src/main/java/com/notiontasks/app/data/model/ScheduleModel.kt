@@ -2,6 +2,13 @@ package com.notiontasks.app.data.model
 
 import kotlinx.serialization.Serializable
 
+/** Provenance is explicit so old or manually edited blocks are never regenerated implicitly. */
+object TimeBlockOrigin {
+    const val MANUAL = "manual"
+    const val PRESET = "preset"
+    const val LEGACY = "legacy"
+}
+
 @Serializable
 data class TimeBlock(
     val id: String,
@@ -12,6 +19,12 @@ data class TimeBlock(
     val endTime: Int, // 深夜零時からの経過分 (例: 600 = 10:00)
     val color: String, // 16進数のカラー文字列 (例: "#4CAF50")
     val date: String, // "yyyy-MM-dd"
+    /** manual, preset, or legacy/unknown. Existing data migrates to legacy conservatively. */
+    val origin: String = TimeBlockOrigin.MANUAL,
+    /** The life-activity preset that generated this block, if [origin] is preset. */
+    val presetId: String? = null,
+    /** Monotonic generation marker for idempotent preset regeneration. */
+    val presetGeneration: Long = 0L,
 )
 
 @Serializable

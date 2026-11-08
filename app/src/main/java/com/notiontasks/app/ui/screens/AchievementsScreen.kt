@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -64,20 +68,24 @@ import com.notiontasks.app.data.CategoryStats
 import com.notiontasks.app.data.GroupedPomodoroLog
 import com.notiontasks.app.data.PomodoroLog
 import com.notiontasks.app.data.formatDecimal
+import com.notiontasks.app.data.formatFocusSessionCount
 import com.notiontasks.app.data.formatDurationJapanese
 import com.notiontasks.app.data.getCategoryChartColorInCompose
 import com.notiontasks.app.data.groupPomodoroLogs
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
-import com.notiontasks.app.ui.components.EmptyStateView
 import com.notiontasks.app.ui.components.TaskItemCard
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.ui.theme.WarningOrangeContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeContainerLight
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerDark
 import com.notiontasks.app.ui.theme.WarningOrangeOnContainerLight
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
-import java.util.Calendar
+import com.notiontasks.app.utils.JapanTime
+import java.time.Instant
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private data class AchievementsData(
@@ -91,6 +99,66 @@ private data class AchievementsData(
     val monthRate: Int,
     val warningTasks: List<TaskModel>,
 )
+
+@Composable
+private fun AchievementsTabSelector(
+    selectedPage: String,
+    onPageSelected: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        listOf(
+            "review" to "振り返り",
+            "stats" to "集中記録",
+            "completed" to "完了済み",
+        ).forEach { (page, label) ->
+            val isSelected = selectedPage == page
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.Tab,
+                        onClick = { onPageSelected(page) },
+                    )
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                    color = if (isSelected) {
+                        when (page) {
+                            "review" -> MaterialTheme.colorScheme.primary
+                            "stats" -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.tertiary
+                        }
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun AchievementsScreen(
@@ -109,73 +177,72 @@ fun AchievementsScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        when (val state = uiState) {
+        if (subPage == "stats" && uiState !is TasksUiState.Success) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AchievementsTabSelector(subPage) { subPage = it }
+                PomodoroStatsSubPage(
+                    viewModel = viewModel,
+                    categoryOptions = categoryOptions,
+                    categoryColorMap = emptyMap(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            when (val state = uiState) {
             is TasksUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
             is TasksUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Text(text = "エラーが発生しました: ${state.message}", color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { subPage = "stats" }) {
+                        Text("集中記録を表示")
+                    }
                 }
             }
             is TasksUiState.Idle -> {
-                EmptyStateView(
-                    message = "タスクデータがありません。同期して実績を確認してください。",
-                ) { viewModel.syncWithNotion() }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = "タスクデータがありません。同期して実績を確認してください。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 24.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = { viewModel.syncWithNotion() }) {
+                        Text("データを同期する")
+                    }
+                    TextButton(onClick = { subPage = "stats" }) {
+                        Text("集中記録を表示")
+                    }
+                }
             }
             is TasksUiState.Success -> {
-                val todayStr = remember {
-                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-                }
+                val todayStr = rememberJapanToday()
 
-                val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()) }
-                val startOfWeekCal = remember {
-                    Calendar.getInstance().apply {
-                        firstDayOfWeek = Calendar.MONDAY
-                        val day = get(Calendar.DAY_OF_WEEK)
-                        val diff = if (day == Calendar.SUNDAY) -6 else Calendar.MONDAY - day
-                        add(Calendar.DAY_OF_MONTH, diff)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                }
-                val endOfWeekCal = remember(startOfWeekCal) {
-                    Calendar.getInstance().apply {
-                        timeInMillis = startOfWeekCal.timeInMillis
-                        add(Calendar.DAY_OF_MONTH, 6)
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                        set(Calendar.MILLISECOND, 999)
-                    }
-                }
-                val startOfWeekStr = remember(startOfWeekCal) { sdf.format(startOfWeekCal.time) }
-                val endOfWeekStr = remember(endOfWeekCal) { sdf.format(endOfWeekCal.time) }
-
-                val startOfMonthCal = remember {
-                    Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_MONTH, 1)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                }
-                val endOfMonthCal = remember {
-                    Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                        set(Calendar.MILLISECOND, 999)
-                    }
-                }
-                val startOfMonthStr = remember(startOfMonthCal) { sdf.format(startOfMonthCal.time) }
-                val endOfMonthStr = remember(endOfMonthCal) { sdf.format(endOfMonthCal.time) }
+                val today = remember(todayStr) { LocalDate.parse(todayStr) }
+                val startOfWeekStr = remember(today) { JapanTime.startOfWeek(today).toString() }
+                val endOfWeekStr = remember(today) { JapanTime.endOfWeek(today).toString() }
+                val startOfMonthStr = remember(today) { today.withDayOfMonth(1).toString() }
+                val endOfMonthStr = remember(today) { today.withDayOfMonth(today.lengthOfMonth()).toString() }
 
                 // 1. 期限切れ、持ち越し、週、月、および警告の計算を remember で最適化
                 val achievementsData = remember(
@@ -183,12 +250,18 @@ fun AchievementsScreen(
                     startOfWeekStr, endOfWeekStr, startOfMonthStr, endOfMonthStr
                 ) {
                     val completedStatusTrimmed = completedStatus.trim()
-                    val overdueCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.dueDate != null) && (it.dueDate < todayStr) }
-                    val carriedOverCountVal = state.tasks.count { (it.status.trim() != completedStatusTrimmed) && (it.scheduledDate != null) && (it.scheduledDate < todayStr) }
+                    val overdueCountVal = state.tasks.count {
+                        it.status.trim() != completedStatusTrimmed &&
+                            (JapanTime.projectedDateKey(it.dueDate)?.let { date -> date < todayStr } == true)
+                    }
+                    val carriedOverCountVal = state.tasks.count {
+                        it.status.trim() != completedStatusTrimmed &&
+                            (JapanTime.projectedDateKey(it.scheduledDate)?.let { date -> date < todayStr } == true)
+                    }
 
                     val weekTasksVal = state.tasks.filter {
-                        val sched = it.scheduledDate
-                        val due = it.dueDate
+                        val sched = JapanTime.projectedDateKey(it.scheduledDate)
+                        val due = JapanTime.projectedDateKey(it.dueDate)
                         ((sched != null) && (sched >= startOfWeekStr) && (sched <= endOfWeekStr)) ||
                         ((due != null) && (due >= startOfWeekStr) && (due <= endOfWeekStr))
                     }
@@ -196,8 +269,8 @@ fun AchievementsScreen(
                     val weekRateVal = if (weekTasksVal.isNotEmpty()) (completedWeekCountVal * 100) / weekTasksVal.size else 0
 
                     val monthTasksVal = state.tasks.filter {
-                        val sched = it.scheduledDate
-                        val due = it.dueDate
+                        val sched = JapanTime.projectedDateKey(it.scheduledDate)
+                        val due = JapanTime.projectedDateKey(it.dueDate)
                         ((sched != null) && (sched >= startOfMonthStr) && (sched <= endOfMonthStr)) ||
                         ((due != null) && (due >= startOfMonthStr) && (due <= endOfMonthStr))
                     }
@@ -206,12 +279,12 @@ fun AchievementsScreen(
 
                     val warningTasksVal = state.tasks.asSequence().filter {
                         (it.status.trim() != completedStatusTrimmed) && (
-                            ((it.dueDate != null) && (it.dueDate < todayStr)) ||
-                            ((it.scheduledDate != null) && (it.scheduledDate < todayStr))
+                            (JapanTime.projectedDateKey(it.dueDate)?.let { date -> date < todayStr } == true) ||
+                            (JapanTime.projectedDateKey(it.scheduledDate)?.let { date -> date < todayStr } == true)
                         )
                     }.sortedWith(
-                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { it.scheduledDate }
-                            .thenBy(nullsLast(naturalOrder())) { it.dueDate }
+                        compareBy<TaskModel, String?>(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
+                            .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
                             .thenBy { it.id }
                     ).toList()
 
@@ -244,60 +317,7 @@ fun AchievementsScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // タブセレクター
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        listOf(
-                            "review" to "振り返り",
-                            "stats" to "集中記録",
-                            "completed" to "完了済み",
-                        ).forEach { (page, label) ->
-                            val isSelected = subPage == page
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.surface
-                                        } else {
-                                            Color.Transparent
-                                        },
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { subPage = page }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
-                                    color = if (isSelected) {
-                                        when (page) {
-                                            "review" -> MaterialTheme.colorScheme.primary
-                                            "stats" -> MaterialTheme.colorScheme.secondary
-                                            else -> MaterialTheme.colorScheme.tertiary
-                                        }
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    AchievementsTabSelector(subPage) { subPage = it }
 
                     when (subPage) {
                         "review" -> {
@@ -680,6 +700,7 @@ fun AchievementsScreen(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -694,24 +715,15 @@ private fun ReviewOverview(
     onCycleTask: (TaskModel) -> Unit,
 ) {
     var period by remember { mutableStateOf("today") }
-    val today = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+    val today = rememberJapanToday()
     val bounds = remember(period, today) {
-        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-        val calendar = Calendar.getInstance()
+        val date = LocalDate.parse(today)
         when (period) {
             "week" -> {
-                calendar.firstDayOfWeek = Calendar.MONDAY
-                val day = calendar.get(Calendar.DAY_OF_WEEK)
-                calendar.add(Calendar.DAY_OF_MONTH, if (day == Calendar.SUNDAY) -6 else Calendar.MONDAY - day)
-                val start = formatter.format(calendar.time)
-                calendar.add(Calendar.DAY_OF_MONTH, 6)
-                Triple(start, formatter.format(calendar.time), "今週")
+                Triple(JapanTime.startOfWeek(date).toString(), JapanTime.endOfWeek(date).toString(), "今週")
             }
             "month" -> {
-                calendar.set(Calendar.DAY_OF_MONTH, 1)
-                val start = formatter.format(calendar.time)
-                calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
-                Triple(start, formatter.format(calendar.time), "今月")
+                Triple(date.withDayOfMonth(1).toString(), date.withDayOfMonth(date.lengthOfMonth()).toString(), "今月")
             }
             else -> Triple(today, today, "今日")
         }
@@ -725,10 +737,15 @@ private fun ReviewOverview(
     val attentionTasks = remember(tasks, completedTrimmed, today) {
         tasks.filter { task ->
             task.status.trim() != completedTrimmed &&
-                ((task.dueDate != null && task.dueDate < today) || (task.scheduledDate != null && task.scheduledDate < today))
+                (JapanTime.projectedDateKey(task.dueDate)?.let { date -> date < today } == true ||
+                    JapanTime.projectedDateKey(task.scheduledDate)?.let { date -> date < today } == true)
         }.sortedWith(
-            compareBy<TaskModel> { it.dueDate ?: it.scheduledDate ?: "9999-12-31" }
-                .thenBy { it.scheduledDate ?: "9999-12-31" }
+            compareBy<TaskModel> {
+                JapanTime.projectedDateKey(it.dueDate)
+                    ?: JapanTime.projectedDateKey(it.scheduledDate)
+                    ?: "9999-12-31"
+            }
+                .thenBy { JapanTime.projectedDateKey(it.scheduledDate) ?: "9999-12-31" }
                 .thenBy { it.title },
         )
     }
@@ -763,7 +780,11 @@ private fun ReviewOverview(
                         modifier = Modifier
                             .weight(1f)
                             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(18.dp))
-                            .clickable { period = key }
+                            .selectable(
+                                selected = selected,
+                                role = Role.Tab,
+                                onClick = { period = key },
+                            )
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -825,7 +846,11 @@ private fun ReviewOverview(
                             Text(if (attentionCount > 0) "対応が必要なタスク" else "計画の状態", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(if (attentionCount > 0) "${attentionCount}件の期限切れ・持ち越しがあります" else "期限切れ・持ち越しはありません", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                         }
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = if (attentionCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = if (attentionCount > 0) Icons.Default.WarningAmber else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = if (attentionCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
                     }
                     attentionTasks.forEach { task ->
                         TaskListCard(
@@ -858,6 +883,7 @@ fun PomodoroStatsSubPage(
     viewModel: TaskViewModel,
     categoryOptions: List<NotionOptionInfo>,
     categoryColorMap: Map<String, String?>,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val pomodoroLogs by viewModel.pomodoroLogs.collectAsState()
@@ -869,9 +895,7 @@ fun PomodoroStatsSubPage(
         prefs.getInt("work_duration_min", 25)
     }
 
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = rememberJapanToday()
     val currentMonthPrefix = todayStr.substring(0, 7)
 
     val todayMinutes = remember(pomodoroLogs, todayStr) {
@@ -892,29 +916,12 @@ fun PomodoroStatsSubPage(
 
     var weekOffset by remember { mutableIntStateOf(0) }
 
-    val thisWeekDays = remember(weekOffset) {
-        val list = mutableListOf<Pair<String, String>>()
-        val sdfLabel = java.text.SimpleDateFormat("MM/dd", java.util.Locale.getDefault())
-        val sdfIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-        
-        val cal = Calendar.getInstance()
-        val offsetToMonday = when (cal[Calendar.DAY_OF_WEEK]) {
-            Calendar.SUNDAY -> -6
-            Calendar.MONDAY -> 0
-            Calendar.TUESDAY -> -1
-            Calendar.WEDNESDAY -> -2
-            Calendar.THURSDAY -> -3
-            Calendar.FRIDAY -> -4
-            Calendar.SATURDAY -> -5
-            else -> 0
+    val thisWeekDays = remember(todayStr, weekOffset) {
+        val start = JapanTime.startOfWeek(LocalDate.parse(todayStr)).plusWeeks(weekOffset.toLong())
+        List(7) { index ->
+            val day = start.plusDays(index.toLong())
+            "%02d/%02d".format(java.util.Locale.getDefault(), day.monthValue, day.dayOfMonth) to day.toString()
         }
-        cal.add(Calendar.DAY_OF_MONTH, offsetToMonday + (weekOffset * 7))
-        
-        repeat(7) {
-            list.add(Pair(sdfLabel.format(cal.time), sdfIso.format(cal.time)))
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-        }
-        list
     }
 
     var selectedDate by remember { mutableStateOf<String?>(todayStr) }
@@ -964,7 +971,7 @@ fun PomodoroStatsSubPage(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -1234,16 +1241,9 @@ fun PomodoroStatsSubPage(
             selectedDate?.let { selDate ->
                 val dateLogs = remember(pomodoroLogs, selDate) { pomodoroLogs.filter { it.date == selDate } }
                 val formattedSelectedDate = remember(selDate) {
-                    try {
-                        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(selDate)
-                        if (date != null) {
-                            java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault()).format(date)
-                        } else {
-                            selDate
-                        }
-                    } catch (_: Exception) {
-                        selDate
-                    }
+                    runCatching {
+                        LocalDate.parse(selDate).format(DateTimeFormatter.ofPattern("M月d日", java.util.Locale.getDefault()))
+                    }.getOrDefault(selDate)
                 }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1271,7 +1271,7 @@ fun PomodoroStatsSubPage(
                             )
                             val totalMins = dateLogs.sumOf { it.minutes }
                             Text(
-                                text = "合計: ${totalMins / 60}時間${totalMins % 60}分 (${dateLogs.size}回)",
+                                text = "合計: ${totalMins / 60}時間${totalMins % 60}分 (${formatFocusSessionCount(totalMins, workDurationMin)}回)",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1294,8 +1294,10 @@ fun PomodoroStatsSubPage(
                                 groupedLogs.forEach { group ->
                                     val colorName = group.categoryColor ?: categoryColorMap[group.category]
                                     val catColor = getCategoryChartColorInCompose(colorName)
-                                    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
-                                    val timeRange = "${timeFormat.format(group.startTime)} - ${timeFormat.format(group.endTime)}"
+                                    val timeFormat = remember {
+                                        DateTimeFormatter.ofPattern("HH:mm", java.util.Locale.getDefault()).withZone(JapanTime.zoneId)
+                                    }
+                                    val timeRange = "${timeFormat.format(Instant.ofEpochMilli(group.startTime))} - ${timeFormat.format(Instant.ofEpochMilli(group.endTime))}"
 
                                     Row(
                                         modifier = Modifier
@@ -1350,9 +1352,8 @@ fun PomodoroStatsSubPage(
                                                         fontSize = 8.sp,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                     )
-                                                    val sessions = group.totalMinutes.toDouble() / workDurationMin
                                                     Text(
-                                                        text = "(${formatDecimal(sessions)}回)",
+                                                        text = "(${formatFocusSessionCount(group.totalMinutes, workDurationMin)}回)",
                                                         fontSize = 8.sp,
                                                         color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f),
                                                         fontWeight = FontWeight.Bold
@@ -1408,6 +1409,12 @@ fun PomodoroStatsSubPage(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    Text(
+                        text = "合計: ${formatDurationJapanese(totalReportMins)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1457,7 +1464,7 @@ fun PomodoroStatsSubPage(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val chunkedCats = sortedCats.asSequence().take(6).chunked(2).toList()
+                            val chunkedCats = sortedCats.chunked(2)
                             chunkedCats.forEach { rowItems ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1503,7 +1510,7 @@ fun PomodoroStatsSubPage(
                                                 }
                                                 Text(
                                                     text = if (sc.hours > 0) "${sc.hours}時間${sc.minsRemainder}分" else "${sc.minsRemainder}分",
-                                                    fontSize = 8.sp,
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                 )

@@ -24,10 +24,11 @@ val AppThemePalettes = listOf(
 )
 
 // Warning / Mochikoshi Colors
-val WarningOrangeContainerLight = Color(0xFFFFF3E0)
-val WarningOrangeOnContainerLight = Color(0xFFE65100)
-val WarningOrangeContainerDark = Color(0xFF4D2B00)
-val WarningOrangeOnContainerDark = Color(0xFFFFB347)
+// Today is deliberately amber rather than red so it remains distinct from overdue.
+val WarningOrangeContainerLight = Color(0xFFFFF0C2)
+val WarningOrangeOnContainerLight = Color(0xFF8A4F00)
+val WarningOrangeContainerDark = Color(0xFF513900)
+val WarningOrangeOnContainerDark = Color(0xFFFFD166)
 
 // Default (Blue) Colors
 val md_theme_light_primary = Color(0xFF0061A4)

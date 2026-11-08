@@ -46,12 +46,11 @@ fun formatDurationJapanese(minutes: Int): String {
 }
 
 fun formatDecimal(value: Double): String {
-    return if (value % 1.0 == 0.0) {
-        "${value.toInt()}"
-    } else {
-        String.format(java.util.Locale.US, "%.1f", value)
-    }
+    return String.format(java.util.Locale.US, "%.1f", value)
 }
+
+fun formatFocusSessionCount(minutes: Int, standardDurationMinutes: Int): String =
+    formatDecimal(minutes.toDouble() / standardDurationMinutes.coerceAtLeast(1))
 
 fun groupPomodoroLogs(logs: List<PomodoroLog>): List<GroupedPomodoroLog> {
     if (logs.isEmpty()) return emptyList()

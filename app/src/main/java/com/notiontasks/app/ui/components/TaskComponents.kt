@@ -30,14 +30,16 @@ import androidx.compose.ui.window.DialogProperties
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.theme.*
+import com.notiontasks.app.utils.JapanTime
 import java.util.Calendar
+import java.util.TimeZone
 
 fun getNotionCategoryColors(colorName: String?, isDark: Boolean): Pair<Color, Color> {
     return when (colorName) {
-        "gray" -> if (isDark) Pair(Color(0xFF2C2C2E), Color(0xFFEBEBF5)) else Pair(Color(0xFFF2F2F7), Color(0xFF8E8E93))
+        "gray" -> if (isDark) Pair(Color(0xFF2C2C2E), Color(0xFFEBEBF5)) else Pair(Color(0xFFF2F2F7), Color(0xFF636366))
         "brown" -> if (isDark) Pair(Color(0xFF3C3028), Color(0xFFD2B48C)) else Pair(Color(0xFFEFEBE9), Color(0xFF5D4037))
-        "orange" -> if (isDark) Pair(Color(0xFF4D2B00), Color(0xFFFFB347)) else Pair(Color(0xFFFFF3E0), Color(0xFFE65100))
-        "yellow" -> if (isDark) Pair(Color(0xFF4D4400), Color(0xFFFDFD96)) else Pair(Color(0xFFFFFDE7), Color(0xFFF57F17))
+        "orange" -> if (isDark) Pair(Color(0xFF4D2B00), Color(0xFFFFB347)) else Pair(Color(0xFFFFF3E0), Color(0xFFBF360C))
+        "yellow" -> if (isDark) Pair(Color(0xFF4D4400), Color(0xFFFDFD96)) else Pair(Color(0xFFFFFDE7), Color(0xFF6D4C00))
         "green" -> if (isDark) Pair(Color(0xFF003D1B), Color(0xFF77DD77)) else Pair(Color(0xFFE8F5E9), Color(0xFF2E7D32))
         "blue" -> if (isDark) Pair(Color(0xFF002D4D), Color(0xFF89CFF0)) else Pair(Color(0xFFE3F2FD), Color(0xFF0D47A1))
         "purple" -> if (isDark) Pair(Color(0xFF2D004D), Color(0xFFB39EB5)) else Pair(Color(0xFFF3E5F5), Color(0xFF6A1B9A))
@@ -59,15 +61,15 @@ fun TaskItemCard(
     onStatusClick: () -> Unit,
     onEditClick: () -> Unit
 ) {
-    val todayStr = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    }
+    val todayStr = JapanTime.todayIso()
 
     val isCompleted = task.status == completedStatus
     val isInProgress = task.status == inProgressStatus
 
-    val isOverdueDue = !isCompleted && task.dueDate != null && task.dueDate < todayStr
-    val isOverdueScheduled = !isCompleted && task.scheduledDate != null && task.scheduledDate < todayStr
+    val dueDate = JapanTime.projectedDateKey(task.dueDate)
+    val scheduledDate = JapanTime.projectedDateKey(task.scheduledDate)
+    val isOverdueDue = !isCompleted && dueDate != null && dueDate < todayStr
+    val isOverdueScheduled = !isCompleted && scheduledDate != null && scheduledDate < todayStr
 
     val isSystemDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
@@ -194,8 +196,8 @@ fun TaskItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (task.dueDate != null) {
-                        val isDueOver = task.status != completedStatus && task.dueDate < todayStr
-                        val isDueToday = task.status != completedStatus && task.dueDate == todayStr
+                        val isDueOver = task.status != completedStatus && dueDate != null && dueDate < todayStr
+                        val isDueToday = task.status != completedStatus && dueDate == todayStr
                         Text(
                             text = if (isDueOver) "⚠️ 締切: ${task.dueDate}" else "締切: ${task.dueDate}",
                             style = MaterialTheme.typography.bodySmall,
@@ -211,8 +213,8 @@ fun TaskItemCard(
                     }
 
                     if (task.scheduledDate != null) {
-                        val isSchedOver = task.status != completedStatus && task.scheduledDate < todayStr
-                        val isSchedToday = task.status != completedStatus && task.scheduledDate == todayStr
+                        val isSchedOver = task.status != completedStatus && scheduledDate != null && scheduledDate < todayStr
+                        val isSchedToday = task.status != completedStatus && scheduledDate == todayStr
                         Text(
                             text = if (isSchedOver) "持ち越し: ${task.scheduledDate}" else "予定: ${task.scheduledDate}",
                             style = MaterialTheme.typography.bodySmall,
@@ -260,6 +262,20 @@ fun EmptyStateView(
     }
 }
 
+internal fun datePickerInitialCalendar(
+    selectedDate: String,
+    fallback: Calendar = Calendar.getInstance(TimeZone.getTimeZone(JapanTime.zoneId.id)),
+): Calendar {
+    if (selectedDate.isBlank()) return fallback
+    val parsed = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            isLenient = false
+            timeZone = TimeZone.getTimeZone(JapanTime.zoneId.id)
+        }.parse(selectedDate)
+    }.getOrNull() ?: return fallback
+    return Calendar.getInstance(TimeZone.getTimeZone(JapanTime.zoneId.id)).apply { time = parsed }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTaskDialog(
@@ -267,6 +283,7 @@ fun AddTaskDialog(
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
     initialScheduledDate: String = "",
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String?, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
@@ -279,7 +296,7 @@ fun AddTaskDialog(
     var isStatusDropdownExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val calendar = Calendar.getInstance()
+    val dueDateCalendar = remember(dueDate) { datePickerInitialCalendar(dueDate) }
     val dueDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -287,10 +304,11 @@ fun AddTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        dueDateCalendar.get(Calendar.YEAR),
+        dueDateCalendar.get(Calendar.MONTH),
+        dueDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
+    val scheduledDateCalendar = remember(scheduledDate) { datePickerInitialCalendar(scheduledDate) }
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -298,9 +316,9 @@ fun AddTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        scheduledDateCalendar.get(Calendar.YEAR),
+        scheduledDateCalendar.get(Calendar.MONTH),
+        scheduledDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
     ModalBottomSheet(
@@ -321,6 +339,7 @@ fun AddTaskDialog(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
+                label = { Text("タスク名") },
                 placeholder = { Text("タスク名を入力") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -349,21 +368,35 @@ fun AddTaskDialog(
                     label = "予定",
                     value = scheduledDate.ifBlank { "予定なし" },
                     modifier = Modifier.weight(1f),
+                    onClear = scheduledDate.takeIf { it.isNotBlank() }?.let { { scheduledDate = "" } },
                     onClick = { scheduledDatePickerDialog.show() },
                 )
                 QuickAddChoice(
                     label = "締切",
                     value = dueDate.ifBlank { "未設定" },
                     modifier = Modifier.weight(1f),
+                    onClear = dueDate.takeIf { it.isNotBlank() }?.let { { dueDate = "" } },
                     onClick = { dueDatePickerDialog.show() },
                 )
             }
             Button(
-                onClick = { if (title.isNotBlank()) onConfirm(title, category, status.ifBlank { null }, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                onClick = { if (title.isNotBlank() && !isSaving) onConfirm(title, category, status.ifBlank { null }, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !isSaving,
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("追加する", fontWeight = FontWeight.Bold) }
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("保存中", fontWeight = FontWeight.Bold)
+                } else {
+                    Text("追加する", fontWeight = FontWeight.Bold)
+                }
+            }
             Text("保存後にNotionへ同期されます", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -404,6 +437,7 @@ fun EditTaskDialog(
     task: TaskModel,
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String, dueDate: String?, scheduledDate: String?) -> Unit
 ) {
@@ -417,7 +451,7 @@ fun EditTaskDialog(
 
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val calendar = Calendar.getInstance()
+    val dueDateCalendar = remember(dueDate) { datePickerInitialCalendar(dueDate) }
 
     val dueDatePickerDialog = DatePickerDialog(
         context,
@@ -426,11 +460,12 @@ fun EditTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             dueDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        dueDateCalendar.get(Calendar.YEAR),
+        dueDateCalendar.get(Calendar.MONTH),
+        dueDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
+    val scheduledDateCalendar = remember(scheduledDate) { datePickerInitialCalendar(scheduledDate) }
     val scheduledDatePickerDialog = DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
@@ -438,9 +473,9 @@ fun EditTaskDialog(
             val formattedDay = String.format(java.util.Locale.US, "%02d", dayOfMonth)
             scheduledDate = "$year-$formattedMonth-$formattedDay"
         },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
+        scheduledDateCalendar.get(Calendar.YEAR),
+        scheduledDateCalendar.get(Calendar.MONTH),
+        scheduledDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
 
     Dialog(
@@ -459,13 +494,24 @@ fun EditTaskDialog(
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Clear, contentDescription = "閉じる") }
                     Text("タスクを編集", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     TextButton(
-                        onClick = { if (title.isNotBlank()) onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
-                        enabled = title.isNotBlank(),
-                    ) { Text("保存", fontWeight = FontWeight.Bold) }
+                        onClick = { if (title.isNotBlank() && !isSaving) onConfirm(title, category, status, dueDate.ifBlank { null }, scheduledDate.ifBlank { null }) },
+                        enabled = title.isNotBlank() && !isSaving,
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Text("保存", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
+                    label = { Text("タスク名") },
                     placeholder = { Text("タスク名") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,

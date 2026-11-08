@@ -2,6 +2,7 @@ package com.notiontasks.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -45,13 +47,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.notiontasks.app.data.model.TaskModel
 import com.notiontasks.app.ui.components.getNotionCategoryColors
+import com.notiontasks.app.ui.components.rememberJapanToday
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
+import com.notiontasks.app.utils.JapanTime
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private val planSelectedDateFormatter = DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPAN)
 
 /** カレンダーを既定に、時間割を同一階層で切り替える計画画面。 */
 @Composable
@@ -65,23 +70,29 @@ fun PlanOverviewScreen(
     val tasksState by viewModel.tasksState.collectAsState()
     val completedStatus by viewModel.statusCompleted.collectAsState()
     val inProgressStatus by viewModel.statusInProgress.collectAsState()
-    val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val today = rememberJapanToday()
     val tasks = (tasksState as? TasksUiState.Success)?.tasks.orEmpty()
     val selectedDate = selectedCalendarDate.value ?: today
-    var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)) }
-    var month by remember { mutableIntStateOf((selectedDate.substringAfter("-").take(2).toIntOrNull() ?: Calendar.getInstance().get(Calendar.MONTH) + 1) - 1) }
+    val japanToday = remember(today) { LocalDate.parse(today) }
+    var year by remember { mutableIntStateOf(selectedDate.take(4).toIntOrNull() ?: japanToday.year) }
+    var month by remember { mutableIntStateOf((selectedDate.substringAfter("-").take(2).toIntOrNull() ?: japanToday.monthValue) - 1) }
     val tasksByDate = remember(tasks) {
         buildMap<String, MutableList<TaskModel>> {
             tasks.forEach { task ->
-                listOfNotNull(task.scheduledDate, task.dueDate).distinct().forEach { date ->
+                listOfNotNull(
+                    JapanTime.projectedDateKey(task.scheduledDate),
+                    JapanTime.projectedDateKey(task.dueDate),
+                ).distinct().forEach { date ->
                     getOrPut(date) { mutableListOf() }.add(task)
                 }
             }
         }
     }
     val selectedTasks = remember(tasks, selectedDate) {
-        tasks.filter { it.scheduledDate == selectedDate || it.dueDate == selectedDate }
-            .sortedBy { it.scheduledDate ?: it.dueDate }
+        tasks.filter {
+            JapanTime.projectedDateKey(it.scheduledDate) == selectedDate ||
+                JapanTime.projectedDateKey(it.dueDate) == selectedDate
+        }.sortedBy { JapanTime.projectedDateKey(it.scheduledDate) ?: JapanTime.projectedDateKey(it.dueDate) }
     }
     val calendarDays = remember(year, month) { monthCells(year, month) }
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -114,15 +125,15 @@ fun PlanOverviewScreen(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf("日", "月", "火", "水", "木", "金", "土").forEachIndexed { index, day ->
+                        listOf("月", "火", "水", "木", "金", "土", "日").forEachIndexed { index, day ->
                             Text(
                                 day,
                                 modifier = Modifier.weight(1f),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = when (index) {
-                                    0 -> MaterialTheme.colorScheme.error
-                                    6 -> MaterialTheme.colorScheme.primary
+                                    5 -> MaterialTheme.colorScheme.primary
+                                    6 -> MaterialTheme.colorScheme.error
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
@@ -144,7 +155,11 @@ fun PlanOverviewScreen(
                                                 .size(42.dp)
                                                 .clip(CircleShape)
                                                 .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                                .clickable { selectedCalendarDate.value = day.date },
+                                                .selectable(
+                                                    selected = isSelected,
+                                                    role = Role.Button,
+                                                    onClick = { selectedCalendarDate.value = day.date },
+                                                ),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center,
                                         ) {
@@ -155,8 +170,8 @@ fun PlanOverviewScreen(
                                                 color = when {
                                                     isSelected -> MaterialTheme.colorScheme.onPrimary
                                                     isToday -> MaterialTheme.colorScheme.primary
-                                                    column == 0 -> MaterialTheme.colorScheme.error
-                                                    column == 6 -> MaterialTheme.colorScheme.primary
+                                                    column == 5 -> MaterialTheme.colorScheme.primary
+                                                    column == 6 -> MaterialTheme.colorScheme.error
                                                     else -> MaterialTheme.colorScheme.onSurface
                                                 },
                                             )
@@ -203,8 +218,13 @@ fun PlanOverviewScreen(
         }
         if (selectedTasks.isEmpty()) {
             item {
+                val message = when (tasksState) {
+                    TasksUiState.Loading -> "カレンダーを読み込んでいます"
+                    is TasksUiState.Error -> "タスクを読み込めませんでした。端末のデータを確認してください。"
+                    TasksUiState.Idle, is TasksUiState.Success -> "この日のタスクはありません。"
+                }
                 Text(
-                    "この日のタスクはありません。",
+                    message,
                     modifier = Modifier.padding(vertical = 24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -246,7 +266,7 @@ private fun PlanTab(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0f))
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(vertical = 11.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -267,16 +287,15 @@ private fun MonthMoveButton(icon: androidx.compose.ui.graphics.vector.ImageVecto
 private data class PlanCalendarDay(val number: Int, val date: String)
 
 private fun monthCells(year: Int, month: Int): List<PlanCalendarDay?> {
-    val calendar = Calendar.getInstance().apply { set(year, month, 1) }
-    val offset = calendar.get(Calendar.DAY_OF_WEEK) - 1
-    val days = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+    val firstDay = java.time.LocalDate.of(year, month + 1, 1)
+    val offset = firstDay.dayOfWeek.value - 1
+    val days = firstDay.lengthOfMonth()
     val cells = MutableList<PlanCalendarDay?>(offset) { null }
     repeat(days) { index -> cells += PlanCalendarDay(index + 1, String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, index + 1)) }
     while (cells.size % 7 != 0) cells += null
     return cells
 }
 
-private fun formatSelectedDate(date: String): String = try {
-    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date) ?: return date
-    SimpleDateFormat("M月d日（E）", Locale.JAPAN).format(parsed)
+internal fun formatSelectedDate(date: String): String = try {
+    LocalDate.parse(date).format(planSelectedDateFormatter)
 } catch (_: Exception) { date }

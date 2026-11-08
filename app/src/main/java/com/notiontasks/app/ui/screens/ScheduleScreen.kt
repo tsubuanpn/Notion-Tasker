@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,10 +47,12 @@ import com.notiontasks.app.ui.theme.*
 import com.notiontasks.app.data.model.TimeBlock
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.ui.viewmodel.TasksUiState
+import com.notiontasks.app.utils.JapanTime
 import com.notiontasks.app.utils.ScheduleExporter
 import android.content.Intent
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.LocalDate
+import java.util.Locale
+import java.util.UUID
 
 private const val TIME_SNAP_MINUTES = 5
 private const val GRID_SNAP_MINUTES = 15
@@ -57,6 +60,7 @@ private const val GRID_SNAP_MINUTES = 15
 @Composable
 fun ScheduleScreen(
     viewModel: TaskViewModel,
+    selectedCalendarDate: MutableState<String?>,
     onOpenCalendar: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -68,32 +72,36 @@ fun ScheduleScreen(
 
     // 日付セレクターの状態
     var selectedDateStr by remember {
-        mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
+        mutableStateOf(
+            selectedCalendarDate.value
+                ?: JapanTime.todayIso(),
+        )
     }
 
     // 現在時刻の状態管理（1分ごとに更新）
-    var currentTime by remember { mutableStateOf(Calendar.getInstance()) }
+    var currentTime by remember { mutableStateOf(JapanTime.now()) }
     val isToday = remember(selectedDateStr, currentTime) {
-        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val todayStr = JapanTime.todayIso()
         selectedDateStr == todayStr
     }
 
     LaunchedEffect(Unit) {
         while (true) {
-            val now = Calendar.getInstance()
+            val now = JapanTime.now()
             currentTime = now
             // 次の00秒まで待機して1分間隔を維持
-            val secondsToNextMinute = 60 - now.get(Calendar.SECOND)
+            val secondsToNextMinute = 60 - now.second
             kotlinx.coroutines.delay(secondsToNextMinute * 1000L)
         }
     }
 
     LaunchedEffect(selectedDateStr) {
+        selectedCalendarDate.value = selectedDateStr
         viewModel.autoInitializeDefaultLifeActivities(context, selectedDateStr)
     }
     val displayName = remember(selectedDateStr) {
-        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-        SimpleDateFormat("yyyy年MM月dd日 (E)", Locale.JAPAN).format(parsed)
+        runCatching { LocalDate.parse(selectedDateStr) }.getOrElse { JapanTime.today() }
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日 (E)", Locale.JAPAN))
     }
 
     // 選択された日付の有効なタスクをロードする
@@ -105,22 +113,22 @@ fun ScheduleScreen(
                 state.tasks.filter { task ->
                     val statusTrimmed = task.status.trim()
                     val isActive = statusTrimmed == unstartedTrimmed || statusTrimmed == inProgressTrimmed
-                    task.scheduledDate == selectedDateStr ||
-                    (isActive && (task.scheduledDate != null && task.scheduledDate < selectedDateStr)) ||
-                    (isActive && (task.dueDate != null && task.dueDate < selectedDateStr))
+                    JapanTime.projectedDateKey(task.scheduledDate) == selectedDateStr ||
+                    (isActive && (JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true)) ||
+                    (isActive && (JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true))
                 }
                 .sortedWith(
                     compareBy<TaskModel> { task ->
-                        val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
-                        val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
+                        val isOverdueDue = JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true
+                        val isOverdueScheduled = JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true
                         when {
                             isOverdueDue -> 0
                             isOverdueScheduled -> 1
                             else -> 2
                         }
                     }
-                    .thenBy(nullsLast(naturalOrder())) { it.dueDate }
-                    .thenBy(nullsLast(naturalOrder())) { it.scheduledDate }
+                    .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.dueDate) }
+                    .thenBy(nullsLast(naturalOrder())) { JapanTime.projectedDateKey(it.scheduledDate) }
                     .thenBy { it.id }
                 )
             }
@@ -140,6 +148,7 @@ fun ScheduleScreen(
     // ブロックの作成/編集用のダイアログ状態
     var showAddDialog by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<TimeBlock?>(null) }
+    var deleteConfirmationBlock by remember { mutableStateOf<TimeBlock?>(null) }
     var selectedPresetTask by remember { mutableStateOf<TaskModel?>(null) }
     var selectedPresetActivity by remember { mutableStateOf<LifeActivity?>(null) }
     var clickedTimeMinutes by remember { mutableStateOf<Int?>(null) }
@@ -228,18 +237,14 @@ fun ScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = {
-                    val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                    val cal = Calendar.getInstance().apply { 
-                        time = parsed
-                        add(Calendar.DATE, -1)
-                    }
-                    selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+                    selectedDateStr = runCatching { LocalDate.parse(selectedDateStr).minusDays(1) }
+                        .getOrElse { JapanTime.today().minusDays(1) }
+                        .toString()
                 }) {
                     Icon(Icons.Default.ChevronLeft, "前日")
                 }
 
-                val parsedDateForPicker = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                val dateCalendar = Calendar.getInstance().apply { time = parsedDateForPicker }
+                val dateForPicker = runCatching { LocalDate.parse(selectedDateStr) }.getOrElse { JapanTime.today() }
 
                 Box(
                     modifier = Modifier.weight(1f),
@@ -251,16 +256,11 @@ fun ScheduleScreen(
                                 android.app.DatePickerDialog(
                                     context,
                                     { _, year, month, dayOfMonth ->
-                                        val newCal = Calendar.getInstance().apply {
-                                            set(Calendar.YEAR, year)
-                                            set(Calendar.MONTH, month)
-                                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                                        }
-                                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
+                                        selectedDateStr = LocalDate.of(year, month + 1, dayOfMonth).toString()
                                     },
-                                    dateCalendar.get(Calendar.YEAR),
-                                    dateCalendar.get(Calendar.MONTH),
-                                    dateCalendar.get(Calendar.DAY_OF_MONTH)
+                                    dateForPicker.year,
+                                    dateForPicker.monthValue - 1,
+                                    dateForPicker.dayOfMonth
                                 ).show()
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -284,12 +284,9 @@ fun ScheduleScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
-                        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDateStr) ?: Date()
-                        val cal = Calendar.getInstance().apply { 
-                            time = parsed
-                            add(Calendar.DATE, 1)
-                        }
-                        selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(cal.time)
+                        selectedDateStr = runCatching { LocalDate.parse(selectedDateStr).plusDays(1) }
+                            .getOrElse { JapanTime.today().plusDays(1) }
+                            .toString()
                     }) {
                         Icon(Icons.Default.ChevronRight, "翌日")
                     }
@@ -326,9 +323,9 @@ fun ScheduleScreen(
             // 初期ロード時または「今日」選択時に現在時刻または午前7時に自動スクロール
             LaunchedEffect(isToday) {
                 val scrollTargetMinutes = if (isToday) {
-                    val now = Calendar.getInstance()
+                    val now = JapanTime.now()
                     // 現在時刻が画面中央に来るようにオフセット（例：3時間分引く）
-                    (now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE) - 180).coerceAtLeast(0)
+                    (now.hour * 60 + now.minute - 180).coerceAtLeast(0)
                 } else {
                     7 * 60
                 }
@@ -629,7 +626,7 @@ fun ScheduleScreen(
                 // 現在時刻インジケーター（今日の日付の時のみ表示 - スケジュールブロックの上に重ねる）
                 if (isToday) {
                     val now = currentTime
-                    val currentMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+                    val currentMinutes = now.hour * 60 + now.minute
                     val indicatorTopDp = 80.dp * (currentMinutes / 60f)
                     val indicatorColor = MaterialTheme.colorScheme.error
                     
@@ -1010,8 +1007,8 @@ fun ScheduleScreen(
                                                                 fontWeight = FontWeight.Medium
                                                             )
 
-                                                            val isOverdueDue = task.dueDate != null && task.dueDate < selectedDateStr
-                                                            val isOverdueScheduled = task.scheduledDate != null && task.scheduledDate < selectedDateStr
+                                                            val isOverdueDue = JapanTime.projectedDateKey(task.dueDate)?.let { it < selectedDateStr } == true
+                                                            val isOverdueScheduled = JapanTime.projectedDateKey(task.scheduledDate)?.let { it < selectedDateStr } == true
 
                                                             if (isOverdueDue) {
                                                                 Surface(
@@ -1555,8 +1552,8 @@ fun ScheduleScreen(
                                         val startTot = startHour * 60 + startMin
                                         val endTot = endHour * 60 + endMin
                                         if (endTot <= startTot) {
-                                            val newEnd = startTot + 60
-                                            endHour = (newEnd / 60) % 24
+                                            val newEnd = (startTot + 60).coerceAtMost(1440)
+                                            endHour = newEnd / 60
                                             endMin = newEnd % 60
                                         }
                                     },
@@ -1592,7 +1589,7 @@ fun ScheduleScreen(
                                         endHour = hour
                                         endMin = minute
                                     },
-                                    endHour,
+                                    endHour.coerceAtMost(23),
                                     endMin,
                                     true
                                 ).show()
@@ -1605,6 +1602,14 @@ fun ScheduleScreen(
                             Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(String.format(Locale.US, "%02d:%02d", endHour, endMin))
+                        }
+                        TextButton(
+                            onClick = {
+                                endHour = 24
+                                endMin = 0
+                            },
+                        ) {
+                            Text("24:00にする")
                         }
                     }
 
@@ -1628,8 +1633,8 @@ fun ScheduleScreen(
                                 SuggestionChip(
                                     onClick = {
                                         val startTot = startHour * 60 + startMin
-                                        val endTot = startTot + duration
-                                        endHour = (endTot / 60) % 24
+                                        val endTot = (startTot + duration).coerceAtMost(1440)
+                                        endHour = endTot / 60
                                         endMin = endTot % 60
                                     },
                                     label = { Text("${duration}分") }
@@ -1701,9 +1706,7 @@ fun ScheduleScreen(
                     if (editingBlock != null) {
                         TextButton(
                             onClick = {
-                                viewModel.deleteTimeBlock(context, editingBlock!!.id)
-                                editingBlock = null
-                                showAddDialog = false
+                                deleteConfirmationBlock = editingBlock
                             },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
@@ -1718,6 +1721,36 @@ fun ScheduleScreen(
                     }
                 }
             }
+        )
+    }
+
+    deleteConfirmationBlock?.let { block ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmationBlock = null },
+            title = { Text("予定を削除しますか？") },
+            text = {
+                Text(
+                    "「${block.title}」\n${block.date} ${String.format(Locale.US, "%02d:%02d", block.startTime / 60, block.startTime % 60)}〜${String.format(Locale.US, "%02d:%02d", block.endTime / 60, block.endTime % 60)}\n\nアプリ内の予定と通知だけを削除します。Notion のタスクは削除されません。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteTimeBlock(context, block.id)
+                        deleteConfirmationBlock = null
+                        editingBlock = null
+                        showAddDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text("削除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmationBlock = null }) {
+                    Text("キャンセル")
+                }
+            },
         )
     }
 }

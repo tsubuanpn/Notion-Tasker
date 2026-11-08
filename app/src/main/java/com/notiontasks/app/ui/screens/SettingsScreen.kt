@@ -3,6 +3,7 @@ package com.notiontasks.app.ui.screens
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -35,6 +36,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -49,9 +56,12 @@ import androidx.core.content.IntentCompat
 import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import androidx.navigation.NavController
+import com.notiontasks.app.ui.viewmodel.ConnectionSettingsUpdate
+import com.notiontasks.app.ui.viewmodel.TaskConnectionConfig
 import com.notiontasks.app.R
 import com.notiontasks.app.data.remote.dto.NotionDatabaseResponse
 import com.notiontasks.app.data.remote.dto.NotionOptionInfo
+import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.theme.AppThemePalettes
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
@@ -59,15 +69,35 @@ import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.utils.SecurityUtils
 
+/** Writes one coherent next-session focus configuration in a single preferences edit. */
+internal fun savePomodoroSettings(
+    preferences: SharedPreferences,
+    workMinutes: Int,
+    shortBreakMinutes: Int,
+    longBreakMinutes: Int,
+    alarmUri: String,
+) {
+    preferences.edit {
+        putInt("work_duration_min", workMinutes)
+        putInt("short_break_duration_min", shortBreakMinutes)
+        putInt("long_break_duration_min", longBreakMinutes)
+        putString("alarm_uri", alarmUri)
+    }
+}
+
 @Composable
 fun SettingsScreen(
     settingsViewModel: SettingsViewModel,
     navController: NavController,
     syncState: SyncUiState,
     onSync: () -> Unit,
+    permanentFailures: List<PendingSyncActionEntity>,
+    onRetryFailure: (Long) -> Unit,
+    onDiscardFailure: (Long) -> Unit,
 ) {
     val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
     var showSyncFailureDetails by remember { mutableStateOf(false) }
+    var discardTarget by remember { mutableStateOf<PendingSyncActionEntity?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -84,69 +114,28 @@ fun SettingsScreen(
             onShowFailureDetails = { showSyncFailureDetails = true },
         )
 
-        SettingsGroup("日常の設定") {
-            SettingsMenuItem(
-                title = "通知",
-                subtitle = "リマインダーとお知らせを設定します",
-                icon = Icons.Default.Notifications
-            ) { navController.navigate(Screen.SettingsNotifications.route) }
-
-            SettingsMenuItem(
-                title = "集中タイマー",
-                subtitle = "ポモドーロ・休憩・アラームを設定します",
-                icon = Icons.Default.Timer
-            ) { navController.navigate(Screen.SettingsPomodoro.route) }
-
-            SettingsMenuItem(
-                title = "外観",
-                subtitle = "テーマと表示をカスタマイズします",
-                icon = Icons.Default.Palette
-            ) { navController.navigate(Screen.SettingsTheme.route) }
-        }
-
-        SettingsGroup("Notion と同期") {
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_notion_title),
-                subtitle = stringResource(R.string.settings_notion_subtitle),
-                icon = Icons.Default.Cloud
-            ) { navController.navigate(Screen.SettingsNotion.route) }
-            
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_mapping_title),
-                subtitle = stringResource(R.string.settings_mapping_subtitle),
-                icon = Icons.Default.Layers
-            ) { navController.navigate(Screen.SettingsMapping.route) }
-        }
-
-        SettingsGroup("アプリ管理") {
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_life_activity_title),
-                subtitle = stringResource(R.string.settings_life_activity_subtitle),
-                icon = Icons.Default.Favorite
-            ) { navController.navigate(Screen.SettingsLifeActivity.route) }
-
-            SettingsMenuItem(
-                title = "データ管理",
-                subtitle = stringResource(R.string.settings_stats_subtitle),
-                icon = Icons.Default.BarChart
-            ) { navController.navigate(Screen.SettingsStats.route) }
-        }
-
-        SettingsGroup("高度な設定") {
-            if (devModeEnabled) {
-                SettingsMenuItem(
-                    title = stringResource(R.string.settings_developer_title),
-                    subtitle = stringResource(R.string.settings_developer_subtitle),
-                    icon = Icons.Default.Code
-                ) { navController.navigate(Screen.SettingsDeveloper.route) }
+        if (permanentFailures.isNotEmpty()) {
+            SettingsGroup("同期の修復") {
+                Text("修正が必要な変更があります。破棄しても他の変更は自動削除されません。", style = MaterialTheme.typography.bodySmall)
+                permanentFailures.forEach { failure ->
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${failure.actionType}: ${failure.taskId}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text(failure.lastError ?: "同期できませんでした", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onRetryFailure(failure.id) }) { Text("再試行") }
+                                TextButton(onClick = { discardTarget = failure }) { Text("破棄") }
+                            }
+                        }
+                    }
+                }
             }
-
-            SettingsMenuItem(
-                title = stringResource(R.string.settings_about_title),
-                subtitle = stringResource(R.string.settings_about_subtitle),
-                icon = Icons.Default.Info
-            ) { navController.navigate(Screen.SettingsAbout.route) }
         }
+
+        SettingsNavigationSections(
+            navController = navController,
+            developerOptionsVisible = devModeEnabled,
+        )
         
         Spacer(modifier = Modifier.height(32.dp))
     }
@@ -163,6 +152,15 @@ fun SettingsScreen(
                 }) { Text("再試行") }
             },
             dismissButton = { TextButton(onClick = { showSyncFailureDetails = false }) { Text("閉じる") } },
+        )
+    }
+    discardTarget?.let { failure ->
+        AlertDialog(
+            onDismissRequest = { discardTarget = null },
+            title = { Text("同期変更を破棄しますか？") },
+            text = { Text("${failure.actionType} の保留操作だけを破棄します。関連する他の保留操作は残ります。") },
+            confirmButton = { Button(onClick = { onDiscardFailure(failure.id); discardTarget = null }) { Text("破棄する") } },
+            dismissButton = { TextButton(onClick = { discardTarget = null }) { Text("キャンセル") } },
         )
     }
 }
@@ -402,6 +400,11 @@ fun NotionSetupScreen(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "同期には、タイトル・状態・カテゴリ・予定日・締め切りの5項目が必要です。状態は「未着手」「進行中」「完了」の3種類を割り当てます。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 SetupStepChip("1", "接続", selected = true)
@@ -437,6 +440,11 @@ fun NotionSetupScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
+            )
+            Text(
+                "このアプリは 1 つのタスクデータベースを対象にします。複数ある場合は、利用するデータベースを Notion で選び、その ID を入力してください。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (errorMessage != null) {
                 Surface(
@@ -596,9 +604,7 @@ fun NotionSettingsScreen(
                         draftDbId,
                         onSuccess = {
                             isLoadingSchema = false
-                            settingsViewModel.updateNotionToken(draftToken)
-                            settingsViewModel.updateDatabaseId(draftDbId)
-                            settingsViewModel.markSetupIncomplete()
+                            settingsViewModel.stageNotionConnection(draftToken, draftDbId)
                             navController.navigate(Screen.SettingsMapping.route)
                         },
                         onFailure = {
@@ -628,35 +634,37 @@ fun MappingSettingsScreen(
     viewModel: TaskViewModel,
     settingsViewModel: SettingsViewModel,
     navController: NavController,
-    onSave: (
-        token: String, dbId: String, morning: String, evening: String, mEnabled: Boolean, eEnabled: Boolean, theme: String,
-        mTitle: String, mStatus: String, mStatusType: String, mStatusUnstarted: String, mStatusInProgress: String, mStatusCompleted: String,
-        mCategory: String, mScheduled: String, mDue: String, mCatOptions: List<NotionOptionInfo>, mStatOptions: List<NotionOptionInfo>,
-        themeColor: String, dynamicColor: Boolean, devMode: Boolean, devCompleteButton: Boolean,
-    ) -> Unit,
+    onSave: (ConnectionSettingsUpdate) -> Unit,
     isSetupFlow: Boolean = false,
     onSetupCompleted: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember { SecurityUtils.getSecurePreferences(context) }
+    val mappingConnection = settingsViewModel.connectionForMapping()
+    val mappingStartsFresh = mappingConnection.databaseId != sharedPrefs.getString("database_id", "")
+    DisposableEffect(Unit) {
+        onDispose { settingsViewModel.discardStagedNotionConnection() }
+    }
     
-    var propTitle by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_title", "") ?: "") }
-    var propStatus by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_status", "") ?: "") }
-    var propStatusType by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status") }
-    var propStatusUnstarted by remember { mutableStateOf(sharedPrefs.getString("mapping_status_unstarted", "未着手") ?: "未着手") }
-    var propStatusInProgress by remember { mutableStateOf(sharedPrefs.getString("mapping_status_in_progress", "進行中") ?: "進行中") }
-    var propStatusCompleted by remember { mutableStateOf(sharedPrefs.getString("mapping_status_completed", "完了") ?: "完了") }
-    var propCategory by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_category", "") ?: "") }
-    var propScheduled by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_scheduled_date", "") ?: "") }
-    var propDue by remember { mutableStateOf(sharedPrefs.getString("mapping_prop_due_date", "") ?: "") }
+    var propTitle by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_title", "") ?: "") }
+    var propStatus by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_status", "") ?: "") }
+    var propStatusType by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "status" else sharedPrefs.getString("mapping_prop_status_type", "status") ?: "status") }
+    var propStatusUnstarted by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_unstarted", "未着手") ?: "未着手") }
+    var propStatusInProgress by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_in_progress", "進行中") ?: "進行中") }
+    var propStatusCompleted by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_status_completed", "完了") ?: "完了") }
+    var propCategory by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_category", "") ?: "") }
+    var propScheduled by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_scheduled_date", "") ?: "") }
+    var propDue by remember(mappingConnection.databaseId) { mutableStateOf(if (mappingStartsFresh) "" else sharedPrefs.getString("mapping_prop_due_date", "") ?: "") }
 
     var metadata by remember { mutableStateOf<NotionDatabaseResponse?>(null) }
     var isMetadataLoading by remember { mutableStateOf(false) }
     var metadataError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     val loadMetadata = {
-        val token = settingsViewModel.notionToken.value
-        val dbId = settingsViewModel.databaseId.value
+        val connection = settingsViewModel.connectionForMapping()
+        val token = connection.token
+        val dbId = connection.databaseId
         if (token.isNotBlank() && dbId.isNotBlank()) {
             isMetadataLoading = true
             metadataError = null
@@ -728,6 +736,13 @@ fun MappingSettingsScreen(
                 }
             }
         }
+        saveError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         PropertyDropdown("名前 (タスクタイトル)", propTitle, metadata?.properties?.filter { it.value.title != null }?.keys?.toList() ?: emptyList()) { propTitle = it }
 
@@ -755,6 +770,11 @@ fun MappingSettingsScreen(
                 PropertyDropdown("「未着手」とみなす値", propStatusUnstarted, statusOptions) { propStatusUnstarted = it }
                 PropertyDropdown("「進行中」とみなす値", propStatusInProgress, statusOptions) { propStatusInProgress = it }
                 PropertyDropdown("「完了」とみなす値", propStatusCompleted, statusOptions) { propStatusCompleted = it }
+                Text(
+                    "このアプリで扱える状態はこの3種類です。その他の状態値を個別に扱うことには対応していません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
@@ -801,6 +821,14 @@ fun MappingSettingsScreen(
         val isAllMapped = metadata != null && propTitle.isNotBlank() && propStatus.isNotBlank() &&
             propCategory.isNotBlank() && propScheduled.isNotBlank() && propDue.isNotBlank() && areStatusValuesValid
 
+        if (!isAllMapped) {
+            Text(
+                "同期を開始するには、タイトル・状態・カテゴリ・予定日・締切日の対応と、重複しない状態値の設定が必要です。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         Button(
             onClick = {
                 val chosenCatProp = metadata?.properties?.get(propCategory)
@@ -813,21 +841,26 @@ fun MappingSettingsScreen(
                     chosenStatProp?.select?.options?.filter { it.name.trim().isNotBlank() } ?: emptyList()
                 }
 
-                onSave(
-                    settingsViewModel.notionToken.value,
-                    settingsViewModel.databaseId.value,
-                    settingsViewModel.morningNotifTime.value,
-                    settingsViewModel.eveningNotifTime.value,
-                    settingsViewModel.morningNotifEnabled.value,
-                    settingsViewModel.eveningNotifEnabled.value,
-                    settingsViewModel.themeMode.value,
-                    propTitle, propStatus, propStatusType, propStatusUnstarted, propStatusInProgress, propStatusCompleted,
-                    propCategory, propScheduled, propDue, catOptions, statOptions,
-                    settingsViewModel.themeColorName.value,
-                    settingsViewModel.dynamicColorEnabled.value,
-                    settingsViewModel.devModeEnabled.value,
-                    settingsViewModel.devCompleteButtonEnabled.value
-                )
+                val update = ConnectionSettingsUpdate(
+                        connection = TaskConnectionConfig(
+                            token = settingsViewModel.connectionForMapping().token,
+                            databaseId = settingsViewModel.connectionForMapping().databaseId,
+                            title = propTitle,
+                            status = propStatus,
+                            statusType = propStatusType,
+                            statusUnstarted = propStatusUnstarted,
+                            statusInProgress = propStatusInProgress,
+                            statusCompleted = propStatusCompleted,
+                            category = propCategory,
+                            scheduledDate = propScheduled,
+                            dueDate = propDue,
+                        ),
+                        categoryOptions = catOptions,
+                        statusOptions = statOptions,
+                    )
+                saveError = update.validationError()
+                if (saveError != null) return@Button
+                onSave(update)
                 if (isSetupFlow) {
                     onSetupCompleted()
                 } else {
@@ -860,7 +893,6 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
                 IntentCompat.getParcelableExtra(intent, RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
             }
             uriStr = picked?.toString() ?: ""
-            prefs.edit { putString("alarm_uri", uriStr) }
         }
     }
 
@@ -873,7 +905,7 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                "時間設定は保存後、次に開始するセッションから反映されます。実行中のタイマーは変更されません。",
+                "集中・休憩時間とアラーム音は、保存後に次のセッションから反映されます。実行中のタイマーは変更されません。",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -935,7 +967,7 @@ fun PomodoroSettingsScreen(settingsViewModel: SettingsViewModel, navController: 
             OutlinedButton(onClick = { work = 25; sBreak = 5; lBreak = 15 }, Modifier.weight(1f)) { Text(stringResource(R.string.settings_pomodoro_default)) }
             Button(
                 onClick = {
-                    prefs.edit { putInt("work_duration_min", work); putInt("short_break_duration_min", sBreak); putInt("long_break_duration_min", lBreak) }
+                    savePomodoroSettings(prefs, work, sBreak, lBreak, uriStr)
                     navController.popBackStack()
                 },
                 Modifier.weight(1f),
@@ -974,7 +1006,7 @@ fun AboutScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("NotionTasker", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.settings_about_version, version), style = MaterialTheme.typography.bodyLarge)
                 
                 Spacer(Modifier.height(8.dp))
@@ -1047,11 +1079,22 @@ fun PropertyDropdown(label: String, selected: String, options: List<String>, onS
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = selected.ifBlank { "未選択" }
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("未選択") }, onClick = { onSelect(""); expanded = false })
             displayOptions.filter { it.isNotBlank() }.forEach { name ->
@@ -1070,11 +1113,22 @@ fun TypeDropdown(label: String, selected: String, onSelect: (String) -> Unit) {
             onValueChange = {},
             readOnly = true,
             label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) },
             shape = RoundedCornerShape(12.dp),
         )
-        Box(Modifier.matchParentSize().clickable { expanded = true })
+        Box(
+            Modifier
+                .matchParentSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = label
+                    stateDescription = if (selected == "status") "Status型" else "Select型"
+                }
+                .clickable { expanded = true },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Status型") }, onClick = { onSelect("status"); expanded = false })
             DropdownMenuItem(text = { Text("Select型") }, onClick = { onSelect("select"); expanded = false })
@@ -1590,7 +1644,7 @@ fun LifeActivitySettingsSection(
                         modifier = Modifier.padding(16.dp).align(Alignment.CenterHorizontally)
                     )
                 } else {
-                    lifeActivities.forEach { act ->
+                    lifeActivities.forEachIndexed { index, act ->
                         val colorParsed = try {
                             Color(act.color.toColorInt())
                         } catch (_: Exception) {
@@ -1624,6 +1678,7 @@ fun LifeActivitySettingsSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1665,35 +1720,32 @@ fun LifeActivitySettingsSection(
                             
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
-                                Column {
-                                    IconButton(
-                                        onClick = { viewModel.moveLifeActivity(act.id, -1) },
-                                        enabled = lifeActivities.indexOf(act) > 0,
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowUp,
-                                            contentDescription = "上に移動",
-                                            tint = if (lifeActivities.indexOf(act) > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { viewModel.moveLifeActivity(act.id, 1) },
-                                        enabled = (lifeActivities.indexOf(act) < (lifeActivities.size - 1)),
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "下に移動",
-                                            tint = if (lifeActivities.indexOf(act) < (lifeActivities.size - 1)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
+                                IconButton(
+                                    onClick = { viewModel.moveLifeActivity(act.id, -1) },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "上に移動",
+                                        tint = if (index > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
-
+                                IconButton(
+                                    onClick = { viewModel.moveLifeActivity(act.id, 1) },
+                                    enabled = index < lifeActivities.lastIndex,
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "下に移動",
+                                        tint = if (index < lifeActivities.lastIndex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                                 IconButton(
                                     onClick = { pendingDeleteActivity = act },
                                     modifier = Modifier.size(48.dp)
@@ -1809,8 +1861,8 @@ fun LifeActivitySettingsSection(
                                             val startTot = (defaultStartHour * 60) + defaultStartMin
                                             val endTot = (defaultEndHour * 60) + defaultEndMin
                                             if (endTot <= startTot) {
-                                                val newEnd = startTot + (durationValue ?: 30)
-                                                defaultEndHour = (newEnd / 60) % 24
+                                                val newEnd = (startTot + (durationValue ?: 30)).coerceAtMost(1440)
+                                                defaultEndHour = newEnd / 60
                                                 defaultEndMin = newEnd % 60
                                             }
                                         }, defaultStartHour, defaultStartMin, true).show()
@@ -1834,7 +1886,7 @@ fun LifeActivitySettingsSection(
                                         android.app.TimePickerDialog(context, { _, hour, minute ->
                                             defaultEndHour = hour
                                             defaultEndMin = minute
-                                        }, defaultEndHour, defaultEndMin, true).show()
+                                        }, defaultEndHour.coerceAtMost(23), defaultEndMin, true).show()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                                 ) {
@@ -1868,7 +1920,9 @@ fun LifeActivitySettingsSection(
                                 durationMinutes = duration,
                                 color = actColor,
                                 defaultStartTime = startTot,
-                                defaultEndTime = endTot
+                                defaultEndTime = endTot,
+                                // 編集では既存の表示順を変えない。新規は ViewModel が末尾へ配置する。
+                                sortOrder = editingActivity?.sortOrder ?: 0,
                             )
 
                             val changesExistingSchedule = editingActivity != null && (

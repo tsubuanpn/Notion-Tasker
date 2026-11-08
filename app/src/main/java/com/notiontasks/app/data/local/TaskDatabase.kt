@@ -16,6 +16,8 @@ data class TaskEntity(
     val statusColor: String? = null,
     val categoryColor: String? = null,
     val lastEditedTime: Long = 0L,
+    /** Database ID that last verified this row. Null means legacy/unknown and is never sent. */
+    val connectionScope: String? = null,
 )
 
 @Entity(tableName = "pomodoro_logs")
@@ -42,6 +44,9 @@ data class ScheduleBlockEntity(
     val endTime: Int,
     val color: String,
     val date: String, // "yyyy-MM-dd"
+    val origin: String = "manual",
+    val presetId: String? = null,
+    val presetGeneration: Long = 0L,
 )
 
 // 生活習慣マスタ用エンティティ
@@ -64,6 +69,37 @@ data class PendingSyncActionEntity(
     val taskId: String,
     val payloadJson: String,
     val timestamp: Long,
+    /** Database ID that owned this operation when it was queued. */
+    val connectionScope: String? = null,
+    /** Stable user-intent identity; legacy rows are assigned during migration. */
+    val operationId: String = "",
+    /** Comma-separated fields intentionally changed by this operation; "legacy" is unknown. */
+    val changedFields: String = "legacy",
+    /** Monotonic per task and connection while the app is running. */
+    val generation: Long = 0L,
+    /** PENDING, RETRYABLE_FAILURE, or PERMANENT_FAILURE. */
+    val state: String = "PENDING",
+    val lastError: String? = null,
+)
+
+/** Resolves a locally generated task ID to its Notion page ID within one connection. */
+@Entity(
+    tableName = "task_id_aliases",
+    primaryKeys = ["localTaskId", "connectionScope"],
+    indices = [Index(value = ["remoteTaskId", "connectionScope"])],
+)
+data class TaskIdAliasEntity(
+    val localTaskId: String,
+    val remoteTaskId: String,
+    val connectionScope: String,
+)
+
+@Entity(tableName = "task_field_generations", primaryKeys = ["taskId", "connectionScope", "field"])
+data class TaskFieldGenerationEntity(
+    val taskId: String,
+    val connectionScope: String,
+    val field: String,
+    val generation: Long,
 )
 
 /** リモート由来の同期時刻だけを保持するためのメタデータです。 */
@@ -85,13 +121,17 @@ interface TaskDao {
     @Upsert
     suspend fun upsertTasks(tasks: List<TaskEntity>)
 
-    @Query("DELETE FROM tasks WHERE id NOT IN (:ids)")
-    suspend fun deleteTasksNotInList(ids: List<String>)
+    @Query("DELETE FROM tasks WHERE connectionScope = :connectionScope AND id NOT IN (:remoteIds) AND id NOT IN (:protectedIds)")
+    suspend fun deleteTasksNotInList(connectionScope: String, remoteIds: List<String>, protectedIds: List<String>)
 
     @Transaction
-    suspend fun syncTasksTransactionally(activeEntities: List<TaskEntity>) {
+    suspend fun syncTasksTransactionally(
+        connectionScope: String,
+        activeEntities: List<TaskEntity>,
+        protectedTaskIds: List<String> = emptyList(),
+    ) {
         upsertTasks(activeEntities)
-        deleteTasksNotInList(activeEntities.map { it.id })
+        deleteTasksNotInList(connectionScope, activeEntities.map { it.id }, protectedTaskIds)
     }
 
     @Query("DELETE FROM tasks")
@@ -112,11 +152,38 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     fun getTaskFlowById(id: String): Flow<TaskEntity?>
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND lastEditedTime < :cutoffTimestamp")
-    suspend fun deleteCompletedTasksBefore(completedStatus: String, cutoffTimestamp: Long)
+    @Query("""
+        DELETE FROM tasks
+        WHERE connectionScope = :connectionScope AND status = :completedStatus AND lastEditedTime < :cutoffTimestamp
+          AND id NOT IN (:protectedIds)
+          AND id NOT IN (SELECT localTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT remoteTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT associatedId FROM schedule_blocks WHERE type = 'task' AND associatedId IS NOT NULL)
+          AND id NOT IN (SELECT taskId FROM pomodoro_logs WHERE taskId IS NOT NULL)
+    """)
+    suspend fun deleteCompletedTasksBefore(
+        connectionScope: String,
+        completedStatus: String,
+        cutoffTimestamp: Long,
+        protectedIds: List<String>,
+    )
 
-    @Query("DELETE FROM tasks WHERE status = :completedStatus AND id NOT IN (SELECT id FROM tasks WHERE status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)")
-    suspend fun keepOnlyLatestCompletedTasks(completedStatus: String, maxCount: Int)
+    @Query("""
+        DELETE FROM tasks
+        WHERE connectionScope = :connectionScope AND status = :completedStatus
+          AND id NOT IN (SELECT id FROM tasks WHERE connectionScope = :connectionScope AND status = :completedStatus ORDER BY lastEditedTime DESC LIMIT :maxCount)
+          AND id NOT IN (:protectedIds)
+          AND id NOT IN (SELECT localTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT remoteTaskId FROM task_id_aliases WHERE connectionScope = :connectionScope)
+          AND id NOT IN (SELECT associatedId FROM schedule_blocks WHERE type = 'task' AND associatedId IS NOT NULL)
+          AND id NOT IN (SELECT taskId FROM pomodoro_logs WHERE taskId IS NOT NULL)
+    """)
+    suspend fun keepOnlyLatestCompletedTasks(
+        connectionScope: String,
+        completedStatus: String,
+        maxCount: Int,
+        protectedIds: List<String>,
+    )
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteTaskById(id: String)
@@ -159,6 +226,12 @@ interface ScheduleBlockDao {
 
     @Query("SELECT * FROM schedule_blocks WHERE date = :date ORDER BY startTime ASC")
     fun getBlocksByDateFlow(date: String): Flow<List<ScheduleBlockEntity>>
+
+    @Query("SELECT * FROM schedule_blocks WHERE date = :date ORDER BY startTime ASC")
+    suspend fun getBlocksByDate(date: String): List<ScheduleBlockEntity>
+
+    @Query("SELECT * FROM schedule_blocks WHERE id = :id LIMIT 1")
+    suspend fun getBlockById(id: String): ScheduleBlockEntity?
 
     @Query("SELECT * FROM schedule_blocks ORDER BY startTime ASC")
     suspend fun getAllBlocks(): List<ScheduleBlockEntity>
@@ -206,19 +279,91 @@ interface PendingSyncActionDao {
     fun pendingActionCountFlow(): Flow<Int>
 
     @Query("SELECT * FROM pending_sync_actions ORDER BY timestamp ASC")
+    fun getAllPendingActionsFlow(): Flow<List<PendingSyncActionEntity>>
+
+    @Query("SELECT * FROM pending_sync_actions ORDER BY timestamp ASC")
     suspend fun getAllPendingActions(): List<PendingSyncActionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPendingAction(action: PendingSyncActionEntity)
 
+    @Query("SELECT MAX(generation) FROM pending_sync_actions WHERE taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun getLatestGeneration(taskId: String, connectionScope: String): Long?
+
+    @Query("UPDATE pending_sync_actions SET state = :state, lastError = :lastError WHERE id = :id")
+    suspend fun updatePendingActionState(id: Long, state: String, lastError: String?)
+
+    @Query("SELECT * FROM pending_sync_actions WHERE state = 'PERMANENT_FAILURE' ORDER BY timestamp ASC")
+    fun getPermanentFailuresFlow(): Flow<List<PendingSyncActionEntity>>
+
+    @Query("UPDATE pending_sync_actions SET state = 'PENDING', lastError = NULL WHERE id = :id AND connectionScope = :connectionScope AND state = 'PERMANENT_FAILURE'")
+    suspend fun retryPermanentFailure(id: Long, connectionScope: String): Int
+
     @Query("DELETE FROM pending_sync_actions WHERE id = :id")
     suspend fun deletePendingActionById(id: Long)
 
-    @Query("DELETE FROM pending_sync_actions WHERE actionType = :actionType AND taskId = :taskId")
-    suspend fun deletePendingActionsForTask(actionType: String, taskId: String)
+    @Query("DELETE FROM pending_sync_actions WHERE actionType = :actionType AND taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun deletePendingActionsForTask(actionType: String, taskId: String, connectionScope: String)
 
     @Query("DELETE FROM pending_sync_actions")
     suspend fun clearAllPendingActions()
+}
+
+/**
+ * Keeps every local reference on a task together when an offline CREATE receives its Notion ID.
+ * The alias remains afterwards so a queued action restored after process death still resolves.
+ */
+@Dao
+interface TaskIdAliasDao {
+    @Query("SELECT remoteTaskId FROM task_id_aliases WHERE localTaskId = :localTaskId AND connectionScope = :connectionScope LIMIT 1")
+    suspend fun getRemoteTaskId(localTaskId: String, connectionScope: String): String?
+
+    @Query("SELECT remoteTaskId FROM task_id_aliases WHERE localTaskId = :localTaskId AND connectionScope = :connectionScope LIMIT 1")
+    fun observeRemoteTaskId(localTaskId: String, connectionScope: String): Flow<String?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAlias(alias: TaskIdAliasEntity)
+
+    @Query("UPDATE pending_sync_actions SET taskId = :remoteTaskId WHERE taskId = :localTaskId AND connectionScope = :connectionScope")
+    suspend fun replacePendingTaskReferences(localTaskId: String, remoteTaskId: String, connectionScope: String)
+
+    @Query("UPDATE schedule_blocks SET associatedId = :remoteTaskId WHERE type = 'task' AND associatedId = :localTaskId")
+    suspend fun replaceScheduleTaskReferences(localTaskId: String, remoteTaskId: String)
+
+    @Query("UPDATE pomodoro_logs SET taskId = :remoteTaskId WHERE taskId = :localTaskId")
+    suspend fun replacePomodoroTaskReferences(localTaskId: String, remoteTaskId: String)
+
+    @Query("DELETE FROM tasks WHERE id = :localTaskId")
+    suspend fun deleteTemporaryTask(localTaskId: String)
+
+    @Upsert
+    suspend fun upsertResolvedTask(task: TaskEntity)
+
+    @Transaction
+    suspend fun resolveCreatedTask(
+        localTaskId: String,
+        remoteTask: TaskEntity,
+        connectionScope: String,
+    ) {
+        upsertAlias(TaskIdAliasEntity(localTaskId, remoteTask.id, connectionScope))
+        replacePendingTaskReferences(localTaskId, remoteTask.id, connectionScope)
+        replaceScheduleTaskReferences(localTaskId, remoteTask.id)
+        replacePomodoroTaskReferences(localTaskId, remoteTask.id)
+        deleteTemporaryTask(localTaskId)
+        upsertResolvedTask(remoteTask)
+    }
+}
+
+@Dao
+interface TaskFieldGenerationDao {
+    @Query("SELECT MAX(generation) FROM task_field_generations WHERE taskId = :taskId AND connectionScope = :connectionScope")
+    suspend fun getLatestGeneration(taskId: String, connectionScope: String): Long?
+
+    @Query("SELECT generation FROM task_field_generations WHERE taskId = :taskId AND connectionScope = :connectionScope AND field = :field LIMIT 1")
+    suspend fun getFieldGeneration(taskId: String, connectionScope: String, field: String): Long?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGenerations(entries: List<TaskFieldGenerationEntity>)
 }
 
 @Dao
@@ -238,9 +383,11 @@ interface SyncMetadataDao {
         ScheduleBlockEntity::class,
         LifeActivityEntity::class,
         PendingSyncActionEntity::class,
+        TaskIdAliasEntity::class,
+        TaskFieldGenerationEntity::class,
         SyncMetadataEntity::class,
     ],
-    version = 8,
+    version = 13,
     exportSchema = false,
 )
 abstract class TaskDatabase : RoomDatabase() {
@@ -249,11 +396,43 @@ abstract class TaskDatabase : RoomDatabase() {
     abstract val scheduleBlockDao: ScheduleBlockDao
     abstract val lifeActivityDao: LifeActivityDao
     abstract val pendingSyncActionDao: PendingSyncActionDao
+    abstract val taskIdAliasDao: TaskIdAliasDao
+    abstract val taskFieldGenerationDao: TaskFieldGenerationDao
     abstract val syncMetadataDao: SyncMetadataDao
 
     companion object {
         @Volatile
         private var INSTANCE: TaskDatabase? = null
+
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN statusColor TEXT")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN categoryColor TEXT")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS pomodoro_logs (id TEXT NOT NULL, taskId TEXT, taskTitle TEXT, category TEXT NOT NULL, categoryColor TEXT, date TEXT NOT NULL, minutes INTEGER NOT NULL, timestamp INTEGER NOT NULL, PRIMARY KEY(id))",
+                )
+            }
+        }
+
+        private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS schedule_blocks (id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, associatedId TEXT, startTime INTEGER NOT NULL, endTime INTEGER NOT NULL, color TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY(id))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_schedule_blocks_date ON schedule_blocks (date)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS life_activities (id TEXT NOT NULL, name TEXT NOT NULL, durationMinutes INTEGER NOT NULL, color TEXT NOT NULL, defaultStartTime INTEGER, defaultEndTime INTEGER, PRIMARY KEY(id))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS pending_sync_actions (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, actionType TEXT NOT NULL, taskId TEXT NOT NULL, payloadJson TEXT NOT NULL, timestamp INTEGER NOT NULL)",
+                )
+            }
+        }
 
         private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -281,9 +460,70 @@ abstract class TaskDatabase : RoomDatabase() {
             }
         }
 
+        /** Old rows have no trustworthy connection ownership, so retain them as unowned. */
+        private val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN connectionScope TEXT")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN connectionScope TEXT")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS task_id_aliases (localTaskId TEXT NOT NULL, remoteTaskId TEXT NOT NULL, connectionScope TEXT NOT NULL, PRIMARY KEY(localTaskId, connectionScope))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_task_id_aliases_remoteTaskId_connectionScope ON task_id_aliases (remoteTaskId, connectionScope)",
+                )
+            }
+        }
+
+        private val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN operationId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN changedFields TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN generation INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN state TEXT NOT NULL DEFAULT 'PENDING'")
+                db.execSQL("ALTER TABLE pending_sync_actions ADD COLUMN lastError TEXT")
+                db.execSQL("UPDATE pending_sync_actions SET operationId = 'legacy-' || id WHERE operationId = ''")
+            }
+        }
+
+        private val MIGRATION_11_12 = object : androidx.room.migration.Migration(11, 12) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS task_field_generations (taskId TEXT NOT NULL, connectionScope TEXT NOT NULL, field TEXT NOT NULL, generation INTEGER NOT NULL, PRIMARY KEY(taskId, connectionScope, field))")
+            }
+        }
+
+        /**
+         * Existing blocks have no reliable provenance. Keep them as legacy so a
+         * future preset edit or delete can never overwrite or remove them.
+         */
+        private val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN presetId TEXT")
+                db.execSQL("ALTER TABLE schedule_blocks ADD COLUMN presetGeneration INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private fun createDatabase(context: Context, name: String): TaskDatabase =
             Room.databaseBuilder(context.applicationContext, TaskDatabase::class.java, name)
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                    MIGRATION_10_11,
+                    MIGRATION_11_12,
+                    MIGRATION_12_13,
+                )
                 .build()
 
         /** 本番と同じ移行設定を使う、名前を分離したインストルメンテーションテスト用DB。 */

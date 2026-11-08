@@ -1,131 +1,176 @@
-# Notion Tasker 📝📱
+# Notion Tasker
 
 <div align="center">
 
-![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
-![Compose](https://img.shields.io/badge/Jetpack_Compose-1.5.4-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
-![Notion](https://img.shields.io/badge/Notion_API-Integrated-000000?style=for-the-badge&logo=notion&logoColor=white)
-![Google AI Studio](https://img.shields.io/badge/Google_AI_Studio-Co--Created-F4B400?style=for-the-badge&logo=google&logoColor=white)
+![Version](https://img.shields.io/badge/version-2.0.0-4F46E5?style=for-the-badge)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
-<p align="center">
-  <strong>Notionのデータベースと双方向同期する、洗練されたモダンな高機能Androidタスク＆時間管理アプリ</strong>
-  <br />
-  オフライン対応Roomキャッシュ、タイムブロッキング、バックグラウンド動作対応ポモドーロタイマー、ゲーム感覚の実績トラッカーを統合したオールインワン・プロダクティビティツールです。
-</p>
+**Notionのタスクデータベースを、日々の計画・集中・振り返りにつなげるAndroidアプリ**
 
-[📌 GitHub Repository: Notion-Tasker](https://github.com/tsubuanpn/Notion-Tasker)
+[GitHub Repository](https://github.com/tsubuanpn/Notion-Tasker)
 
 </div>
 
----
+## 概要
 
-## 📖 プロジェクトの概要
+Notion Taskerは、Notionの1つのタスクデータベースと同期して使うAndroid向けのタスク管理アプリです。端末内のRoomキャッシュでタスクを表示・編集し、通信できないときの操作は保留して、接続の回復後にNotionへ反映します。
 
-**Notion Tasker** は、Notionのデータベース内のタスクをAndroidデバイスから快適に閲覧・操作・管理できるだけでなく、日々の時間管理や集中セッションまで強力にサポートするネイティブタスク＆時間管理アプリケーションです。
+バージョン2.0.0では、毎日の行動を決めやすいホーム画面と、タスク・計画・集中・振り返りを5つのタブにまとめたUIへ刷新しました。
 
-Jetpack Compose + MVVM アーキテクチャに基づき、Kotlin Coroutines & Flow (`StateFlow`) を活用したリアクティブな状態管理を実現。高速かつ堅牢な Jetpack Room によるローカルデータベースキャッシュに加え、**オフライン操作をオンライン復帰時に自動反映する同期キュー (`PendingSyncAction`)** を搭載しています。
+## 主な機能
 
----
+### 今日
 
-## ✨ 主な機能
+- 進行中のタスク、今日のタスク、未割当のタスクをひと目で確認
+- 進行中のタスクからそのまま集中セッションを開始
+- 今日・未割当の一覧から、該当する条件を設定したタスク画面へ移動
 
-1. **🚀 状態が一目でわかるモダンなタスクカード**
-   * **未着手 (Unstarted)** : 純粋な白色 (`#FFFFFF`) のシンプルで視認性の高いミニマルカード。
-   * **進行中 (In Progress)** : 集中力を高める爽やかなブルーのテーマカード。
-   * **完了 (Completed)** : 達成感のある優しいミントグリーンのチェックカード。
+### タスク
 
-2. **📱 7つの多機能画面**
-   * 🏠 **Today (今日)** : 直近のタスクを整理して一覧表示。1タップで状態をサイクル切り替え可能。
-   * 📂 **Tasks (タスク)** : 課題、学習、作業、趣味などのカテゴリ別にタスクを集約。
-   * 📅 **Plan (計画)** : 期限日や予定日に基づく月間カレンダービュー。日付ごとのタスク確認が容易です。
-   * 🕒 **Schedule (時間割)** : 毎日のルーティンやタイムブロックを管理するタイムブロッキング機能。**テキスト形式でのスケジュールエクスポート機能**も搭載。
-   * 🍅 **Pomodoro (集中)** : フォアグラウンドサービスによるバックグラウンド実行に対応したタイマー。タスクとの紐付けやプッシュ通知機能を完備。
-   * 🏆 **Achievements (実績)** : 累計完了数、達成率、ストリーク、ポモドーロ統計をグラフで可視化。
-   * ⚙️ **Settings (設定)** : Notion連携、通知スケジュール、外観テーマ、表示タブ、生活習慣マスタ管理など多岐にわたるカスタマイズが可能。
+- タスクの追加・編集・ステータス変更
+- 期間、種類、状態による絞り込みとキーワード検索
+- カテゴリとステータスにNotion側で設定した色を反映
+- 期限日を過ぎたタスクは赤、予定日を過ぎたタスクはアンバーで表示
 
-3. **🔁 高度な同期システムとオフライン対応**
-   * **双方向同期**: オンライン時は即座にNotionへ反映。
-   * **同期キュー**: オフライン時の編集はローカルに保存され、オンライン復帰時に自動でリトライ・同期されます。
-   * **データベース自動解析**: Notionデータベースのプロパティ構造を自動取得し、アプリ側の項目と柔軟にマッピングできます。
+### 計画
 
-4. **🔒 セキュリティとデータ管理**
-   * **暗号化保存**: Notion APIトークンなどの機密情報は `EncryptedSharedPreferences` (Android Jetpack Security) を用いて端末内に安全に暗号化保存されます。
-   * **データクリーンアップ**: 古い完了済みタスクの自動削除や、統計データの管理機能を搭載。
+- 予定日・締切日をカレンダーで確認
+- 日付を選んで、その日のタスクを確認・編集
+- カレンダーと同じ階層で、時間割・タイムブロック表示を切り替え
+- 生活習慣をもとに日ごとの時間割を初期化し、タスクを時間帯へ配置
+- その日の時間割をテキスト形式で他のアプリへ共有
 
----
+### 集中
 
-## 🛠️ 使用している主な技術 (Tech Stack)
+- タスクに紐付けられるポモドーロ、タイマー、ストップウォッチ
+- 作業・短い休憩・長い休憩を切り替え可能
+- フォアグラウンドサービスにより、アプリを閉じた後もセッションを継続
+- 集中記録を端末に保存し、通常のアプリ／プロセス再起動後に復元
 
-| カテゴリ | 技術名 / ライブラリ | 概要 |
-| :--- | :--- | :--- |
-| **UI Framework** | Jetpack Compose (Material 3) | モダンな宣言型UIとダイナミックカラー対応。 |
-| **Architecture** | MVVM / Repository パターン | `StateFlow` と Coroutines によるリアクティブな設計。 |
-| **Local DB** | Jetpack Room | 複数テーブル（タスク、ログ、ブロック等）とマイグレーション対応。 |
-| **Security** | Jetpack Security (Crypto) | 認証情報の AES256 方式による暗号化。 |
-| **Sync** | Retrofit / OkHttp / Coroutines | Notion APIとの効率的な非同期通信とリトライ制御。 |
-| **Background** | Foreground Service | タイマーの正確な動作と通知管理。 |
+### 振り返り
 
----
+- 期限切れ・持ち越し、週・月の完了状況を確認
+- 集中時間・セッション数をカテゴリ別に確認
+- 完了済みタスクを見返し、必要に応じて編集
 
-## 📂 ディレクトリ構成
+### 通知・外観・データ管理
+
+- 朝・夜のリマインダー、時間割開始時の通知、テスト通知
+- ライト／ダーク／システム連動、テーマカラー、Dynamic Colorの設定
+- 完了済みタスクと集中記録の保持期間を管理
+- Notionからタスクを全件取り直す完全同期
+
+## Notionとの同期
+
+- アプリの初回セットアップでは、Notion接続、プロパティの対応付け、設定の保存を順に行います。
+- 同期には、**タイトル・状態・カテゴリ・予定日・締切日**の5項目と、状態の**未着手・進行中・完了**の対応付けが必要です。
+- 通信できないときの追加・編集・完了操作は端末内の同期キューに保持されます。接続回復後に同期すると再試行します。
+- 同期できない操作は設定画面で内容を確認し、再試行または破棄できます。破棄する前に、Notionへ未反映の内容を確認してください。
+- タスク追加ではアプリ用の識別子を使い、応答が途切れた場合にも重複作成を防ぎます。
+
+## セットアップ
+
+### 1. Notion Integrationを作成する
+
+1. [Notion Integrations](https://www.notion.so/my-integrations) で新しいIntegrationを作成します。
+2. Integrationのシークレットを控えます。
+3. 使用するタスクデータベースを開き、`…` メニューの接続から、そのIntegrationを追加します。
+4. データベースIDを控えます。
+
+### 2. アプリで接続する
+
+1. 初回起動時のセットアップでIntegrationシークレットとデータベースIDを入力します。
+2. データベース構成を読み込み、タイトル・状態・カテゴリ・予定日・締切日のプロパティを選択します。
+3. Notionの状態プロパティから、未着手・進行中・完了に相当する値をそれぞれ選択して保存します。
+
+プロパティ名は固定ではありません。Notionデータベースに合わせて、アプリ内の「設定 > Notion接続」「設定 > プロパティマッピング」から変更できます。
+
+### 必要なNotionプロパティ
+
+| アプリでの用途 | Notionプロパティの型 | 必須 |
+| --- | --- | --- |
+| タスクタイトル | `title` | はい |
+| 状態 | `status` または `select` | はい |
+| カテゴリ | `select` | はい |
+| 予定日 | `date` | はい |
+| 締切日 | `date` | はい |
+
+状態は、Notion側の値を「未着手」「進行中」「完了」にそれぞれ対応付けて使います。アプリはこの3種類を基準に表示・操作するため、その他の状態を個別の状態として扱うことには対応していません。
+
+## 権限について
+
+| 権限・機能 | 使用目的 |
+| --- | --- |
+| 通知 | 朝・夜のリマインダー、時間割の開始通知、集中タイマーの進行通知を表示します。 |
+| 正確なアラーム | Android 12以降で、朝・夜と時間割の通知時刻のずれを抑えます。許可しなくても使えますが、通知が遅れる場合があります。 |
+| フォアグラウンドサービス | アプリを閉じている間も集中タイマーを継続し、進行状況を通知に表示します。 |
+| 起動完了の受信 | 端末の再起動後に、通知と集中タイマーの復元を試みます。 |
+
+## バックアップ・復旧
+
+NotionのIntegrationシークレット、データベースID、プロパティマッピングは暗号化して端末内に保存します。これらの接続設定は、クラウドバックアップと端末間転送から除外されます。端末の復元・移行後は、Notion接続をあらためて設定してから同期してください。
+
+タスクのキャッシュ、時間割・生活習慣、集中記録、同期保留中の操作は端末内に保存されます。設定の「データ管理」で完了済みタスクや集中記録を整理しても、Notion側のタスクは削除されません。同期保留中の操作を設定画面から破棄した場合だけは、その操作はNotionへ反映されません。
+
+暗号化設定を読み込めない場合は、まず再試行します。解決しない場合はアプリ内の「暗号化設定を再作成」を使えます。この操作では接続情報や各種設定を再入力する必要がありますが、端末内のタスク、時間割、集中記録、保留中の操作は削除しません。
+
+## 開発環境
+
+| 項目 | 内容 |
+| --- | --- |
+| 言語 | Kotlin |
+| UI | Jetpack Compose / Material 3 |
+| アーキテクチャ | MVVM、Repository、Coroutines、StateFlow |
+| ローカル保存 | Room |
+| Notion通信 | Retrofit、OkHttp、Kotlin Serialization |
+| 機密情報 | EncryptedSharedPreferences |
+| 最低Androidバージョン | Android 8.0（API 26） |
+| ビルド環境 | JDK 21、Android SDK 37 |
+
+### ビルド
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+### ユニットテスト
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+## ディレクトリ構成
 
 ```text
 app/src/main/java/com/notiontasks/app/
 ├── data/
-│   ├── local/       # Roomデータベース、DAO (Task, Pomodoro, Schedule, LifeActivity)
-│   ├── model/       # データモデル (TaskModel, TimeBlock, LifeActivity等)
-│   ├── remote/      # Notion API (Retrofit), DTO
-│   └── repository/  # データソースの統合管理
+│   ├── local/          # RoomデータベースとDAO
+│   ├── model/          # タスク、時間割、生活習慣のモデル
+│   ├── remote/         # Notion API、DTO
+│   └── repository/     # タスク・時間割・集中記録のリポジトリ
 ├── ui/
-│   ├── components/  # 再利用可能なUIコンポーネント (ダイアログ、カード)
-│   ├── navigation/  # 画面遷移定義 (Screen.kt)
-│   ├── screens/     # 各機能の画面実装 (Today, Plan, Pomodoro等)
-│   ├── theme/       # カラー、テーマ定義
-│   └── viewmodel/   # ビジネスロジックと状態管理 (TaskViewModel, SettingsViewModel)
-├── utils/           # セキュリティ、エクスポート等のユーティリティ
-├── MainActivity.kt  # エントリーポイント
-└── PomodoroService.kt # バックグラウンドタイマーサービス
+│   ├── components/     # タスクカード、編集ダイアログなど
+│   ├── navigation/     # 画面ルート
+│   ├── screens/        # 今日、タスク、計画、集中、振り返り、設定
+│   ├── theme/          # テーマとカラー
+│   ├── viewmodel/      # UI状態と画面ロジック
+│   └── MainScreen.kt   # アプリのナビゲーションと画面統合
+├── utils/              # 時刻、セキュリティ、エクスポートなど
+├── MainActivity.kt     # エントリーポイント
+├── PomodoroService.kt  # 集中タイマーのフォアグラウンドサービス
+└── TaskNotificationReceiver.kt # 通知の受信・予約
 ```
 
----
-## 🚀 セットアップ & 連携
+## Codexの活用について
 
-   アプリを Notion と連携させるために、アクセストークンおよびデータベースIDの設定を行います。
+本プロジェクトでは、Codexとの対話を通じて、アーキテクチャ設計、同期ロジック、UI/UXの改善、テストと品質確認を行っています。
 
-   1. **Notionインテグレーションの作成:**
-      * [Notion開発者向けハブ](https://www.notion.so/my-integrations) へアクセスし、「新規コネクト」をクリックします。
-      * 以下の通りに設定してコネクトを作成します：
-         * コネクト名：任意の名前（例：`NotionTasker`）
-         * 認証方法：アクセストークン
-         * インストール可能なワークスペース：タスク管理用のデータベースがあるワークスペース
-      * 発行されたアクセストークン（APIキー）をコピーしておきます。
+## ライセンス
 
-   2. **データベースへのアクセス権付与:**
-      * 対象のNotionデータベースを開き、ページ右上の「･･･」メニューから「コネクト」を選択して作成したインテグレーションを追加します。
+[MIT License](LICENSE)
 
-   3. **データベースIDの取得:**
-      * ブラウザのURLから32文字の英数字部分（`?v=` の直前の文字列）をコピーします。
+## 開発者
 
-   4. **設定の保存:**
-      * アプリ内の「設定 > Notion接続設定」にトークンとデータベースIDを入力してください。
-
-   5. **マッピング:**
-      * 「設定 > プロパティマッピング」で、Notionの各プロパティ名とアプリの機能を紐付けます（自動取得機能が利用可能です）。
-
----
-
-## 🤖 Google AI Studioの活用について
-
-本プロジェクトは、主に**Gemini (Google AI Studio)** との対話を通じて、高度なアーキテクチャ設計、複雑な同期ロジックの実装、UI/UXの改善を行っています。
-
----
-
-## 📝 ライセンス
-
-[MIT License](LICENSE) の元で提供されています。
-
----
-
-## 👤 開発者
-* **tsubuanpn** - [GitHub Profile](https://github.com/tsubuanpn)
+- [tsubuanpn](https://github.com/tsubuanpn)

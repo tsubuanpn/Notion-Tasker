@@ -14,8 +14,8 @@ android {
         minSdk = 26
         //noinspection EditedTargetSdkVersion
         targetSdk = 37
-        versionCode = 22
-        versionName = "1.5.0"
+        versionCode = 24
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -80,7 +80,7 @@ dependencies {
 
     // テスト
     testImplementation("junit:junit:4.13.2")
-    testImplementation("io.mockk:mockk:1.14.11")
+    testImplementation("io.mockk:mockk:1.14.12")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     testImplementation("app.cash.turbine:turbine:1.2.1")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
