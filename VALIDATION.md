@@ -24,6 +24,12 @@ This is a reproducible local baseline, not an instrumentation or connected-Notio
 * Added a v12→v13 Room migration fixture that preserves owned task/queue/alias/generation records while conservatively marking pre-provenance blocks as `legacy`.
 * Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest`, and `git diff --check` passed. There was no attached Android device or emulator, so the compiled migration instrumentation APK was not executed; this is not reported as an instrumentation pass.
 
+## Stateful service and sync boundaries — execution step 3 (2026-11-08 JST)
+
+* Extracted the pure Pomodoro phase transition rules into `FocusSessionStateMachine`; unit tests cover short-break, long-break, and break-to-work transitions.
+* Moved defensive dynamic Notion property parsing out of `TaskRepository` into `NotionPropertyMapper`, reducing repository responsibility without changing its payload contract.
+* Validation: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, and `git diff --check` passed.
+
 ## Scope
 
 This record covers the required implementation and verification sequence completed on 2026-11-07 (JST). It distinguishes checks that ran from checks that were deliberately out of scope or require separate authority.

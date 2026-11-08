@@ -324,19 +324,16 @@ class PomodoroService : Service() {
             0
         }
 
+        val transition = FocusSessionStateMachine.completePhase(currentMode, pomodoroCompletedCount)
         if (currentMode == "work") {
-            pomodoroCompletedCount++
+            pomodoroCompletedCount = transition.completedWorkSessions
             prefs.edit {
                 putInt("completed_count", pomodoroCompletedCount)
                 putString("completed_count_date", todayStr)
             }
         }
 
-        currentMode = if (currentMode == "work") {
-            if ((pomodoroCompletedCount % 4) == 0) "longBreak" else "shortBreak"
-        } else {
-            "work"
-        }
+        currentMode = transition.nextMode
 
         durationMs = getDurationMsForMode(currentMode)
         timeLeftMs = durationMs
