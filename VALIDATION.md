@@ -1,5 +1,15 @@
 # Validation record
 
+## Quality-gate baseline — 2026-11-08 (JST)
+
+* Validated source revision: `e967d10` (before the quality-improvement implementation sequence)
+* Commands: `./gradlew.bat --no-daemon --console=plain testDebugUnitTest lintDebug assembleDebug` and `git diff --check`
+* Result: **passed** — 56 Gradle tasks (14 executed, 42 up-to-date); Debug APK assembled; JVM tests and Lint completed successfully; working-tree diff check produced no output.
+* Lint baseline: **0 errors, 4 warnings**. The two `UseKtx` warnings and the deliberate synchronous `commit()` warning in `PomodoroService` are addressed by execution step 1. The AGP `9.5.1` availability warning is addressed by execution step 5.
+* Toolchain baseline: Gradle reported deprecated features that will be incompatible with Gradle 10. This is tracked separately from Android Lint and must be evaluated when the build toolchain is updated.
+
+This is a reproducible local baseline, not an instrumentation or connected-Notion validation result.
+
 ## Scope
 
 This record covers the required implementation and verification sequence completed on 2026-11-07 (JST). It distinguishes checks that ran from checks that were deliberately out of scope or require separate authority.
