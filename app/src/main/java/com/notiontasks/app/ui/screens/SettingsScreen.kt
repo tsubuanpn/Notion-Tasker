@@ -17,6 +17,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -65,6 +67,7 @@ import com.notiontasks.app.data.local.PendingSyncActionEntity
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.theme.AppThemePalettes
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
+import com.notiontasks.app.ui.viewmodel.CalendarTaskDateTarget
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
 import com.notiontasks.app.utils.SecurityUtils
@@ -96,6 +99,7 @@ fun SettingsScreen(
     onDiscardFailure: (Long) -> Unit,
 ) {
     val devModeEnabled by settingsViewModel.devModeEnabled.collectAsState()
+    val calendarTaskDateTarget by settingsViewModel.calendarTaskDateTarget.collectAsState()
     var showSyncFailureDetails by remember { mutableStateOf(false) }
     var discardTarget by remember { mutableStateOf<PendingSyncActionEntity?>(null) }
     Column(
@@ -127,6 +131,30 @@ fun SettingsScreen(
                                 TextButton(onClick = { discardTarget = failure }) { Text("破棄") }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        SettingsGroup("カレンダーからのタスク追加") {
+            Column(Modifier.padding(16.dp).selectableGroup()) {
+                Text("選択した日付の反映先", fontWeight = FontWeight.Bold)
+                Text(
+                    "タスク追加画面を開くときに、選択中の日付を設定します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                CalendarTaskDateTarget.entries.forEach { target ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().selectable(
+                            selected = calendarTaskDateTarget == target,
+                            role = Role.RadioButton,
+                            onClick = { settingsViewModel.updateCalendarTaskDateTarget(target) },
+                        ).padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = calendarTaskDateTarget == target, onClick = null)
+                        Text(target.label, modifier = Modifier.padding(start = 12.dp))
                     }
                 }
             }

@@ -41,6 +41,16 @@ class SettingsViewModel(
     private val _databaseId = MutableStateFlow(sharedPrefs.getString("database_id", "") ?: "")
     val databaseId: StateFlow<String> = _databaseId.asStateFlow()
 
+    private val _calendarTaskDateTarget = MutableStateFlow(
+        CalendarTaskDateTarget.fromPreference(sharedPrefs.getString("calendar_task_date_target", null))
+    )
+    val calendarTaskDateTarget = _calendarTaskDateTarget.asStateFlow()
+
+    fun updateCalendarTaskDateTarget(target: CalendarTaskDateTarget) {
+        _calendarTaskDateTarget.value = target
+        sharedPrefs.edit { putString("calendar_task_date_target", target.preferenceValue) }
+    }
+
     // --- Notification Settings ---
     private val _morningNotifEnabled = MutableStateFlow(sharedPrefs.getBoolean("morning_notif_enabled", true))
     val morningNotifEnabled = _morningNotifEnabled.asStateFlow()

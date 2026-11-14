@@ -48,6 +48,7 @@ import com.notiontasks.app.ui.components.EditTaskDialog
 import com.notiontasks.app.ui.navigation.Screen
 import com.notiontasks.app.ui.screens.*
 import com.notiontasks.app.ui.viewmodel.SettingsViewModel
+import com.notiontasks.app.ui.viewmodel.CalendarTaskDates
 import com.notiontasks.app.ui.viewmodel.ConnectionSettingsUpdate
 import com.notiontasks.app.ui.viewmodel.SyncUiState
 import com.notiontasks.app.ui.viewmodel.TaskViewModel
@@ -79,6 +80,7 @@ fun MainAppScreen(
     val notionToken by viewModel.notionToken.collectAsState()
     val databaseId by viewModel.databaseId.collectAsState()
     val setupCompleted by settingsViewModel.setupCompleted.collectAsState()
+    val calendarTaskDateTarget by settingsViewModel.calendarTaskDateTarget.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
     val permanentSyncFailures by viewModel.permanentSyncFailures.collectAsState()
@@ -120,6 +122,7 @@ fun MainAppScreen(
     val showAddDialogState = remember { mutableStateOf(value = false) }
     val editingTaskState = remember { mutableStateOf<TaskModel?>(null) }
     val selectedCalendarDate = remember { mutableStateOf<String?>(null) }
+    var initialTaskDates by remember { mutableStateOf(CalendarTaskDates()) }
     var isTaskSearchActive by rememberSaveable { mutableStateOf(false) }
     var taskPeriods by remember { mutableStateOf(emptySet<String>()) }
 
@@ -287,7 +290,16 @@ fun MainAppScreen(
         floatingActionButton = {
             if (!isSetupRoute && currentRoute in setOf(Screen.Home.route, Screen.Category.route, Screen.Plan.route)) {
                 FloatingActionButton(
-                    onClick = { showAddDialogState.value = true },
+                    onClick = {
+                        initialTaskDates = if (currentRoute == Screen.Plan.route) {
+                            calendarTaskDateTarget.initialDates(
+                                selectedCalendarDate.value ?: com.notiontasks.app.utils.JapanTime.todayIso()
+                            )
+                        } else {
+                            CalendarTaskDates()
+                        }
+                        showAddDialogState.value = true
+                    },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ) { Icon(Icons.Default.Add, contentDescription = "タスクを追加") }
@@ -431,12 +443,12 @@ fun MainAppScreen(
 
     if (showAddDialogState.value) {
         val defaultCategory = if (currentRoute == Screen.Category.route) selectedCategory else (categoryOptions.firstOrNull()?.name ?: "")
-        val initialScheduled = ""
         AddTaskDialog(
             initialCategory = defaultCategory,
             categoryOptions = categoryOptions,
             statusOptions = statusOptions,
-            initialScheduledDate = initialScheduled,
+            initialScheduledDate = initialTaskDates.scheduledDate,
+            initialDueDate = initialTaskDates.dueDate,
             isSaving = isCreatingTask,
             onDismiss = { showAddDialogState.value = false },
             onConfirm = { title, cat, status, due, sched ->

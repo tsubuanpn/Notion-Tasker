@@ -283,6 +283,7 @@ fun AddTaskDialog(
     categoryOptions: List<NotionOptionInfo>,
     statusOptions: List<NotionOptionInfo>,
     initialScheduledDate: String = "",
+    initialDueDate: String = "",
     isSaving: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (title: String, category: String, status: String?, dueDate: String?, scheduledDate: String?) -> Unit
@@ -290,7 +291,7 @@ fun AddTaskDialog(
     var title by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(initialCategory) }
     var status by remember { mutableStateOf(statusOptions.firstOrNull()?.name.orEmpty()) }
-    var dueDate by remember { mutableStateOf("") }
+    var dueDate by remember { mutableStateOf(initialDueDate) }
     var scheduledDate by remember { mutableStateOf(initialScheduledDate) }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
     var isStatusDropdownExpanded by remember { mutableStateOf(false) }
